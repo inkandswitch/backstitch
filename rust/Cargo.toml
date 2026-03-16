@@ -54,7 +54,7 @@ ignore = "0.4.22"
 rlimit = "0.10.2"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
-chrono = "0.4.31"
+chrono = { version = "0.4", features = ["unstable-locales"] }
 samod = { git="https://github.com/LilithSilver/samod.git", branch="connection_handles", features = ["tokio", "threadpool", "tungstenite"] }
 rayon = "1.11.0"
 regex = "1.12.2"
@@ -62,6 +62,7 @@ tokio-tungstenite = "0.27.0"
 async-stream = "0.3.6"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
+sys-locale = "0.3.2"
 
 [build-dependencies]
 cbindgen = "^0.27"

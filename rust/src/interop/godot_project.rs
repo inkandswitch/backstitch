@@ -155,9 +155,6 @@ impl GodotProject {
 	#[signal]
 	fn state_changed();
 
-	#[signal]
-	fn checked_out_branch();
-
 	#[func]
 	fn has_user_name(&self) -> bool {
 		self.project.has_user_name()
@@ -432,27 +429,6 @@ impl GodotProject {
 		}
 	}
 
-	fn update_godot_after_source_change(&mut self) -> bool {
-		if !self.pending_editor_update.any_changes() {
-			return false;
-		}
-		if !Project::safe_to_update_godot() {
-			return false;
-		}
-		self.base_mut().set_process(false);
-		PatchworkEditorAccessor::close_files_if_open(&self.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
-		self.pending_editor_update.deleted_files.clear();
-		if self.pending_editor_update.reload_project_settings {
-			self.reload_project_settings();
-			self.pending_editor_update.reload_project_settings = false;
-		}
-		if PatchworkEditorAccessor::refresh_after_source_change() {
-			self.pending_editor_update.clear();
-		}
-		self.base_mut().set_process(true);
-		return true;
-	}
-
 	// bit of a hack to clear the diff cache when UI is loaded, to facilitate debugging
 	fn clear_diff_cache(&self) {
 		self.project.clear_diff_cache();
@@ -527,19 +503,10 @@ impl INode for GodotProject {
 		if updates.len() > 0 {
 			self.pending_editor_update.merge(self.process_godot_updates(updates));
 		}
-		let mut refreshed = false;
-		if self.pending_editor_update.any_changes() {
-			refreshed = self.update_godot_after_source_change();
-		}
 		for signal in signals {
 			match signal {
 				GodotProjectSignal::CheckedOutBranch => {
-					// TODO: This is a hack to clear the inspector item when the branch is changed to prevent crashes
-					// Ideally, we'd figure out a way to keep the object in the inspector when the branch is changed
-					if refreshed {
-						EditorFilesystemAccessor::clear_inspector_item();
-					}
-					self.base_mut().call_deferred("emit_signal", &["checked_out_branch".to_variant()]);
+					// TODO: remove this signal
 				}
 				GodotProjectSignal::ChangesIngested => {
 					self.base_mut().call_deferred("emit_signal", &["state_changed".to_variant()]);
@@ -610,6 +577,45 @@ impl GodotProjectPlugin {
 			.done();
 		scene
 	}
+	
+	fn update_godot_after_source_change(&mut self) -> bool {
+		let mut proj = GodotProject::get_singleton();
+		let mut p = proj.bind_mut();
+		if !p.pending_editor_update.any_changes() {
+			return false;
+		}
+		if !Project::safe_to_update_godot() {
+			return false;
+		}
+		self.base_mut().set_process(false);
+		p.base_mut().set_process(false);
+		PatchworkEditorAccessor::close_files_if_open(&p.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
+		p.pending_editor_update.deleted_files.clear();
+		if p.pending_editor_update.reload_project_settings {
+			p.reload_project_settings();
+			p.pending_editor_update.reload_project_settings = false;
+		}
+
+		// make sure to explicitly have p dropped so that sidebar can update, then rebind
+		drop(p);
+
+		if PatchworkEditorAccessor::refresh_after_source_change() {
+			let mut p = proj.bind_mut();
+			p.pending_editor_update.clear();
+		}
+		let mut p = proj.bind_mut();
+		p.base_mut().set_process(true);
+		self.base_mut().set_process(true);
+		return true;
+	}
+
+	#[func]
+	fn on_scene_saved(&mut self, path: String) {
+		if path == "res://addons/patchwork/public/gdscript/sidebar.tscn" {
+			tracing::info!("Scene saved {path}; reloading sidebar");
+			self._on_reload_ui();
+		}
+	}
 }
 
 #[godot_api]
@@ -619,6 +625,13 @@ impl IEditorPlugin for GodotProjectPlugin {
     }
 
 	fn ready(&mut self) {
+		{
+			// When we save a scene, if it's sidebar.tscn, we want to reload the UI
+			// This is for devs
+			let callable = self.base().callable("on_scene_saved");
+			let mut base = self.base_mut();
+			base.connect("scene_saved", &callable);
+		}
 		self.process(0.0);
 	}
 
@@ -639,6 +652,8 @@ impl IEditorPlugin for GodotProjectPlugin {
 			self.remove_sidebar();
 			self.add_sidebar();
 		}
+
+		self.update_godot_after_source_change();
 	}
     fn exit_tree(&mut self) {
         tracing::debug!("** GodotProjectPlugin: exit_tree");

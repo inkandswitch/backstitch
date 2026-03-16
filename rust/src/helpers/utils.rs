@@ -1,13 +1,12 @@
-use std::{
-    collections::HashSet, fmt, path::Path, str::FromStr, time::{SystemTime, UNIX_EPOCH}
-};
+use std::{collections::HashSet, fmt, path::Path, str::FromStr, time::SystemTime};
 
 use crate::{diff::differ::ProjectDiff, helpers::branch::Branch};
 use automerge::{
-    ChangeHash, transaction::{CommitOptions, Transaction}
+    ChangeHash,
+    transaction::{CommitOptions, Transaction},
 };
+use chrono::{DateTime, Local, Locale, TimeZone};
 use samod::DocumentId;
-use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn get_changed_files(patches: &Vec<automerge::Patch>) -> HashSet<String> {
@@ -60,25 +59,25 @@ pub struct MergeMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
-	Added,
-	Removed,
-	Modified
+    Added,
+    Removed,
+    Modified,
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match self {
-			ChangeType::Added => write!(f, "added"),
-			ChangeType::Removed => write!(f, "removed"),
-			ChangeType::Modified => write!(f, "modified")
-		}
+        match self {
+            ChangeType::Added => write!(f, "added"),
+            ChangeType::Removed => write!(f, "removed"),
+            ChangeType::Modified => write!(f, "modified"),
+        }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ChangedFile {
     pub change_type: ChangeType,
-    pub path: String
+    pub path: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -86,14 +85,17 @@ pub struct CommitMetadata {
     pub username: Option<String>,
     pub branch_id: Option<DocumentId>,
     pub merge_metadata: Option<MergeMetadata>,
-	pub reverted_to: Option<Vec<ChangeHash>>,
+    pub reverted_to: Option<Vec<ChangeHash>>,
     /// Changed files in this commit. Only valid for commits to branch documents.
     pub changed_files: Option<Vec<ChangedFile>>,
-	/// Whether this change was created to initialize the repository.
-	pub is_setup: Option<bool>
+    /// Whether this change was created to initialize the repository.
+    pub is_setup: Option<bool>,
 }
 
-pub(crate) fn commit_with_metadata(tx: Transaction, metadata: &CommitMetadata) -> Option<ChangeHash> {
+pub(crate) fn commit_with_metadata(
+    tx: Transaction,
+    metadata: &CommitMetadata,
+) -> Option<ChangeHash> {
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -105,28 +107,29 @@ pub(crate) fn commit_with_metadata(tx: Transaction, metadata: &CommitMetadata) -
         CommitOptions::default()
             .with_message(message)
             .with_time(timestamp),
-    ).0
+    )
+    .0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitInfo {
-	pub hash: ChangeHash,
-	pub timestamp: i64,
-	pub metadata: Option<CommitMetadata>,
+    pub hash: ChangeHash,
+    pub timestamp: i64,
+    pub metadata: Option<CommitMetadata>,
     pub synced: bool,
-	pub summary: String
+    pub summary: String,
 }
 
 #[derive(Debug)]
 pub struct BranchWrapper {
-	pub state: Branch,
-	pub children: Vec<DocumentId>
+    pub state: Branch,
+    pub children: Vec<DocumentId>,
 }
 
 #[derive(Debug)]
 pub struct DiffWrapper {
-	pub diff: ProjectDiff,
-	pub title: String
+    pub diff: ProjectDiff,
+    pub title: String,
 }
 
 pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
@@ -181,33 +184,39 @@ fn get_summary_text(
 }
 
 pub fn human_readable_timestamp(timestamp: i64) -> String {
-    // Current time in ms
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+    let now = Local::now();
+    let dt: DateTime<Local> = Local.timestamp_opt(timestamp / 1000, 0).unwrap();
+    let diff = now.signed_duration_since(dt);
 
-    // Difference in seconds
-    let diff = (now - timestamp) / 1000;
+    let secs = diff.num_seconds();
 
-	fn pluralize(num: i64, s: &str) -> String {
-		if num == 1 {format!("{num} {}", s.to_string())}
-		else {format!("{num} {}s", s.to_string())}
-	}
+    if secs < 60 {
+        format!("{}s ago", secs)
+    } else if secs < 60 * 60 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 60 * 60 * 24 {
+        format!("{}h ago", secs / 3600)
+    } else if secs < 60 * 60 * 24 * 9 {
+        format!("{}d ago", secs / 86400)
+    } else {
+        dt.format_localized("%x", locale_from_system()).to_string()
+    }
+}
 
-    return match diff {
-        s if s < 60 => pluralize(s, "second"),
-        s if s < 3600 => pluralize(s / 60, "minute"),
-        s if s < 86400 => pluralize(s / 3600, "hour"),
-        s if s < 604800 => pluralize(s / 86400, "day"),
-        s if s < 2_592_000 => pluralize(s / 604_800, "week"),
-        s if s < 31_536_000 => pluralize(s / 2_592_000, "month"),
-        s => pluralize(s / 31_536_000, "year"),
-    } + " ago";
+fn locale_from_system() -> Locale {
+    // Convert BCP-47 to chrono format
+    let locale = sys_locale::get_locale().unwrap_or("en-US".to_string());
+    let normalized = locale
+        .split('.')
+        .next()
+        .unwrap_or(&locale)
+        .replace('-', "_");
+
+    Locale::from_str(&normalized).unwrap_or(Locale::en_US)
 }
 
 pub fn exact_human_readable_timestamp(timestamp: i64) -> String {
     let dt = DateTime::from_timestamp(timestamp / 1000, 0);
-    let datetime : DateTime<Local> = DateTime::from(dt.unwrap());
+    let datetime: DateTime<Local> = DateTime::from(dt.unwrap());
     return datetime.format("%Y-%m-%d %H:%M:%S").to_string();
 }

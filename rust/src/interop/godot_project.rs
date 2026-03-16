@@ -530,7 +530,7 @@ pub struct GodotProjectPlugin {
 #[godot_api]
 impl GodotProjectPlugin {
 	#[func]
-	fn _on_reload_ui(&mut self) {
+	fn on_reload_ui(&mut self) {
 		self.ui_needs_update = true;
 		let proj = GodotProject::get_singleton();
 		let b = proj.bind();
@@ -544,7 +544,7 @@ impl GodotProjectPlugin {
 			.flatten();
 		self.sidebar = if let Some(Some(sidebar)) = self.sidebar_scene.as_ref().map(|scene| scene.instantiate()) {
 			if let Ok(mut sidebar) = sidebar.try_cast::<Control>() {
-				let _ = sidebar.connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "_on_reload_ui"));
+				let _ = sidebar.connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
 				Some(sidebar)
 			} else {
 				None
@@ -613,7 +613,7 @@ impl GodotProjectPlugin {
 	fn on_scene_saved(&mut self, path: String) {
 		if path == "res://addons/patchwork/public/gdscript/sidebar.tscn" {
 			tracing::info!("Scene saved {path}; reloading sidebar");
-			self._on_reload_ui();
+			self.on_reload_ui();
 		}
 	}
 }

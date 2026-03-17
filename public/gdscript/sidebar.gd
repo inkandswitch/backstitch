@@ -4,6 +4,15 @@ extends MarginContainer
 
 const diff_inspector_script = preload("res://addons/patchwork/public/gdscript/diff_inspector_container.gd")
 const branch_icon_history = preload("res://addons/patchwork/public/icons/Branch24.svg")
+const collapsible_closed_icon = preload("res://addons/patchwork/public/icons/CollapsibleClosed.svg")
+const collapsible_open_icon = preload("res://addons/patchwork/public/icons/CollapsibleOpen.svg")
+const status_warning_32_icon = preload("res://addons/patchwork/public/icons/StatusWarning32.svg")
+const status_success_32_icon = preload("res://addons/patchwork/public/icons/StatusSuccess32.svg")
+const status_warning_icon = preload("res://addons/patchwork/public/icons/StatusWarning.svg")
+const status_sync_icon = preload("res://addons/patchwork/public/icons/StatusSync.svg")
+const status_success_icon = preload("res://addons/patchwork/public/icons/StatusSuccess.svg")
+const status_error_icon = preload("res://addons/patchwork/public/icons/StatusError.svg")
+const undo_redo_icon = preload("res://addons/patchwork/public/icons/UndoRedo.svg")
 
 # Status bar
 @onready var sync_button: Button = %SyncButton
@@ -475,20 +484,20 @@ func confirm_merge_preview():
 func toggle_section(section_header: Control, section_button: Button, section_body: Control):
 	var parent_vbox = section_header.get_parent()
 	if section_body.visible:
-		section_button.icon = load("res://addons/patchwork/public/icons/CollapsibleClosed.svg")
+		section_button.icon = collapsible_closed_icon
 		section_body.visible = false
 		parent_vbox.set_v_size_flags(Control.SIZE_FILL)
 	else:
-		section_button.icon = load("res://addons/patchwork/public/icons/CollapsibleOpen.svg")
+		section_button.icon = collapsible_open_icon
 		section_body.visible = true
 		parent_vbox.set_v_size_flags(Control.SIZE_EXPAND_FILL)
 
 func unfold_section(section_header: Button, section_body: Control):
-	section_header.icon = load("res://addons/patchwork/public/icons/CollapsibleOpen.svg")
+	section_header.icon = collapsible_open_icon
 	section_body.visible = true
 
 func fold_section(section_header: Button, section_body: Control):
-	section_header.icon = load("res://addons/patchwork/public/icons/CollapsibleClosed.svg")
+	section_header.icon = collapsible_closed_icon
 	section_body.visible = false
 
 func update_history_tree():
@@ -616,10 +625,10 @@ func update_merge_preview():
 
 	if !GodotProject.is_safe_to_merge():
 		merge_preview_message_label.text = "\"" + target_branch.name + "\" has changed since \"" + source_branch.name + "\" was created.\nBe careful and review your changes before merging."
-		merge_preview_message_icon.texture = load("res://addons/patchwork/public/icons/StatusWarning32.svg")
+		merge_preview_message_icon.texture = status_warning_32_icon
 	else:
 		merge_preview_message_label.text = "This branch is safe to merge.\n \"" + target_branch.name + "\" hasn't changed since \"" + source_branch.name + "\" was created."
-		merge_preview_message_icon.texture = load("res://addons/patchwork/public/icons/StatusSuccess32.svg")
+		merge_preview_message_icon.texture = status_success_32_icon
 
 func update_revert_preview():
 	var active = GodotProject.is_revert_preview_branch_active()
@@ -664,26 +673,26 @@ func update_sync_status() -> void:
 	var sync_status = GodotProject.get_sync_status()
 
 	if sync_status.state == "unknown":
-		sync_button.icon = load("res://addons/patchwork/public/icons/StatusWarning.svg")
+		sync_button.icon = status_warning_icon
 		sync_button.tooltip_text = "Disconnected - might have unsynced changes"
 
 	elif sync_status.state == "syncing":
-		sync_button.icon = load("res://addons/patchwork/public/icons/StatusSync.svg")
+		sync_button.icon = status_sync_icon
 		sync_button.tooltip_text = "Syncing"
 
 	elif sync_status.state == "up_to_date":
-		sync_button.icon = load("res://addons/patchwork/public/icons/StatusSuccess.svg")
+		sync_button.icon = status_success_icon
 		sync_button.tooltip_text = "Fully synced"
 
 	elif sync_status.state == "disconnected":
 		if sync_status.unsynced_changes == 0:
 			sync_button.tooltip_text = "Disconnected - no unsynced local changes"
-			sync_button.icon = load("res://addons/patchwork/public/icons/StatusWarning.svg")
+			sync_button.icon = status_warning_icon
 		elif sync_status.unsynced_changes == 1:
-			sync_button.icon = load("res://addons/patchwork/public/icons/StatusError.svg")
+			sync_button.icon = status_error_icon
 			sync_button.tooltip_text = "Disconnected - 1 local change that hasn't been synced"
 		else:
-			sync_button.icon = load("res://addons/patchwork/public/icons/StatusError.svg")
+			sync_button.icon = status_error_icon
 			sync_button.tooltip_text = "Disconnected - %s local changes that haven't been synced" % [sync_status.unsynced_changes]
 	else: printerr("unknown sync status: " + sync_status.state)
 
@@ -753,7 +762,7 @@ func setup_history_list_popup() -> void:
 	# TODO: adjust this when more items are added
 	history_list_popup.max_size.y = 60 * EditorInterface.get_editor_scale()
 	history_list_popup.id_pressed.connect(_on_history_list_popup_id_pressed)
-	history_list_popup.add_icon_item(load("res://addons/patchwork/public/icons/UndoRedo.svg"), "Reset to here", HistoryListPopupItem.RESET_TO_COMMIT)
+	history_list_popup.add_icon_item(undo_redo_icon, "Reset to here", HistoryListPopupItem.RESET_TO_COMMIT)
 	# history_list_popup.add_item("Create branch from here", HistoryListPopupItem.CREATE_BRANCH_AT_COMMIT)
 
 func _on_history_tree_mouse_selected(_at_position: Vector2, button_idx: int) -> void:

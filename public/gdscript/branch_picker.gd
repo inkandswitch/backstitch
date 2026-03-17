@@ -2,6 +2,8 @@
 extends OptionButton
 class_name PatchworkBranchPicker
 
+const node_warning_icon = preload("res://addons/patchwork/public/icons/NodeWarning.svg")
+
 @export var override_icon: Texture2D
 @export var max_char_length: int = -1
 
@@ -42,7 +44,7 @@ func _add_branch_to_picker(branch: Dictionary, selected_branch_id: String, inden
 	add_item(label, branch_index)
 
 	if !GodotProject.is_branch_loaded(branch.id):
-		set_item_icon(branch_index, load("res://addons/patchwork/public/icons/NodeWarning.svg"))
+		set_item_icon(branch_index, node_warning_icon)
 
 	set_item_metadata(branch_index, branch.id)
 

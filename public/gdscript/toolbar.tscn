@@ -1,0 +1,33 @@
+[gd_scene format=3 uid="uid://dv4ndva1sl6nv"]
+
+[ext_resource type="Script" uid="uid://bfxbm15i5u1pq" path="res://addons/patchwork/public/gdscript/toolbar.gd" id="1_odfgr"]
+[ext_resource type="Texture2D" uid="uid://b3ix638u40s8q" path="res://addons/patchwork/public/icons/Branch16.svg" id="1_rqlv4"]
+[ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/patchwork/public/gdscript/branch_picker.gd" id="2_00i0l"]
+
+[node name="Toolbar" type="MarginContainer" unique_id=1109335381]
+anchors_preset = -1
+anchor_right = 0.124000005
+anchor_bottom = 0.17
+offset_right = -163.05829
+offset_bottom = -125.600006
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_odfgr")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=1098355131]
+layout_mode = 2
+
+[node name="BranchPicker" type="OptionButton" parent="HBoxContainer" unique_id=720198312]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Select a branch..."
+flat = true
+selected = 0
+fit_to_longest_item = false
+item_count = 1
+popup/item_0/text = "main"
+popup/item_0/icon = ExtResource("1_rqlv4")
+popup/item_0/id = 0
+script = ExtResource("2_00i0l")
+override_icon = ExtResource("1_rqlv4")
+max_char_length = 24

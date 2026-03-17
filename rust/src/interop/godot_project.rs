@@ -4,7 +4,7 @@ use crate::interop::godot_accessors::{EditorFilesystemAccessor, PatchworkConfigA
 use crate::project::project::{GodotProjectSignal, Project};
 use crate::project::project_api::{BranchViewModel, ProjectViewModel};
 use automerge::ChangeHash;
-use godot::classes::editor_plugin::DockSlot;
+use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
 use ::safer_ffi::prelude::*;
 use samod::{DocumentId};
 use godot::classes::resource_loader::CacheMode;
@@ -17,6 +17,7 @@ use godot::classes::{DirAccess};
 use godot::prelude::*;
 use tracing::instrument;
 use std::collections::{HashSet};
+use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 use crate::interop::godot_helpers::{ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict};
@@ -521,8 +522,8 @@ impl INode for GodotProject {
 #[class(init, base=EditorPlugin, tool)]
 pub struct GodotProjectPlugin {
     base: Base<EditorPlugin>,
-	sidebar_scene: Option<Gd<PackedScene>>,
 	sidebar: Option<Gd<Control>>,
+	toolbar: Option<Gd<Control>>,
 	initialized: bool,
 	ui_needs_update: bool,
 }
@@ -537,37 +538,45 @@ impl GodotProjectPlugin {
 		b.clear_diff_cache();
 	}
 
+	fn instantiate_control(&self, path: &str) -> Option<Gd<Control>> {
+		let scene = Self::force_reload_resource(path)?;
+		let scene = scene.try_cast::<PackedScene>().ok()?;
+		let instance = scene.instantiate()?;
+		instance.try_cast::<Control>().ok()
+	}
+
 	fn add_sidebar(&mut self) {
-		self.sidebar_scene = Self
-			::force_reload_resource("res://addons/patchwork/public/gdscript/sidebar.tscn")
-			.map(|scene| scene.try_cast::<PackedScene>().ok())
-			.flatten();
-		self.sidebar = if let Some(Some(sidebar)) = self.sidebar_scene.as_ref().map(|scene| scene.instantiate()) {
-			if let Ok(mut sidebar) = sidebar.try_cast::<Control>() {
-				let _ = sidebar.connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
-				Some(sidebar)
-			} else {
-				None
-			}
+		self.sidebar = self.instantiate_control("res://addons/patchwork/public/gdscript/sidebar.tscn");
+		self.toolbar = self.instantiate_control("res://addons/patchwork/public/gdscript/toolbar.tscn");
+		let mut gd = self.to_gd();
+		if let Some(sidebar) = self.sidebar.as_mut() {
+			gd.add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
+			let _ = sidebar.deref_mut().connect("reload_ui", &Callable::from_object_method(&gd, "on_reload_ui"));
 		} else {
-			None
+			tracing::error!("Failed to instantiate sidebar");
 		};
-		if let Some(sidebar) = self.sidebar.as_ref() {
-			self.to_gd().add_control_to_dock(DockSlot::RIGHT_UL, sidebar);
+
+		if let Some(toolbar) = &self.toolbar {
+			self.to_gd().add_control_to_container(CustomControlContainer::TOOLBAR, toolbar);
 		} else {
-			panic!("Failed to instantiate sidebar");
+			tracing::error!("Failed to instantiate toolbar");
 		};
 	}
 
 	fn remove_sidebar(&mut self) {
-		if let Some(sidebar) = self.sidebar.as_ref() {
-			self.to_gd().remove_control_from_docks(sidebar);
-			let mut sidebar = self.sidebar.take().unwrap();
+		if let Some(mut sidebar) = self.sidebar.take() {
+			self.to_gd().remove_control_from_docks(&sidebar);
 			sidebar.queue_free();
 		} else {
 			tracing::warn!("no sidebar to remove");
 		}
-		self.sidebar_scene = None;
+		
+		if let Some(mut toolbar) = self.toolbar.take() {
+			self.to_gd().remove_control_from_container(CustomControlContainer::TOOLBAR, &toolbar);
+			toolbar.queue_free();
+		} else {
+			tracing::warn!("no toolbar to remove");
+		}
 	}
 
 	fn force_reload_resource(path: &str) -> Option<Gd<Resource>> {

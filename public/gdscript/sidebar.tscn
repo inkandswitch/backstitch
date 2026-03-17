@@ -17,6 +17,7 @@
 [ext_resource type="Texture2D" uid="uid://dsxbsom8wxynk" path="res://addons/patchwork/public/icons/Remove.svg" id="8_s0dyv"]
 [ext_resource type="Texture2D" uid="uid://bwl516giuyq0n" path="res://addons/patchwork/public/icons/StatusWarning32.svg" id="9_p7w5p"]
 [ext_resource type="Texture2D" uid="uid://br8vekrg7up5j" path="res://addons/patchwork/public/icons/Tools.svg" id="9_s0dyv"]
+[ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/patchwork/public/gdscript/branch_picker.gd" id="10_k46dq"]
 [ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/patchwork/public/icons/PullRequest.svg" id="11_pt2pe"]
 [ext_resource type="Texture2D" uid="uid://dyjhwr8pnyuhf" path="res://addons/patchwork/public/icons/CollapsibleOpen.svg" id="12_onfam"]
 [ext_resource type="Texture2D" uid="uid://3hpc87bqt36t" path="res://addons/patchwork/public/icons/GuiClose.svg" id="13_dclp7"]
@@ -142,6 +143,7 @@ popup/item_4/text = "└─ Lilith's remix 2"
 popup/item_4/id = 4
 popup/item_5/text = "    └─ Lilith's remix"
 popup/item_5/id = 5
+script = ExtResource("10_k46dq")
 
 [node name="ForkButton" type="Button" parent="VBoxContainer/BranchBar" unique_id=1658291549]
 unique_name_in_owner = true

@@ -24,6 +24,8 @@ func populate() -> void:
 
 	_add_branch_to_picker(main_branch, checked_out_branch.id)
 	_update_selected(checked_out_branch.name)
+	
+	disabled = GodotProject.is_merge_preview_branch_active() || GodotProject.is_revert_preview_branch_active()
 
 # Recursively add a branch and all of its child forks to the branch picker.
 func _add_branch_to_picker(branch: Dictionary, selected_branch_id: String, indentation: String = "", is_last: bool = false) -> void:

@@ -476,7 +476,11 @@ impl INode for GodotProject {
 			return;
 		}
 		// for the autostart, we force save everything.
+		// Disable process, because `save_all()` can result in `Main::iteration()` being called,
+		// which can result in panic due to a bind when we're already bound mutable.
+		self.base_mut().set_process(false);
 		PatchworkEditorAccessor::save_all();
+		self.base_mut().set_process(true);
 		// wait some frames before starting
 		self.deferred_start = 3;
     }
@@ -634,13 +638,6 @@ impl IEditorPlugin for GodotProjectPlugin {
     }
 
 	fn ready(&mut self) {
-		{
-			// When we save a scene, if it's sidebar.tscn, we want to reload the UI
-			// This is for devs
-			let callable = self.base().callable("on_scene_saved");
-			let mut base = self.base_mut();
-			base.connect("scene_saved", &callable);
-		}
 		self.process(0.0);
 	}
 
@@ -651,9 +648,22 @@ impl IEditorPlugin for GodotProjectPlugin {
 			&& !PatchworkEditorAccessor::is_editor_importing()
 			&& DirAccess::dir_exists_absolute("res://.godot") // This is at the end because DirAccess::dir_exists_absolute locks a global mutex
 			{
-			let godot_project_singleton: Gd<GodotProject> = GodotProject::get_singleton();
-			self.base_mut().add_child(&godot_project_singleton);
+			// If we're already the parent of it, don't add it again
+			if let Some(parent) = GodotProject::get_singleton().get_parent() && parent == self.to_gd().upcast::<Node>() {
+				tracing::error!("GodotProject singleton is already a child of us, not adding to editor");
+			} else {
+				self.base_mut().set_process(false);
+				self.base_mut().add_child(&GodotProject::get_singleton());
+				self.base_mut().set_process(true);
+			}
 			self.add_sidebar();
+			{
+				// When we save a scene, if it's sidebar.tscn, we want to reload the UI
+				// This is for devs
+				let callable = self.base().callable("on_scene_saved");
+				let mut base = self.base_mut();
+				base.connect("scene_saved", &callable);
+			}
 			self.initialized = true;
 		}
 		if self.ui_needs_update {

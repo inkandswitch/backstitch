@@ -218,7 +218,7 @@ _build-plugin-single-arch architecture profile tracing_support: (_build-plugin a
 
     if [ -f "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.dylib" ] ; then
         cp "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.dylib" \
-            build/patchwork/bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.macos.dylib
+            build/patchwork/bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.dylib
         just _sign-macos-plugin
     fi
     

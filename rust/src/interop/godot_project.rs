@@ -560,7 +560,7 @@ impl GodotProjectPlugin {
 		};
 
 		if let Some(toolbar) = self.toolbar.clone() {
-			self.base_mut().call_deferred("add_control_to_container", &[CustomControlContainer::TOOLBAR.to_variant(), toolbar.to_variant()]);
+			self.base_mut().add_control_to_container(CustomControlContainer::TOOLBAR, &toolbar);
 		} else {
 			tracing::error!("Failed to instantiate toolbar");
 		};

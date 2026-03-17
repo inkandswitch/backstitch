@@ -3,6 +3,7 @@ class_name PatchworkSidebar
 extends MarginContainer
 
 const diff_inspector_script = preload("res://addons/patchwork/public/gdscript/diff_inspector_container.gd")
+const branch_icon_history = preload("res://addons/patchwork/public/icons/Branch24.svg")
 
 # Status bar
 @onready var sync_button: Button = %SyncButton
@@ -536,7 +537,7 @@ func update_history_tree():
 			# Sometimes this is null while starting up, before the branch has loaded in.
 			# If so the button will just appear later when we update UI.
 			if merged_branch:
-				item.add_button(text_column, load("res://addons/patchwork/public/icons/branch-icon-history.svg"), 0,
+				item.add_button(text_column, branch_icon_history, 0,
 					false, "Checkout branch " + merged_branch.name)
 
 		item.set_text(text_column, change.summary)

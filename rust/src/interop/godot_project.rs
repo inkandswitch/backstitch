@@ -552,16 +552,15 @@ impl GodotProjectPlugin {
 	fn add_sidebar(&mut self) {
 		self.sidebar = self.instantiate_control("res://addons/patchwork/public/gdscript/sidebar.tscn");
 		self.toolbar = self.instantiate_control("res://addons/patchwork/public/gdscript/toolbar.tscn");
-		let mut gd = self.to_gd();
-		if let Some(sidebar) = self.sidebar.as_mut() {
-			gd.add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
-			let _ = sidebar.deref_mut().connect("reload_ui", &Callable::from_object_method(&gd, "on_reload_ui"));
+		if let Some(sidebar) = self.sidebar.clone().as_mut() {
+			self.base_mut().add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
+			let _ = sidebar.deref_mut().connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
 		} else {
 			tracing::error!("Failed to instantiate sidebar");
 		};
 
-		if let Some(toolbar) = &self.toolbar {
-			self.to_gd().add_control_to_container(CustomControlContainer::TOOLBAR, toolbar);
+		if let Some(toolbar) = self.toolbar.clone() {
+			self.base_mut().call_deferred("add_control_to_container", &[CustomControlContainer::TOOLBAR.to_variant(), toolbar.to_variant()]);
 		} else {
 			tracing::error!("Failed to instantiate toolbar");
 		};
@@ -569,14 +568,15 @@ impl GodotProjectPlugin {
 
 	fn remove_sidebar(&mut self) {
 		if let Some(mut sidebar) = self.sidebar.take() {
-			self.to_gd().remove_control_from_docks(&sidebar);
+			sidebar.disconnect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
+			self.base_mut().remove_control_from_docks(&sidebar);
 			sidebar.queue_free();
 		} else {
 			tracing::warn!("no sidebar to remove");
 		}
 		
 		if let Some(mut toolbar) = self.toolbar.take() {
-			self.to_gd().remove_control_from_container(CustomControlContainer::TOOLBAR, &toolbar);
+			self.base_mut().remove_control_from_container(CustomControlContainer::TOOLBAR, &toolbar);
 			toolbar.queue_free();
 		} else {
 			tracing::warn!("no toolbar to remove");

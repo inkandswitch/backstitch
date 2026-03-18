@@ -1,32 +1,62 @@
 #!/bin/sh
 
+# fail if any command fails
+set -e
+# set echo to print commands
+set -x
+
+
+
 SCRIPT_PATH=$(dirname "$0")
 PW_PATH=$(realpath "$SCRIPT_PATH/..")
 GODOT_PATH=$(realpath "$SCRIPT_PATH/../build/godot")
+GITCMD="git -C $GODOT_PATH"
 
-git -C "$GODOT_PATH" fetch --all
-git -C "$GODOT_PATH" checkout master
-git -C "$GODOT_PATH" pull
 
-HEAD=$(git -C "$GODOT_PATH" rev-parse HEAD)
-SHORT_HASH=$(git -C "$GODOT_PATH" rev-parse --short HEAD)
+# function to check if a remote exists, and if not, add it
+function _add_remote {
+    local remote=$1
+    local url=$2
+	if ! $GITCMD remote | grep -q "$remote"; then
+		echo "Adding remote $remote"
+        $GITCMD remote add $remote $url
+    fi
+}
+
+function _delete_branch {
+    local branch=$1
+    if $GITCMD branch | grep -q "$branch"; then
+		echo "Deleting branch $branch"
+        $GITCMD branch -D $branch
+	fi
+}
+
+_add_remote "upstream" "git@github.com:godotengine/godot.git"
+$GITCMD fetch --all
+$GITCMD checkout master
+_delete_branch "upstream-master"
+# create a new branch from upstream/master and name it 'upstream-master'
+$GITCMD checkout -b upstream-master --track upstream/master
+
+
+HEAD=$($GITCMD rev-parse HEAD)
+SHORT_HASH=$($GITCMD rev-parse --short HEAD)
 NEW_BRANCH_NAME="pw-wb-$SHORT_HASH"
 
-# check for the existence of the 'nikitalita' remote
-if ! git -C "$GODOT_PATH" remote | grep -q "nikitalita"; then
-    git -C "$GODOT_PATH" remote add nikitalita git@github.com:nikitalita/godot.git
-	git -C "$GODOT_PATH" fetch nikitalita
-fi
+# source the build.env
+source "$PW_PATH/build.env"
+
+# check for the existence of our 'GODOT_REMOTE' remote
+_add_remote "$GODOT_REMOTE" "git@github.com:$GODOT_REMOTE/godot.git"
+_add_remote "KoBeWi" "git@github.com:KoBeWi/godot.git"
 
 # check if the branch already exists
-if git -C "$GODOT_PATH" branch -a | grep -q $NEW_BRANCH_NAME; then
-    git -C "$GODOT_PATH" branch -D $NEW_BRANCH_NAME
-fi
+_delete_branch $NEW_BRANCH_NAME
 
-git -C "$GODOT_PATH" branch -c $NEW_BRANCH_NAME
+$GITCMD branch -c $NEW_BRANCH_NAME
 
-git -C "$GODOT_PATH" checkout $NEW_BRANCH_NAME
-git -C "$GODOT_PATH" reset --hard $HEAD
+$GITCMD checkout $NEW_BRANCH_NAME
+$GITCMD reset --hard $HEAD
 
 BRANCHES_TO_MERGE=(
 	bind-get-unsaved-scripts
@@ -35,15 +65,34 @@ BRANCHES_TO_MERGE=(
 	add-close-file
 )
 
+KOBEWI_BRANCHES=(
+	slashtableflip
+)
+
+#unset -e, we don't want to exit on error here
+set +e
 # set fail on error
 for branch in "${BRANCHES_TO_MERGE[@]}"; do
     # merge branch, use a merge commit
-    git -C "$GODOT_PATH" merge nikitalita/$branch -m "Merge branch '$branch'"
+    $GITCMD merge $GODOT_REMOTE/$branch -m "Merge branch '$branch'"
 	if [ $? -ne 0 ]; then
+		$GITCMD merge --abort
 		echo "Error: Failed to merge branch '$branch'"
 		exit 1
 	fi
 done
+
+for branch in "${KOBEWI_BRANCHES[@]}"; do
+    # merge branch, use a merge commit
+    $GITCMD merge KoBeWi/$branch -m "Merge branch '$branch'"
+	if [ $? -ne 0 ]; then
+		$GITCMD merge --abort
+		echo "Error: Failed to merge branch '$branch'"
+		exit 1
+	fi
+done
+
+set -e
 
 # detect OS for cross-platform sed compatibility
 # macOS (BSD sed) requires -i '' while Linux (GNU sed) uses -i
@@ -57,4 +106,4 @@ fi
 # update the GODOT_REF in build.env
 sed_in_place "s/GODOT_REF=.*/GODOT_REF=$NEW_BRANCH_NAME/" "$PW_PATH/build.env"
 
-git -C "$GODOT_PATH" push nikitalita $NEW_BRANCH_NAME --set-upstream
+$GITCMD push $GODOT_REMOTE $NEW_BRANCH_NAME --set-upstream

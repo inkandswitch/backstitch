@@ -62,6 +62,9 @@ const undo_redo_icon = preload("res://addons/patchwork/public/icons/UndoRedo.svg
 @onready var diff_section_button: Button = %DiffSectionButton
 @onready var diff_section_body: Control = %DiffSectionBody
 
+# Monkey tester
+var monkey_tester: MonkeyTester = MonkeyTester.new()
+
 # Defines the column indices for the history tree.
 class HistoryColumns:
 	const HASH = 0
@@ -210,6 +213,9 @@ func set_history_item_hash(item: TreeItem, value: String) -> void:
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
+
+	monkey_tester.enabled = false
+	add_child(monkey_tester)
 
 	# @Paul: I think somewhere besides the plugin sidebar gets instantiated. Is this something godot does?
 	# to paper over this we check if plugin and godot_project are set
@@ -892,3 +898,5 @@ func _on_action_menu_item_selected(id: int) -> void:
 			GodotProject.dump_current_branch()
 			toaster.push_toast("Dumped current branch state to res://.patchwork/.")
 			
+func _on_monkey_button_toggled(toggled_on: bool) -> void:
+	monkey_tester.enabled = toggled_on

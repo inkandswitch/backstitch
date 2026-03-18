@@ -142,23 +142,32 @@ _link-public: _make-plugin-dir
 build-godot profile skip_godot_clone="no": (_link-godot skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
-    cd "build/godot"
-    EXTRA_BUILD_FLAGS=""
+    EXTRA_BUILD_FLAG=""
+    EXTRA_ID_FLAG=""
+
     # check for macos; if yes, add `generate_bundle=yes`
     if [[ "{{os()}}" = "macos" ]] ; then
-        EXTRA_BUILD_FLAGS="generate_bundle=yes"
+        EXTRA_BUILD_FLAG="generate_bundle=yes"
         # check for the .cargo/.devidentity file; if it exists, add `bundle_sign_identity=<contents>`
         if [ -f .cargo/.devidentity ]; then
-            EXTRA_BUILD_FLAGS="$EXTRA_BUILD_FLAGS bundle_sign_identity=$(cat .cargo/.devidentity)"
+            DEV_ID="$(cat .cargo/.devidentity)"
+            EXTRA_ID_FLAG="bundle_sign_identity=$DEV_ID"
+            echo "signing godot with identity: $DEV_ID"
+        else
+            echo "**** No development identity file found; if you want to enable code signing, create a .cargo/.devidentity file with your dev ID."
+            echo "**** Example: echo 'Developer ID Application: Your Name (TEAMID)' > .cargo/.devidentity"
+            echo "**** HINT: use 'security find-identity -p codesigning -v' to find your dev ID."
         fi
     fi
+    cd "build/godot"
     # TODO: figure out a way to see if scons actually needs a run, since this takes forever even when built
     if [[ {{profile}} = "release" ]] ; then
-        scons dev_build=no debug_symbols=no target=editor deprecated=yes minizip=yes compiledb=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        
+        scons dev_build=no debug_symbols=no target=editor deprecated=yes minizip=yes compiledb=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     elif [[ {{profile}} = "sani" ]] ; then
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     else
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     fi
 
 # Build the Rust plugin binaries.

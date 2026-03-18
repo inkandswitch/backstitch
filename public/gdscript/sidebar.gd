@@ -3,7 +3,7 @@ class_name PatchworkSidebar
 extends MarginContainer
 
 const diff_inspector_script = preload("res://addons/patchwork/public/gdscript/diff_inspector_container.gd")
-const branch_icon_history = preload("res://addons/patchwork/public/icons/Branch24.svg")
+const branch_icon_history = preload("res://addons/patchwork/public/icons/Branch16.svg")
 const collapsible_closed_icon = preload("res://addons/patchwork/public/icons/CollapsibleClosed.svg")
 const collapsible_open_icon = preload("res://addons/patchwork/public/icons/CollapsibleOpen.svg")
 const status_warning_32_icon = preload("res://addons/patchwork/public/icons/StatusWarning32.svg")
@@ -570,7 +570,6 @@ func update_history_tree():
 
 		# timestamp
 		var timestamp_width = font.get_string_size(change.human_timestamp, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		print(change.human_timestamp, timestamp_width, longest_timestamp)
 		longest_timestamp = max(timestamp_width, longest_timestamp)
 		item.set_text(time_column, change.human_timestamp)
 		item.set_tooltip_text(time_column, change.exact_timestamp)

@@ -1,4 +1,4 @@
-class_name Utils
+class_name PatchworkUtils
 
 static func short_hash(hash: String) -> String:
 	return hash.substr(0, 7)
@@ -33,3 +33,19 @@ static func popup_box(parent_window: Node, dialog: AcceptDialog, message: String
 	dialog.connect("confirmed", confirm_func)
 	dialog.connect("canceled", cancel_func)
 	dialog.popup_centered()
+
+static func create_unsaved_files_dialog(parent: Control, message: String):
+	if PatchworkEditor.unsaved_files_open():
+		var dialog = AcceptDialog.new()
+		dialog.title = "Unsaved Files"
+		dialog.dialog_text = message
+		dialog.get_ok_button().text = "OK"
+
+		dialog.confirmed.connect(func():
+			dialog.queue_free()
+		)
+
+		parent.add_child(dialog)
+		dialog.popup_centered()
+		return true
+	return false

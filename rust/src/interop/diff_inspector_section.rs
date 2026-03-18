@@ -45,6 +45,51 @@ impl DiffInspectorSection {
     #[signal]
     pub fn box_clicked(section: GString);
 
+    #[func]
+    fn on_mouse_entered(&mut self) {
+        if !self.foldable {
+            return;
+        }
+        let mouse_pos = self.base().get_local_mouse_position();
+
+        let entered = self.foldable && self.get_header_rect()
+            .contains_point(mouse_pos);
+
+        if !entered {
+            return;
+        }
+
+        self.entered = true;
+        let section = self.section.clone();
+
+        self.base_mut().emit_signal(
+            "section_mouse_entered",
+            &[section.to_variant()],
+        );
+
+        self.base_mut().queue_redraw();
+    }
+
+    #[func]
+    fn on_mouse_exited(&mut self) {
+        if !self.foldable {
+            return;
+        }
+
+        if !self.entered {
+            return;
+        }
+
+        self.entered = false;
+        let section = self.section.clone();
+
+        self.base_mut().emit_signal(
+            "section_mouse_exited",
+            &[section.to_variant()],
+        );
+
+        self.base_mut().queue_redraw();
+    }
 	#[func]
 	pub fn instance_property_diff(object: Gd<Object>, path: String, wide: bool) -> Option<Gd<EditorProperty>> {
 
@@ -346,29 +391,13 @@ impl DiffInspectorSection {
 
 #[godot_api]
 impl IContainer for DiffInspectorSection {
-    fn process(&mut self, _delta: f64) {
-        let mut base = self.base().clone();
-        let mouse_pos = self.base().get_local_mouse_position();
+    fn ready(&mut self) {
+        let mut base = self.base_mut();
+        let entered = base.callable("on_mouse_entered");
+        let exited = base.callable("on_mouse_exited");
+        base.connect("mouse_entered", &entered);
+        base.connect("mouse_exited", &exited);
 
-        let entered = self.foldable && self.get_header_rect()
-            .contains_point(mouse_pos);
-        
-        if self.entered != entered {
-            let section = self.section.clone();
-            self.base_mut().call_deferred(
-                "emit_signal",
-                &[
-                    Variant::from(if entered {
-                        "section_mouse_entered"
-                    } else {
-                        "section_mouse_exited"
-                    }),
-                    Variant::from(section),
-                ],
-            );
-            self.entered = entered;
-            base.queue_redraw();
-        }
     }
     
     fn init(base: Base<Container>) -> Self {

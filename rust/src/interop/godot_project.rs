@@ -4,7 +4,7 @@ use crate::interop::godot_accessors::{EditorFilesystemAccessor, PatchworkConfigA
 use crate::project::project::{GodotProjectSignal, Project};
 use crate::project::project_api::{BranchViewModel, ProjectViewModel};
 use automerge::ChangeHash;
-use godot::classes::editor_plugin::DockSlot;
+use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
 use ::safer_ffi::prelude::*;
 use samod::{DocumentId};
 use godot::classes::resource_loader::CacheMode;
@@ -17,6 +17,7 @@ use godot::classes::{DirAccess};
 use godot::prelude::*;
 use tracing::instrument;
 use std::collections::{HashSet};
+use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 use crate::interop::godot_helpers::{ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict};
@@ -154,9 +155,6 @@ pub struct GodotProject {
 impl GodotProject {
 	#[signal]
 	fn state_changed();
-
-	#[signal]
-	fn checked_out_branch();
 
 	#[func]
 	fn has_user_name(&self) -> bool {
@@ -432,27 +430,6 @@ impl GodotProject {
 		}
 	}
 
-	fn update_godot_after_source_change(&mut self) -> bool {
-		if !self.pending_editor_update.any_changes() {
-			return false;
-		}
-		if !Project::safe_to_update_godot() {
-			return false;
-		}
-		self.base_mut().set_process(false);
-		PatchworkEditorAccessor::close_files_if_open(&self.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
-		self.pending_editor_update.deleted_files.clear();
-		if self.pending_editor_update.reload_project_settings {
-			self.reload_project_settings();
-			self.pending_editor_update.reload_project_settings = false;
-		}
-		if PatchworkEditorAccessor::refresh_after_source_change() {
-			self.pending_editor_update.clear();
-		}
-		self.base_mut().set_process(true);
-		return true;
-	}
-
 	// bit of a hack to clear the diff cache when UI is loaded, to facilitate debugging
 	fn clear_diff_cache(&self) {
 		self.project.clear_diff_cache();
@@ -499,7 +476,11 @@ impl INode for GodotProject {
 			return;
 		}
 		// for the autostart, we force save everything.
+		// Disable process, because `save_all()` can result in `Main::iteration()` being called,
+		// which can result in panic due to a bind when we're already bound mutable.
+		self.base_mut().set_process(false);
 		PatchworkEditorAccessor::save_all();
+		self.base_mut().set_process(true);
 		// wait some frames before starting
 		self.deferred_start = 3;
     }
@@ -527,19 +508,10 @@ impl INode for GodotProject {
 		if updates.len() > 0 {
 			self.pending_editor_update.merge(self.process_godot_updates(updates));
 		}
-		let mut refreshed = false;
-		if self.pending_editor_update.any_changes() {
-			refreshed = self.update_godot_after_source_change();
-		}
 		for signal in signals {
 			match signal {
 				GodotProjectSignal::CheckedOutBranch => {
-					// TODO: This is a hack to clear the inspector item when the branch is changed to prevent crashes
-					// Ideally, we'd figure out a way to keep the object in the inspector when the branch is changed
-					if refreshed {
-						EditorFilesystemAccessor::clear_inspector_item();
-					}
-					self.base_mut().call_deferred("emit_signal", &["checked_out_branch".to_variant()]);
+					// TODO: remove this signal
 				}
 				GodotProjectSignal::ChangesIngested => {
 					self.base_mut().call_deferred("emit_signal", &["state_changed".to_variant()]);
@@ -554,8 +526,8 @@ impl INode for GodotProject {
 #[class(init, base=EditorPlugin, tool)]
 pub struct GodotProjectPlugin {
     base: Base<EditorPlugin>,
-	sidebar_scene: Option<Gd<PackedScene>>,
 	sidebar: Option<Gd<Control>>,
+	toolbar: Option<Gd<Control>>,
 	initialized: bool,
 	ui_needs_update: bool,
 }
@@ -563,44 +535,52 @@ pub struct GodotProjectPlugin {
 #[godot_api]
 impl GodotProjectPlugin {
 	#[func]
-	fn _on_reload_ui(&mut self) {
+	fn on_reload_ui(&mut self) {
 		self.ui_needs_update = true;
 		let proj = GodotProject::get_singleton();
 		let b = proj.bind();
 		b.clear_diff_cache();
 	}
 
+	fn instantiate_control(&self, path: &str) -> Option<Gd<Control>> {
+		let scene = Self::force_reload_resource(path)?;
+		let scene = scene.try_cast::<PackedScene>().ok()?;
+		let instance = scene.instantiate()?;
+		instance.try_cast::<Control>().ok()
+	}
+
 	fn add_sidebar(&mut self) {
-		self.sidebar_scene = Self
-			::force_reload_resource("res://addons/patchwork/public/gdscript/sidebar.tscn")
-			.map(|scene| scene.try_cast::<PackedScene>().ok())
-			.flatten();
-		self.sidebar = if let Some(Some(sidebar)) = self.sidebar_scene.as_ref().map(|scene| scene.instantiate()) {
-			if let Ok(mut sidebar) = sidebar.try_cast::<Control>() {
-				let _ = sidebar.connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "_on_reload_ui"));
-				Some(sidebar)
-			} else {
-				None
-			}
+		self.sidebar = self.instantiate_control("res://addons/patchwork/public/gdscript/sidebar.tscn");
+		self.toolbar = self.instantiate_control("res://addons/patchwork/public/gdscript/toolbar.tscn");
+		if let Some(sidebar) = self.sidebar.clone().as_mut() {
+			self.base_mut().add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
+			let _ = sidebar.deref_mut().connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
 		} else {
-			None
+			tracing::error!("Failed to instantiate sidebar");
 		};
-		if let Some(sidebar) = self.sidebar.as_ref() {
-			self.to_gd().add_control_to_dock(DockSlot::RIGHT_UL, sidebar);
+
+		if let Some(toolbar) = self.toolbar.clone() {
+			self.base_mut().add_control_to_container(CustomControlContainer::TOOLBAR, &toolbar);
 		} else {
-			panic!("Failed to instantiate sidebar");
+			tracing::error!("Failed to instantiate toolbar");
 		};
 	}
 
 	fn remove_sidebar(&mut self) {
-		if let Some(sidebar) = self.sidebar.as_ref() {
-			self.to_gd().remove_control_from_docks(sidebar);
-			let mut sidebar = self.sidebar.take().unwrap();
+		if let Some(mut sidebar) = self.sidebar.take() {
+			sidebar.disconnect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
+			self.base_mut().remove_control_from_docks(&sidebar);
 			sidebar.queue_free();
 		} else {
 			tracing::warn!("no sidebar to remove");
 		}
-		self.sidebar_scene = None;
+		
+		if let Some(mut toolbar) = self.toolbar.take() {
+			self.base_mut().remove_control_from_container(CustomControlContainer::TOOLBAR, &toolbar);
+			toolbar.queue_free();
+		} else {
+			tracing::warn!("no toolbar to remove");
+		}
 	}
 
 	fn force_reload_resource(path: &str) -> Option<Gd<Resource>> {
@@ -609,6 +589,45 @@ impl GodotProjectPlugin {
 			.cache_mode(CacheMode::REPLACE_DEEP)
 			.done();
 		scene
+	}
+	
+	fn update_godot_after_source_change(&mut self) -> bool {
+		let mut proj = GodotProject::get_singleton();
+		let mut p = proj.bind_mut();
+		if !p.pending_editor_update.any_changes() {
+			return false;
+		}
+		if !Project::safe_to_update_godot() {
+			return false;
+		}
+		self.base_mut().set_process(false);
+		p.base_mut().set_process(false);
+		PatchworkEditorAccessor::close_files_if_open(&p.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
+		p.pending_editor_update.deleted_files.clear();
+		if p.pending_editor_update.reload_project_settings {
+			p.reload_project_settings();
+			p.pending_editor_update.reload_project_settings = false;
+		}
+
+		// make sure to explicitly have p dropped so that sidebar can update, then rebind
+		drop(p);
+
+		if PatchworkEditorAccessor::refresh_after_source_change() {
+			let mut p = proj.bind_mut();
+			p.pending_editor_update.clear();
+		}
+		let mut p = proj.bind_mut();
+		p.base_mut().set_process(true);
+		self.base_mut().set_process(true);
+		return true;
+	}
+
+	#[func]
+	fn on_scene_saved(&mut self, path: String) {
+		if path == "res://addons/patchwork/public/gdscript/sidebar.tscn" {
+			tracing::info!("Scene saved {path}; reloading sidebar");
+			self.on_reload_ui();
+		}
 	}
 }
 
@@ -629,9 +648,22 @@ impl IEditorPlugin for GodotProjectPlugin {
 			&& !PatchworkEditorAccessor::is_editor_importing()
 			&& DirAccess::dir_exists_absolute("res://.godot") // This is at the end because DirAccess::dir_exists_absolute locks a global mutex
 			{
-			let godot_project_singleton: Gd<GodotProject> = GodotProject::get_singleton();
-			self.base_mut().add_child(&godot_project_singleton);
+			// If we're already the parent of it, don't add it again
+			if let Some(parent) = GodotProject::get_singleton().get_parent() && parent == self.to_gd().upcast::<Node>() {
+				tracing::error!("GodotProject singleton is already a child of us, not adding to editor");
+			} else {
+				self.base_mut().set_process(false);
+				self.base_mut().add_child(&GodotProject::get_singleton());
+				self.base_mut().set_process(true);
+			}
 			self.add_sidebar();
+			{
+				// When we save a scene, if it's sidebar.tscn, we want to reload the UI
+				// This is for devs
+				let callable = self.base().callable("on_scene_saved");
+				let mut base = self.base_mut();
+				base.connect("scene_saved", &callable);
+			}
 			self.initialized = true;
 		}
 		if self.ui_needs_update {
@@ -639,6 +671,8 @@ impl IEditorPlugin for GodotProjectPlugin {
 			self.remove_sidebar();
 			self.add_sidebar();
 		}
+
+		self.update_godot_after_source_change();
 	}
     fn exit_tree(&mut self) {
         tracing::debug!("** GodotProjectPlugin: exit_tree");

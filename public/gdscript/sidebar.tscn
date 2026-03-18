@@ -1,29 +1,43 @@
-[gd_scene load_steps=19 format=3 uid="uid://cxyjgsyba1v85"]
+[gd_scene format=3 uid="uid://cxyjgsyba1v85"]
 
 [ext_resource type="Script" uid="uid://bxgybx6gjahju" path="res://addons/patchwork/public/gdscript/sidebar.gd" id="1_ebh36"]
-[ext_resource type="Texture2D" uid="uid://ceyam02frwm6g" path="res://addons/patchwork/public/icons/circle-check.svg" id="2_of6ia"]
-[ext_resource type="Texture2D" uid="uid://xec6o14n4y2v" path="res://addons/patchwork/public/icons/person.svg" id="3_m2w8q"]
+[ext_resource type="Texture2D" uid="uid://b88aqsd5v8fi1" path="res://addons/patchwork/public/icons/StatusSuccess.svg" id="2_wyrt0"]
+[ext_resource type="Texture2D" uid="uid://xec6o14n4y2v" path="res://addons/patchwork/public/icons/Person.svg" id="3_m2w8q"]
+[ext_resource type="Texture2D" uid="uid://bcvyklo067kll" path="res://addons/patchwork/public/icons/ActionCopy.svg" id="3_wyrt0"]
 [ext_resource type="Theme" uid="uid://hr3cor4s2ov2" path="res://addons/patchwork/public/gdscript/diff_editor_theme.tres" id="4_7letu"]
-[ext_resource type="Texture2D" uid="uid://blu0iomxyyu3k" path="res://addons/patchwork/public/icons/collapsable-open.svg" id="4_of6ia"]
+[ext_resource type="Texture2D" uid="uid://cawwfjvfbpkso" path="res://addons/patchwork/public/icons/ExternalLink.svg" id="4_uefkb"]
 [ext_resource type="Script" uid="uid://d145i10hos3c6" path="res://addons/patchwork/public/gdscript/diff_inspector_container.gd" id="4_uttw7"]
-[ext_resource type="Texture2D" uid="uid://bu0h5oa7aoanu" path="res://addons/patchwork/public/icons/sign-add-svgrepo-com.svg" id="5_iqebc"]
-[ext_resource type="Texture2D" uid="uid://cy3bt4icrwm3w" path="res://addons/patchwork/public/icons/remove-svgrepo-com.svg" id="6_ha5pl"]
-[ext_resource type="Texture2D" uid="uid://mr0rb0dbfyws" path="res://addons/patchwork/public/icons/edit-two-svgrepo-com.svg" id="7_o8jin"]
-[ext_resource type="Texture2D" uid="uid://crrc8r8dr3cbu" path="res://addons/patchwork/public/icons/branch-icon.svg" id="7_qb0q7"]
-[ext_resource type="Texture2D" uid="uid://b3jhx5bvcdswo" path="res://addons/patchwork/public/icons/warning-circle.svg" id="9_p7w5p"]
-[ext_resource type="Texture2D" uid="uid://4obywo8ddx25" path="res://addons/patchwork/public/icons/arrow.svg" id="9_xrl6o"]
+[ext_resource type="Texture2D" uid="uid://ymewwqpn0vi4" path="res://addons/patchwork/public/icons/GuiTabMenuHl.svg" id="5_bp6q4"]
+[ext_resource type="Texture2D" uid="uid://bm2v2myy5rdlt" path="res://addons/patchwork/public/icons/FileAdd.svg" id="5_iqebc"]
+[ext_resource type="Texture2D" uid="uid://3tawqhdx5k3s" path="res://addons/patchwork/public/icons/Reload.svg" id="6_7ngww"]
+[ext_resource type="Texture2D" uid="uid://dxi8pyvkxfl6m" path="res://addons/patchwork/public/icons/FileRemove.svg" id="6_ha5pl"]
+[ext_resource type="Texture2D" uid="uid://dsj0ufoi456yp" path="res://addons/patchwork/public/icons/Save.svg" id="7_frpga"]
+[ext_resource type="Texture2D" uid="uid://tlngc8372bhs" path="res://addons/patchwork/public/icons/FileModify.svg" id="7_o8jin"]
+[ext_resource type="Texture2D" uid="uid://crrc8r8dr3cbu" path="res://addons/patchwork/public/icons/Branch24.svg" id="7_qb0q7"]
+[ext_resource type="Texture2D" uid="uid://dsxbsom8wxynk" path="res://addons/patchwork/public/icons/Remove.svg" id="8_s0dyv"]
+[ext_resource type="Texture2D" uid="uid://bwl516giuyq0n" path="res://addons/patchwork/public/icons/StatusWarning32.svg" id="9_p7w5p"]
+[ext_resource type="Texture2D" uid="uid://br8vekrg7up5j" path="res://addons/patchwork/public/icons/Tools.svg" id="9_s0dyv"]
+[ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/patchwork/public/gdscript/branch_picker.gd" id="10_k46dq"]
+[ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/patchwork/public/icons/PullRequest.svg" id="11_pt2pe"]
+[ext_resource type="Texture2D" uid="uid://dyjhwr8pnyuhf" path="res://addons/patchwork/public/icons/CollapsibleOpen.svg" id="12_onfam"]
+[ext_resource type="Texture2D" uid="uid://3hpc87bqt36t" path="res://addons/patchwork/public/icons/GuiClose.svg" id="13_dclp7"]
+[ext_resource type="Texture2D" uid="uid://bjp4gkyrnd1dr" path="res://addons/patchwork/public/icons/ArrowUp32.svg" id="15_pt2pe"]
+[ext_resource type="Texture2D" uid="uid://by20y2qtuv28k" path="res://addons/patchwork/public/icons/Merge.svg" id="16_lnig1"]
+[ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/patchwork/public/gdscript/collapse_button.gd" id="20_lnig1"]
+[ext_resource type="Texture2D" uid="uid://2cgni4fdnkx6" path="res://addons/patchwork/public/icons/GuiClose24.svg" id="23_dclp7"]
+[ext_resource type="Texture2D" uid="uid://c8twwi4bj6pxh" path="res://addons/patchwork/public/icons/Confirm24.svg" id="23_k46dq"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_of6ia"]
 bg_color = Color(0.129412, 0.14902, 0.180392, 1)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_qb0q7"]
-bg_color = Color(0.219608, 0.239216, 0.266667, 1)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_42yji"]
+bg_color = Color(0.156863, 0.176471, 0.207843, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_o4fec"]
 bg_color = Color(0.219608, 0.239216, 0.266667, 1)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_42yji"]
-bg_color = Color(0.156863, 0.176471, 0.207843, 1)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_qb0q7"]
+bg_color = Color(0.219608, 0.239216, 0.266667, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0tnfe"]
 content_margin_left = 4.0
@@ -45,224 +59,237 @@ content_margin_bottom = 8.0
 bg_color = Color(0.323009, 0.365738, 0.435143, 1)
 shadow_size = 2
 
-[node name="Patchwork" type="MarginContainer"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_onfam"]
+content_margin_left = 2.0
+content_margin_top = 2.0
+content_margin_right = 2.0
+content_margin_bottom = 2.0
+bg_color = Color(0.22310278, 0.22310293, 0.22310287, 1)
+
+[node name="Patchwork" type="MarginContainer" unique_id=1266402239]
 anchors_preset = -1
 anchor_right = 0.562
 anchor_bottom = 1.0
-offset_right = 0.959961
-grow_horizontal = 2
-grow_vertical = 2
+offset_right = -841.0399
+offset_bottom = -373.0
 size_flags_vertical = 3
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 8
 script = ExtResource("1_ebh36")
 
-[node name="VBoxContainer" type="VBoxContainer" parent="."]
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=1252423361]
 layout_mode = 2
 
-[node name="HBoxContainer3" type="HBoxContainer" parent="VBoxContainer"]
+[node name="StatusBar" type="HBoxContainer" parent="VBoxContainer" unique_id=1439391473]
 layout_mode = 2
 
-[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer"]
-layout_mode = 2
-
-[node name="SyncStatusIcon" type="TextureButton" parent="VBoxContainer/HBoxContainer2"]
+[node name="SyncButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=1188305472]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 4
-size_flags_vertical = 4
 tooltip_text = "Fully synced"
-texture_normal = ExtResource("2_of6ia")
+icon = ExtResource("2_wyrt0")
 
-[node name="BranchLabel" type="Label" parent="VBoxContainer/HBoxContainer2"]
+[node name="CopyProjectIdButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=1247311359]
+unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 0
-text = "Branch"
+tooltip_text = "Copy the project ID."
+icon = ExtResource("3_wyrt0")
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/HBoxContainer2"]
+[node name="ShareButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=800551317]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Copy a playable web link."
+icon = ExtResource("4_uefkb")
+
+[node name="ActionMenuButton" type="MenuButton" parent="VBoxContainer/StatusBar" unique_id=1751942069]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Additional options."
+icon = ExtResource("5_bp6q4")
+flat = false
+item_count = 4
+popup/item_0/text = "Clear Project"
+popup/item_0/icon = ExtResource("8_s0dyv")
+popup/item_0/id = 2
+popup/item_1/text = "Reload UI"
+popup/item_1/icon = ExtResource("6_7ngww")
+popup/item_1/id = 0
+popup/item_2/text = "Dump Branch to Disk"
+popup/item_2/icon = ExtResource("7_frpga")
+popup/item_2/id = 1
+popup/item_3/text = "Developer Mode"
+popup/item_3/icon = ExtResource("9_s0dyv")
+popup/item_3/checkable = 1
+popup/item_3/id = 3
+
+[node name="BranchBar" type="HBoxContainer" parent="VBoxContainer" unique_id=24847367]
+layout_mode = 2
+
+[node name="BranchPicker" type="OptionButton" parent="VBoxContainer/BranchBar" unique_id=1302754176]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+tooltip_text = "Select a branch..."
+text_overrun_behavior = 3
+selected = 0
+item_count = 6
+popup/item_0/text = "main"
+popup/item_0/id = 0
+popup/item_1/text = "├─ Lilith's remix"
+popup/item_1/id = 1
+popup/item_2/text = "│   └─ Lilith's branch"
+popup/item_2/id = 2
+popup/item_3/text = "│       └─ Lilith's branch"
+popup/item_3/id = 3
+popup/item_4/text = "└─ Lilith's remix 2"
+popup/item_4/id = 4
+popup/item_5/text = "    └─ Lilith's remix"
+popup/item_5/id = 5
+script = ExtResource("10_k46dq")
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/HBoxContainer2/MarginContainer"]
-layout_mode = 2
-
-[node name="BranchPickerCover" type="Button" parent="VBoxContainer/HBoxContainer2/MarginContainer/MarginContainer"]
+[node name="ForkButton" type="Button" parent="VBoxContainer/BranchBar" unique_id=1658291549]
 unique_name_in_owner = true
-z_index = 1
-z_as_relative = false
+custom_minimum_size = Vector2(16, 16)
 layout_mode = 2
-text = "main"
+tooltip_text = "Create a new branch."
 icon = ExtResource("7_qb0q7")
-alignment = 0
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/HBoxContainer2/MarginContainer/MarginContainer"]
-layout_mode = 2
-theme_override_constants/margin_right = 8
-
-[node name="TextureRect" type="TextureRect" parent="VBoxContainer/HBoxContainer2/MarginContainer/MarginContainer/MarginContainer"]
-z_index = 3
-layout_mode = 2
-size_flags_horizontal = 8
-size_flags_vertical = 4
-texture = ExtResource("4_of6ia")
-stretch_mode = 4
-
-[node name="BranchPicker" type="OptionButton" parent="VBoxContainer/HBoxContainer2/MarginContainer"]
+[node name="MergeButton" type="Button" parent="VBoxContainer/BranchBar" unique_id=1695760191]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
+tooltip_text = "Can't merge main, because it's the root branch."
 disabled = true
+icon = ExtResource("11_pt2pe")
 
-[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/HBoxContainer2"]
-layout_mode = 2
-
-[node name="ForkButton" type="Button" parent="VBoxContainer/HBoxContainer2"]
-unique_name_in_owner = true
-layout_mode = 2
-disabled = true
-text = "Remix
-"
-
-[node name="MergeButton" type="Button" parent="VBoxContainer/HBoxContainer2"]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Can't merge main because it's not a remix of another branch"
-disabled = true
-text = "Merge"
-
-[node name="HSeparator" type="HSeparator" parent="VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="PanelContainer" type="PanelContainer" parent="VBoxContainer"]
+[node name="PanelContainer" type="PanelContainer" parent="VBoxContainer" unique_id=932798657]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_styles/panel = SubResource("StyleBoxFlat_of6ia")
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer"]
+[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer" unique_id=925285408]
 layout_mode = 2
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_top = 8
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 8
 
-[node name="InitPanelContainer" type="PanelContainer" parent="VBoxContainer/PanelContainer/MarginContainer"]
+[node name="InitPanelContainer" type="PanelContainer" parent="VBoxContainer/PanelContainer/MarginContainer" unique_id=1800357368]
 unique_name_in_owner = true
-visible = false
 layout_mode = 2
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer"]
+[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer" unique_id=981296798]
 layout_mode = 2
 theme_override_constants/margin_left = 20
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 20
 theme_override_constants/margin_bottom = 20
 
-[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer" unique_id=1869675868]
 layout_mode = 2
 alignment = 1
 
-[node name="InitializeButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer"]
+[node name="InitializeButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=449251788]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Create a new project..."
+autowrap_mode = 2
 
-[node name="VSeparator" type="HSeparator" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer"]
+[node name="VSeparator" type="HSeparator" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=715093933]
 layout_mode = 2
 theme_override_constants/separation = 25
 
-[node name="ProjectIDBox" type="LineEdit" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer"]
+[node name="ProjectIDBox" type="LineEdit" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=860254745]
 unique_name_in_owner = true
 layout_mode = 2
 placeholder_text = "Project ID"
 
-[node name="LoadExistingButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer"]
+[node name="LoadExistingButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=1398646379]
 unique_name_in_owner = true
 layout_mode = 2
 disabled = true
 text = "Load Existing Project"
+autowrap_mode = 2
 
-[node name="MainVSplit" type="VSplitContainer" parent="VBoxContainer/PanelContainer/MarginContainer"]
+[node name="MainVSplit" type="VSplitContainer" parent="VBoxContainer/PanelContainer/MarginContainer" unique_id=1170591718]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
 
-[node name="HistoryVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit"]
+[node name="HistoryVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit" unique_id=742996395]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="HistorySectionHeader" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox"]
+[node name="HistorySectionHeader" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox" unique_id=999135118]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_styles/focus = SubResource("StyleBoxFlat_qb0q7")
-theme_override_styles/hover = SubResource("StyleBoxFlat_o4fec")
 theme_override_styles/normal = SubResource("StyleBoxFlat_42yji")
+theme_override_styles/hover = SubResource("StyleBoxFlat_o4fec")
+theme_override_styles/focus = SubResource("StyleBoxFlat_qb0q7")
 text = "History"
-icon = ExtResource("4_of6ia")
+icon = ExtResource("12_onfam")
 alignment = 0
 
-[node name="HistorySectionBody" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox"]
+[node name="HistorySectionBody" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox" unique_id=738385726]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="HistoryTree" type="Tree" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox/HistorySectionBody"]
+[node name="HistoryTree" type="Tree" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox/HistorySectionBody" unique_id=64278133]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
+columns = 2
+allow_rmb_select = true
 allow_search = false
 hide_folding = true
 enable_recursive_folding = false
 hide_root = true
 
-[node name="HistoryListPopup" type="PopupMenu" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox/HistorySectionBody/HistoryTree"]
+[node name="HistoryListPopup" type="PopupMenu" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox/HistorySectionBody/HistoryTree" unique_id=691698027]
 unique_name_in_owner = true
+size = Vector2i(100, 60)
+max_size = Vector2i(16384, 60)
 item_count = 1
 item_0/text = "Reset to here"
 item_0/id = 0
 
-[node name="DiffVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit"]
+[node name="DiffVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit" unique_id=70567525]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="DiffSectionHeader" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox"]
+[node name="DiffSectionHeader" type="HBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox" unique_id=1593980307]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 0
+size_flags_stretch_ratio = 0.0
+
+[node name="DiffSectionButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionHeader" unique_id=19201887]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 0
 text = "Changes"
-icon = ExtResource("4_of6ia")
+icon = ExtResource("12_onfam")
 alignment = 0
+text_overrun_behavior = 3
 
-[node name="ClearDiffButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionHeader"]
+[node name="ClearDiffButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionHeader" unique_id=375449985]
 unique_name_in_owner = true
-visible = false
-layout_mode = 1
-anchors_preset = -1
-anchor_left = 0.992
-anchor_top = 0.5
-anchor_right = 0.992
-anchor_bottom = 0.5
-offset_left = -8.0
-offset_top = -4.0
-offset_bottom = 4.0
-grow_horizontal = 0
-grow_vertical = 2
-text = "Clear"
+layout_mode = 2
+tooltip_text = "Clear selection."
+icon = ExtResource("13_dclp7")
 
-[node name="DiffSectionBody" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox"]
+[node name="DiffSectionBody" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox" unique_id=1252036913]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="MainDiffContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody"]
+[node name="MainDiffContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody" unique_id=280590742]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="BigDiffer" type="EditorInspector" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer"]
+[node name="BigDiffer" type="EditorInspector" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer" unique_id=606528305]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
@@ -275,298 +302,253 @@ removed_icon = ExtResource("6_ha5pl")
 modified_icon = ExtResource("7_o8jin")
 metadata/_custom_type_script = "uid://d145i10hos3c6"
 
-[node name="DifferMainVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer/BigDiffer"]
+[node name="DifferMainVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer/BigDiffer" unique_id=1420430237]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="HSeparator2" type="HSeparator" parent="VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=817757212]
 layout_mode = 2
 
-[node name="ClearProjectButton" type="Button" parent="VBoxContainer/HBoxContainer"]
+[node name="UserButton" type="Button" parent="VBoxContainer/HBoxContainer" unique_id=1059480308]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 10
-size_flags_vertical = 4
-text = "Clear Project"
-
-[node name="ReloadUIButton" type="Button" parent="VBoxContainer/HBoxContainer"]
-unique_name_in_owner = true
-layout_direction = 2
-layout_mode = 2
-size_flags_horizontal = 8
-size_flags_vertical = 4
-text = "Reload UI"
-
-[node name="HSeparator" type="VSeparator" parent="VBoxContainer/HBoxContainer"]
-layout_mode = 2
-theme_override_constants/separation = 20
-
-[node name="CopyProjectIDButton" type="Button" parent="VBoxContainer/HBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 8
-size_flags_vertical = 4
-disabled = true
-text = "Copy Project ID"
-
-[node name="VSeparator" type="VSeparator" parent="VBoxContainer/HBoxContainer"]
-layout_mode = 2
-theme_override_constants/separation = 20
-
-[node name="LoggedInLabel" type="Label" parent="VBoxContainer/HBoxContainer"]
-layout_mode = 2
-size_flags_horizontal = 8
-text = "Logged in as "
-
-[node name="UserButton" type="Button" parent="VBoxContainer/HBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 8
-text = "Nikita"
+tooltip_text = "Change username."
+text = "Text sdf sdf sdfsdf"
 icon = ExtResource("3_m2w8q")
+script = ExtResource("20_lnig1")
 
-[node name="ConfirmationDialog" type="ConfirmationDialog" parent="."]
+[node name="ConfirmationDialog" type="ConfirmationDialog" parent="." unique_id=302808494]
+oversampling_override = 1.0
 
-[node name="ErrorDialog" type="AcceptDialog" parent="."]
+[node name="ErrorDialog" type="AcceptDialog" parent="." unique_id=1489138246]
+oversampling_override = 1.0
 
-[node name="MergePreviewModal" type="PanelContainer" parent="."]
+[node name="MergePreviewModal" type="PanelContainer" parent="." unique_id=888402724]
 unique_name_in_owner = true
-visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
 
-[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal"]
-layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 8
-
-[node name="VBoxContainer" type="VBoxContainer" parent="MergePreviewModal/MarginContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="MergePreviewModal" unique_id=1221437171]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="HBoxContainer3" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer3" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer" unique_id=1357285618]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="MergePreviewTitle" type="Label" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
+[node name="MergePreviewTitle" type="Label" parent="MergePreviewModal/VBoxContainer/HBoxContainer3" unique_id=936714801]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Preview of \"main\""
+size_flags_horizontal = 3
+tooltip_text = "Preview of \"Lilith's remix\""
+mouse_filter = 1
+text = "Preview of \"Lilith's remix\""
+text_overrun_behavior = 3
 
-[node name="CancelMergeButton" type="Button" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
+[node name="CancelMergeButton" type="Button" parent="MergePreviewModal/VBoxContainer/HBoxContainer3" unique_id=2134804644]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 10
-text = "Cancel"
+size_flags_stretch_ratio = 0.0
+tooltip_text = "Cancel the merge."
+icon = ExtResource("23_dclp7")
 
-[node name="ConfirmMergeButton" type="Button" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
+[node name="ConfirmMergeButton" type="Button" parent="MergePreviewModal/VBoxContainer/HBoxContainer3" unique_id=197295463]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 8
-text = "Merge"
+size_flags_stretch_ratio = 0.0
+tooltip_text = "Confirm the merge preview."
+icon = ExtResource("23_k46dq")
 
-[node name="HSeparator" type="HSeparator" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="HSeparator" type="HSeparator" parent="MergePreviewModal/VBoxContainer" unique_id=1910964401]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer" type="VBoxContainer" parent="MergePreviewModal/VBoxContainer" unique_id=614934608]
 z_index = 100
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer"]
+[node name="TargetBranchPanel" type="PanelContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer" unique_id=700829081]
 layout_mode = 2
-size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_onfam")
 
-[node name="ColorRect" type="ColorRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer"]
-layout_mode = 2
-color = Color(0.188235, 0.207843, 0.235294, 1)
-
-[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer"]
-layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_right = 8
-
-[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer/MarginContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer/TargetBranchPanel" unique_id=43142364]
 layout_mode = 2
 
-[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer/MarginContainer/HBoxContainer"]
+[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/VBoxContainer/HBoxContainer/TargetBranchPanel/HBoxContainer" unique_id=1371972586]
 layout_mode = 2
+size_flags_horizontal = 0
 texture = ExtResource("7_qb0q7")
 stretch_mode = 3
 
-[node name="MergePreviewTargetLabel" type="Label" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer/MarginContainer/HBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "main"
-
-[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer"]
-layout_mode = 2
-texture = ExtResource("9_xrl6o")
-
-[node name="MarginContainer2" type="MarginContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer"]
+[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer/TargetBranchPanel/HBoxContainer" unique_id=540009115]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="ColorRect" type="ColorRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer2"]
+[node name="MergePreviewTargetLabel" type="Label" parent="MergePreviewModal/VBoxContainer/HBoxContainer/TargetBranchPanel/HBoxContainer/MarginContainer" unique_id=1156846941]
+unique_name_in_owner = true
 layout_mode = 2
-color = Color(0.188235, 0.207843, 0.235294, 1)
+size_flags_vertical = 1
+size_flags_stretch_ratio = 20.0
+mouse_filter = 1
+text = "Main"
+text_overrun_behavior = 3
 
-[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer2"]
-layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_right = 8
-
-[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer2/MarginContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer" unique_id=1823052478]
 layout_mode = 2
 
-[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer2/MarginContainer/HBoxContainer"]
+[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer" unique_id=366206860]
 layout_mode = 2
-texture = ExtResource("7_qb0q7")
+size_flags_horizontal = 0
+size_flags_vertical = 4
+texture = ExtResource("15_pt2pe")
+
+[node name="SourceBranchPanel" type="PanelContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer" unique_id=865379200]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_onfam")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer/SourceBranchPanel" unique_id=1157192270]
+layout_mode = 2
+
+[node name="TextureRect" type="TextureRect" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer/SourceBranchPanel/HBoxContainer" unique_id=1710835463]
+layout_mode = 2
+size_flags_horizontal = 0
+size_flags_vertical = 4
+texture = ExtResource("16_lnig1")
 stretch_mode = 3
 
-[node name="MergePreviewSourceLabel" type="Label" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer2/MarginContainer/HBoxContainer"]
+[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer/SourceBranchPanel/HBoxContainer" unique_id=2112960876]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="MergePreviewSourceLabel" type="Label" parent="MergePreviewModal/VBoxContainer/HBoxContainer/HBoxContainer/SourceBranchPanel/HBoxContainer/MarginContainer" unique_id=1739394186]
 unique_name_in_owner = true
 layout_mode = 2
-text = "another"
+size_flags_horizontal = 3
+text = "Lilith's branch"
+text_overrun_behavior = 3
 
-[node name="HSeparator2" type="HSeparator" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="HBoxContainer4" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer4" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer" unique_id=2092269221]
 layout_mode = 2
 
-[node name="MergePreviewMessageIcon" type="TextureRect" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer4"]
+[node name="MarginContainer" type="MarginContainer" parent="MergePreviewModal/VBoxContainer/HBoxContainer4" unique_id=101441047]
+layout_mode = 2
+theme_override_constants/margin_top = 8
+
+[node name="MergePreviewMessageIcon" type="TextureRect" parent="MergePreviewModal/VBoxContainer/HBoxContainer4/MarginContainer" unique_id=1765973491]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 0
 texture = ExtResource("9_p7w5p")
 stretch_mode = 2
 
-[node name="MergePreviewMessageLabel" type="Label" parent="MergePreviewModal/MarginContainer/VBoxContainer/HBoxContainer4"]
+[node name="MergePreviewMessageLabel" type="Label" parent="MergePreviewModal/VBoxContainer/HBoxContainer4" unique_id=2114217430]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 0)
 layout_mode = 2
-text = "\"main\" has changed since \"another\" was created.
-Be careful and review your changes before merging."
+size_flags_horizontal = 3
+size_flags_vertical = 0
+text = "This branch is safe to merge.
+ \"Lilith's remix\" hasn't changed since \"Lilith's branch\" was created."
+autowrap_mode = 3
 
-[node name="HSeparator3" type="HSeparator" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="MergePreviewDiffContainer" type="MarginContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="MergePreviewDiffContainer" type="MarginContainer" parent="MergePreviewModal/VBoxContainer" unique_id=2068046905]
 unique_name_in_owner = true
+clip_contents = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="HBoxContainer2" type="HBoxContainer" parent="MergePreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer2" type="HBoxContainer" parent="MergePreviewModal/VBoxContainer" unique_id=1031938397]
 layout_mode = 2
 size_flags_horizontal = 8
 theme_override_constants/separation = 8
 
-[node name="RevertPreviewModal" type="PanelContainer" parent="."]
+[node name="RevertPreviewModal" type="PanelContainer" parent="." unique_id=100826618]
 unique_name_in_owner = true
-visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
 
-[node name="MarginContainer" type="MarginContainer" parent="RevertPreviewModal"]
-layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 8
-
-[node name="VBoxContainer" type="VBoxContainer" parent="RevertPreviewModal/MarginContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="RevertPreviewModal" unique_id=239817825]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="HBoxContainer3" type="HBoxContainer" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer3" type="HBoxContainer" parent="RevertPreviewModal/VBoxContainer" unique_id=2104743586]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="RevertPreviewTitle" type="Label" parent="RevertPreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
+[node name="RevertPreviewTitle" type="Label" parent="RevertPreviewModal/VBoxContainer/HBoxContainer3" unique_id=632057509]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Preview of \"main\""
+size_flags_horizontal = 3
+mouse_filter = 1
+text = "Preview of reverting \"Lilith's branch\" to deadbee"
+text_overrun_behavior = 3
 
-[node name="CancelRevertButton" type="Button" parent="RevertPreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 10
-text = "Cancel"
-
-[node name="ConfirmRevertButton" type="Button" parent="RevertPreviewModal/MarginContainer/VBoxContainer/HBoxContainer3"]
+[node name="CancelRevertButton" type="Button" parent="RevertPreviewModal/VBoxContainer/HBoxContainer3" unique_id=475919165]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 8
-text = "Revert"
+tooltip_text = "Cancel the revert."
+icon = ExtResource("23_dclp7")
 
-[node name="HSeparator" type="HSeparator" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
+[node name="ConfirmRevertButton" type="Button" parent="RevertPreviewModal/VBoxContainer/HBoxContainer3" unique_id=952326154]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 8
+tooltip_text = "Confirm the revert."
+icon = ExtResource("23_k46dq")
+
+[node name="HSeparator" type="HSeparator" parent="RevertPreviewModal/VBoxContainer" unique_id=1152899289]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="HSeparator2" type="HSeparator" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="HBoxContainer4" type="HBoxContainer" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer4" type="HBoxContainer" parent="RevertPreviewModal/VBoxContainer" unique_id=1431715966]
 visible = false
 layout_mode = 2
 
-[node name="RevertPreviewMessageIcon" type="TextureRect" parent="RevertPreviewModal/MarginContainer/VBoxContainer/HBoxContainer4"]
+[node name="RevertPreviewMessageIcon" type="TextureRect" parent="RevertPreviewModal/VBoxContainer/HBoxContainer4" unique_id=1752542190]
 unique_name_in_owner = true
 layout_mode = 2
 texture = ExtResource("9_p7w5p")
 stretch_mode = 2
 
-[node name="RevertPreviewMessageLabel" type="Label" parent="RevertPreviewModal/MarginContainer/VBoxContainer/HBoxContainer4"]
+[node name="RevertPreviewMessageLabel" type="Label" parent="RevertPreviewModal/VBoxContainer/HBoxContainer4" unique_id=820999009]
 unique_name_in_owner = true
 layout_mode = 2
 text = "\"main\" has changed since \"another\" was created.
 Be careful and review your changes before merging."
 
-[node name="HSeparator3" type="HSeparator" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
-modulate = Color(1, 1, 1, 0)
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="RevertPreviewDiffContainer" type="MarginContainer" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
+[node name="RevertPreviewDiffContainer" type="MarginContainer" parent="RevertPreviewModal/VBoxContainer" unique_id=2103753398]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="HBoxContainer2" type="HBoxContainer" parent="RevertPreviewModal/MarginContainer/VBoxContainer"]
+[node name="HBoxContainer2" type="HBoxContainer" parent="RevertPreviewModal/VBoxContainer" unique_id=959211592]
 layout_mode = 2
 size_flags_horizontal = 8
 theme_override_constants/separation = 8
 
-[node name="UserNameDialog" type="ConfirmationDialog" parent="."]
+[node name="UserNameDialog" type="ConfirmationDialog" parent="." unique_id=310781976]
 unique_name_in_owner = true
 title = "Set User Name"
 position = Vector2i(0, 36)
 min_size = Vector2i(100, 70)
 
-[node name="VBoxContainer" type="VBoxContainer" parent="UserNameDialog"]
+[node name="VBoxContainer" type="VBoxContainer" parent="UserNameDialog" unique_id=1496103014]
 offset_left = 8.0
 offset_top = 8.0
 offset_right = 142.0
 offset_bottom = 51.0
 
-[node name="UserNameEntry" type="LineEdit" parent="UserNameDialog/VBoxContainer"]
+[node name="UserNameEntry" type="LineEdit" parent="UserNameDialog/VBoxContainer" unique_id=1182832485]
 unique_name_in_owner = true
 layout_mode = 2
 placeholder_text = "User Name..."

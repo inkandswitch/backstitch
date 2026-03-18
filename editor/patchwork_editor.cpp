@@ -1,26 +1,21 @@
 #include "patchwork_editor.h"
-#include "core/variant/callable.h"
-#include "core/variant/callable_bind.h"
-#include "core/version_generated.gen.h"
+
 #include "editor/debugger/editor_debugger_node.h"
-#if GODOT_VERSION_MAJOR == 4 && GODOT_VERSION_MINOR < 5
-#include "editor/plugins/shader_editor_plugin.h"
-#include <editor/editor_file_system.h>
-#include <editor/editor_inspector.h>
-#include <editor/plugins/script_editor_plugin.h>
-#else
 #include "editor/shader/shader_editor_plugin.h"
+#include "scene/gui/box_container.h"
+#include <core/io/json.h>
+#include <core/io/missing_resource.h>
+#include <core/object/class_db.h>
+#include <core/os/os.h>
+#include <core/variant/callable.h>
+#include <core/variant/callable_bind.h>
+#include <core/variant/variant.h>
+#include <core/version_generated.gen.h>
+#include <editor/editor_interface.h>
+#include <editor/editor_undo_redo_manager.h>
 #include <editor/file_system/editor_file_system.h>
 #include <editor/inspector/editor_inspector.h>
 #include <editor/script/script_editor_plugin.h>
-#endif
-#include "scene/gui/box_container.h"
-
-#include <core/io/json.h>
-#include <core/io/missing_resource.h>
-#include <core/variant/variant.h>
-#include <editor/editor_interface.h>
-#include <editor/editor_undo_redo_manager.h>
 #include <main/main.h>
 #include <modules/gdscript/gdscript.h>
 #include <scene/resources/packed_scene.h>
@@ -95,18 +90,9 @@ Ref<ResourceImporter> PatchworkEditor::get_importer_by_name(const String &p_name
 	return ResourceFormatImporter::get_singleton()->get_importer_by_name(p_name);
 }
 
-inline Vector<String> _get_section_keys(const Ref<ConfigFile> &p_config_file, const String &p_section) {
-#if GODOT_VERSION_MAJOR == 4 && GODOT_VERSION_MINOR < 5
-	List<String> param_keys;
-	p_config_file->get_section_keys(p_section, &param_keys);
-	Vector<String> param_keys_vector;
-	for (auto &param_key : param_keys) {
-		param_keys_vector.push_back(param_key);
-	}
-	return param_keys_vector;
-#else
-	return p_config_file->get_section_keys(p_section);
-#endif
+inline Vector<String> _get_section_keys(const Ref<ConfigFile> &p_config_file,
+                                        const String &p_section) {
+  return p_config_file->get_section_keys(p_section);
 }
 
 Error PatchworkEditor::import_and_save_resource(const String &p_path, const String &import_file_content, const String &import_base_path) {
@@ -328,15 +314,12 @@ void PatchworkEditor::close_scene_file(const String &p_path) {
 
 	EditorNode::get_singleton()->load_scene(p_path);
 
-	// Main::iteration();
-#if GODOT_VERSION_MAJOR == 4 && GODOT_VERSION_MINOR < 5
-	constexpr int CLOSE_MENU_OPTION = EditorNode::FILE_CLOSE;
-#else
-	constexpr int CLOSE_MENU_OPTION = EditorNode::SCENE_CLOSE;
-#endif
+        // Main::iteration();
+        constexpr int CLOSE_MENU_OPTION = EditorNode::SCENE_CLOSE;
 
-	// this needs to be bound to GDScript
-	EditorNode::get_singleton()->trigger_menu_option(CLOSE_MENU_OPTION, true);
+        // this needs to be bound to GDScript
+        EditorNode::get_singleton()->trigger_menu_option(CLOSE_MENU_OPTION,
+                                                         true);
 }
 
 void PatchworkEditor::close_files_if_open(const Vector<String> &p_paths) {

@@ -197,15 +197,10 @@ impl PatchworkEditorAccessor {
         }
     }
 
-    pub fn refresh_after_source_change() -> bool {
-        EditorFilesystemAccessor::scan_changes();
-        let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
-        // TODO: when 4.7 is released, use the bound method instead
-        script_editor.call("reload_scripts", &[]);
-
+    pub fn reload_scene_files() {
         let current_scene = EditorInterface::singleton()
-            .get_edited_scene_root()
-            .map(|scene| scene.get_scene_file_path());
+        .get_edited_scene_root()
+        .map(|scene| scene.get_scene_file_path());
         let open_scenes = EditorInterface::singleton().get_open_scenes();
         for scene in open_scenes.as_slice().iter() {
             if current_scene.is_some() && current_scene.as_ref().unwrap() == scene {
@@ -216,6 +211,15 @@ impl PatchworkEditorAccessor {
         if current_scene.is_some() {
             EditorInterface::singleton().reload_scene_from_path(current_scene.as_ref().unwrap());
         }
+    }
+
+    pub fn refresh_after_source_change() -> bool {
+        EditorFilesystemAccessor::scan_changes();
+        let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
+        // TODO: when 4.7 is released, use the bound method instead
+        script_editor.call("reload_open_files", &[]);
+
+        Self::reload_scene_files();
         true
     }
 

@@ -25,7 +25,7 @@
 [ext_resource type="Texture2D" uid="uid://by20y2qtuv28k" path="res://addons/patchwork/public/icons/Merge.svg" id="16_lnig1"]
 [ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/patchwork/public/gdscript/collapse_button.gd" id="20_lnig1"]
 [ext_resource type="Texture2D" uid="uid://2cgni4fdnkx6" path="res://addons/patchwork/public/icons/GuiClose24.svg" id="23_dclp7"]
-[ext_resource type="Texture2D" uid="uid://dr8tv6e0oghna" path="res://addons/patchwork/public/icons/UndoRedo24.svg" id="23_onfam"]
+[ext_resource type="Texture2D" uid="uid://c8twwi4bj6pxh" path="res://addons/patchwork/public/icons/Confirm24.svg" id="23_k46dq"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_of6ia"]
 bg_color = Color(0.129412, 0.14902, 0.180392, 1)
@@ -328,7 +328,6 @@ oversampling_override = 1.0
 
 [node name="MergePreviewModal" type="PanelContainer" parent="." unique_id=888402724]
 unique_name_in_owner = true
-visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
@@ -364,7 +363,7 @@ layout_mode = 2
 size_flags_horizontal = 8
 size_flags_stretch_ratio = 0.0
 tooltip_text = "Confirm the merge preview."
-icon = ExtResource("16_lnig1")
+icon = ExtResource("23_k46dq")
 
 [node name="HSeparator" type="HSeparator" parent="MergePreviewModal/VBoxContainer" unique_id=1910964401]
 layout_mode = 2
@@ -473,7 +472,6 @@ theme_override_constants/separation = 8
 
 [node name="RevertPreviewModal" type="PanelContainer" parent="." unique_id=100826618]
 unique_name_in_owner = true
-visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
@@ -506,7 +504,7 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 8
 tooltip_text = "Confirm the revert."
-icon = ExtResource("23_onfam")
+icon = ExtResource("23_k46dq")
 
 [node name="HSeparator" type="HSeparator" parent="RevertPreviewModal/VBoxContainer" unique_id=1152899289]
 layout_mode = 2

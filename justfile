@@ -51,6 +51,16 @@ _clone repo_url directory checkout:
     #!/usr/bin/env sh
     # set -euxo pipefail
 
+    # if directory is empty (as a result of a previous clone that failed), remove it
+    if [[ -n $(find "{{directory}}" -maxdepth 0 -type d -empty) ]]; then
+        if rmdir "{{directory}}"; then
+            echo "Removed directory: {{directory}}"
+        else
+            echo "Failed to clean directory: {{directory}}"
+            exit 1
+        fi
+    fi
+
     # If the directory doesn't exist, freshly clone
     if [[ ! -d "{{directory}}" ]]; then
         git clone "git@github.com:{{repo_url}}" "{{directory}}" --no-checkout --filter=blob:none 

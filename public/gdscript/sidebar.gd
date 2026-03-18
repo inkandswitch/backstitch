@@ -516,6 +516,10 @@ func update_history_tree():
 	var root = history_tree.create_item()
 	var selection = null
 
+	var longest_timestamp = 0
+	var font = history_tree.get_theme_font("font")
+	var font_size = history_tree.get_theme_font_size("font_size")
+
 	for i in range(history.size() - 1, -1, -1):
 		var change = GodotProject.get_change(history[i])
 		var item = history_tree.create_item(root)
@@ -565,12 +569,15 @@ func update_history_tree():
 			item.add_button(text_column, item_context_menu_icon, 1, false, "Open context menu")
 
 		# timestamp
+		var timestamp_width = font.get_string_size(change.human_timestamp, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		print(change.human_timestamp, timestamp_width, longest_timestamp)
+		longest_timestamp = max(timestamp_width, longest_timestamp)
 		item.set_text(time_column, change.human_timestamp)
 		item.set_tooltip_text(time_column, change.exact_timestamp)
 		item.set_selectable(time_column, false)
 		history_tree.set_column_expand(time_column, true)
 		history_tree.set_column_expand_ratio(time_column, 0)
-		history_tree.set_column_custom_minimum_width(time_column, 75 * editor_scale)
+		history_tree.set_column_custom_minimum_width(time_column, (18 + longest_timestamp) * editor_scale)
 		history_tree.set_column_clip_content(time_column, false)
 
 		# apply the chosen color to all fields

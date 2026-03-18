@@ -5,7 +5,7 @@ use automerge::{
     ChangeHash,
     transaction::{CommitOptions, Transaction},
 };
-use chrono::{DateTime, Local, Locale, TimeZone};
+use chrono::{DateTime, Datelike, Local, Locale, TimeZone};
 use samod::DocumentId;
 use serde::{Deserialize, Serialize};
 
@@ -198,6 +198,8 @@ pub fn human_readable_timestamp(timestamp: i64) -> String {
         format!("{}h ago", secs / 3600)
     } else if secs < 60 * 60 * 24 * 9 {
         format!("{}d ago", secs / 86400)
+    } else if dt.year_ce() == now.year_ce() {
+        dt.format("%b %-d").to_string()
     } else {
         dt.format_localized("%x", locale_from_system()).to_string()
     }

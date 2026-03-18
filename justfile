@@ -485,3 +485,8 @@ launch project="moddable-platformer" patchwork_profile="release" godot_profile="
     fi
 
     $godot_path -e --path "build/{{project}}"
+
+rebase-godot:
+    #!/usr/bin/env sh
+    # set -euxo pipefail
+    .scripts/rebase_godot.sh

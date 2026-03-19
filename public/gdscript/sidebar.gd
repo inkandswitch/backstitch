@@ -891,6 +891,10 @@ func _on_action_menu_item_selected(id: int) -> void:
 			var idx = action_menu_button.get_popup().get_item_index(id)
 			action_menu_button.get_popup().toggle_item_checked(idx)
 			var checked = action_menu_button.get_popup().is_item_checked(idx)
+			if monkey_tester.enabled && not checked:
+				print("MonkeyTester: disabling because developer mode is disabled")
+				monkey_tester.stop()
+			%MonkeyButton.visible = checked
 			toaster.push_toast("Developer mode enabled." if checked else "Developer mode disabled.")
 			update_ui()
 		ActionMenuItems.DUMP_BRANCH:

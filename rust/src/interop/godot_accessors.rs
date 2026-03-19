@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use godot::obj::Singleton;
+use godot::classes::ConfigFile;
+use godot::classes::class_macros::private::virtuals::Os::{VarDictionary, vdict};
+use godot::obj::{NewGd, Singleton};
+use godot::prelude::Var;
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{ClassDb, EditorInterface, Object},
@@ -57,17 +60,30 @@ impl PatchworkEditorAccessor {
         import_base_path: &str,
     ) -> godot::global::Error {
         // TODO: Depends on https://github.com/godotengine/godot/pull/116861; if this doesn't make it into 4.7, we'll have to figure out something else
-        ClassDb::singleton()
-            .class_call_static(
-                "EditorInterface",
+        let mut cf = ConfigFile::new_gd();
+        if cf.parse(import_file_content) != godot::global::Error::OK {
+            return godot::global::Error::ERR_INVALID_PARAMETER;
+        }
+        let importer_name = cf.get_value("remap", "importer");
+        let mut params: VarDictionary = vdict!{};
+        for key in cf.get_section_keys("params").as_slice().iter() {
+            params.set(key.to_variant(), cf.get_value("params", key));
+        }
+        let result = EditorInterface::singleton()
+            .call(
                 "import_and_save_resource",
                 &[
                     path.to_variant(),
-                    import_file_content.to_variant(),
+                    importer_name.to_variant(),
+                    params.to_variant(),
                     import_base_path.to_variant(),
                 ],
             )
-            .to::<godot::global::Error>()
+            .to::<PackedStringArray>();
+        if result.is_empty() {
+            return godot::global::Error::ERR_CANT_OPEN;
+        }
+        return godot::global::Error::OK;
     }
 
     pub fn is_editor_importing() -> bool {
@@ -199,8 +215,8 @@ impl PatchworkEditorAccessor {
 
     pub fn reload_scene_files() {
         let current_scene = EditorInterface::singleton()
-        .get_edited_scene_root()
-        .map(|scene| scene.get_scene_file_path());
+            .get_edited_scene_root()
+            .map(|scene| scene.get_scene_file_path());
         let open_scenes = EditorInterface::singleton().get_open_scenes();
         for scene in open_scenes.as_slice().iter() {
             if current_scene.is_some() && current_scene.as_ref().unwrap() == scene {

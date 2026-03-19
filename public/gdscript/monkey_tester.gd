@@ -3,7 +3,7 @@ class_name MonkeyTester
 extends Node
 
 
-enum MonkeyAction{
+enum MonkeyAction {
 	TWEAK_PROPERTY = 0,
 	ADD_NODE = 1,
 	DELETE_NODE = 2,
@@ -11,7 +11,7 @@ enum MonkeyAction{
 	DUPLICATE_NODE = 4,
 }
 
-enum TweakTransformMode{
+enum TweakTransformMode {
 	POSITION = 0,
 	ROTATION = 1,
 	SCALE = 2,
@@ -34,6 +34,12 @@ var enabled: bool = false
 	# MonkeyAction.DUPLICATE_NODE,
 ]
 
+@export var enabled_tweak_transform_modes: Array[TweakTransformMode] = [
+	TweakTransformMode.POSITION,
+	# TweakTransformMode.ROTATION,
+	TweakTransformMode.SCALE,
+]
+
 signal disabled_self(reason: String)
 
 var action_attempts: int = 0
@@ -50,19 +56,19 @@ var _action_names: PackedStringArray = [
 	"duplicate_node",
 ]
 
-var _actions: Array[Callable] = []
+var _actions: Dictionary[MonkeyAction, Callable] = {}
 var _cooldown_remaining: float = 0.0
 var _start_time: float = 0.0
 var _runtime_seconds: float = 0.0
 
 func _ready() -> void:
-	_actions = [
-		Callable(self, "_action_tweak_property"),
-		Callable(self, "_action_add_node"),
-		Callable(self, "_action_delete_node"),
-		Callable(self, "_action_reparent_or_move"),
-		Callable(self, "_action_duplicate_node"),
-	]
+	_actions = {
+		MonkeyAction.TWEAK_PROPERTY: Callable(self, "_action_tweak_property"),
+		MonkeyAction.ADD_NODE: Callable(self, "_action_add_node"),
+		MonkeyAction.DELETE_NODE: Callable(self, "_action_delete_node"),
+		MonkeyAction.REPARENT_OR_MOVE: Callable(self, "_action_reparent_or_move"),
+		MonkeyAction.DUPLICATE_NODE: Callable(self, "_action_duplicate_node"),
+	}
 
 func _process(delta: float) -> void:
 	if not enabled or not Engine.is_editor_hint():
@@ -112,7 +118,7 @@ func perform_random_action(all_nodes: Array[Node], edited_root: Node) -> void:
 	var action_name: String = _action_names[action]
 	action_attempts += 1
 
-	var result: Dictionary = _actions[action_index].call(all_nodes, edited_root)
+	var result: Dictionary = _actions[action].call(all_nodes, edited_root)
 	var ok: bool = bool(result.get("ok", false))
 	var details: String = String(result.get("details", ""))
 
@@ -297,8 +303,11 @@ func _pick_random_node(nodes: Array[Node]) -> Node:
 func _mutate_name(node: Node) -> void:
 	node.name = StringName("MonkeyNode_" + str(randi_range(1000, 9999)))
 
+func _get_random_transform_mode() -> TweakTransformMode:
+	return enabled_tweak_transform_modes[randi_range(0, enabled_tweak_transform_modes.size() - 1)]
+
 func _mutate_node_2d(node: Node2D) -> void:
-	match randi_range(0, 2):
+	match _get_random_transform_mode():
 		TweakTransformMode.POSITION:
 			node.position += Vector2(
 				randf_range(-max_position_delta, max_position_delta),
@@ -313,7 +322,7 @@ func _mutate_node_2d(node: Node2D) -> void:
 			)
 
 func _mutate_node_3d(node: Node3D) -> void:
-	match randi_range(0, 2):
+	match _get_random_transform_mode():
 		TweakTransformMode.POSITION:
 			node.position += Vector3(
 				randf_range(-max_position_delta, max_position_delta),

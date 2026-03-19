@@ -27,7 +27,6 @@
 [ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/patchwork/public/gdscript/collapse_button.gd" id="20_lnig1"]
 [ext_resource type="Texture2D" uid="uid://2cgni4fdnkx6" path="res://addons/patchwork/public/icons/GuiClose24.svg" id="23_dclp7"]
 [ext_resource type="Texture2D" uid="uid://c8twwi4bj6pxh" path="res://addons/patchwork/public/icons/Confirm24.svg" id="23_k46dq"]
-[ext_resource type="Texture2D" uid="uid://dr8tv6e0oghna" path="res://addons/patchwork/public/icons/UndoRedo24.svg" id="23_onfam"]
 [ext_resource type="Script" uid="uid://ddj4tsbib43se" path="res://addons/patchwork/public/gdscript/monkey_tester.gd" id="28_l5ixe"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_yycpk"]
@@ -149,6 +148,7 @@ popup/item_3/id = 3
 
 [node name="MonkeyButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=665235736]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
 tooltip_text = "Activate the MONKEY!!"
 theme_override_styles/pressed = SubResource("StyleBoxFlat_yycpk")
@@ -592,7 +592,13 @@ placeholder_text = "User Name..."
 [node name="MonkeyTester" type="Node" parent="." unique_id=1409873935]
 unique_name_in_owner = true
 script = ExtResource("28_l5ixe")
-max_run_time_seconds = null
+verbose_logging = true
+action_cooldown_seconds = 1.0
+max_position_delta = 100.0
+max_rotation_delta = 0.5
+max_scale_delta = 0.5
+max_changes_per_action = 20
+enabled_actions = Array[int]([0, 3])
 
 [connection signal="toggled" from="VBoxContainer/StatusBar/MonkeyButton" to="." method="_on_monkey_button_toggled"]
 [connection signal="disabled_self" from="MonkeyTester" to="." method="_on_monkey_tester_disabled_self"]

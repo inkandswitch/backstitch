@@ -2,11 +2,39 @@
 class_name MonkeyTester
 extends Node
 
-@export var enabled: bool = false
+
+enum MonkeyAction{
+	TWEAK_PROPERTY = 0,
+	ADD_NODE = 1,
+	DELETE_NODE = 2,
+	REPARENT_OR_MOVE = 3,
+	DUPLICATE_NODE = 4,
+}
+
+enum TweakTransformMode{
+	POSITION = 0,
+	ROTATION = 1,
+	SCALE = 2,
+}
+
+var enabled: bool = false
 @export var verbose_logging: bool = false
+@export var action_cooldown_seconds: float = 0.5
 @export var max_position_delta: float = 16.0
 @export var max_rotation_delta: float = 0.25
 @export var max_scale_delta: float = 0.2
+@export var max_run_time_seconds: float = 300.0
+@export var max_changes_per_action: int = 5
+
+@export var enabled_actions: Array[MonkeyAction] = [
+	MonkeyAction.TWEAK_PROPERTY,
+	# MonkeyAction.ADD_NODE,
+	# MonkeyAction.DELETE_NODE,
+	# MonkeyAction.REPARENT_OR_MOVE,
+	# MonkeyAction.DUPLICATE_NODE,
+]
+
+signal disabled_self(reason: String)
 
 var action_attempts: int = 0
 var action_successes: int = 0
@@ -14,17 +42,20 @@ var action_failures: int = 0
 var save_successes: int = 0
 var save_failures: int = 0
 
-var _action_names: PackedStringArray = []
+var _action_names: PackedStringArray = [
+	"tweak_property",
+	"add_node",
+	"delete_node",
+	"reparent_or_move",
+	"duplicate_node",
+]
+
 var _actions: Array[Callable] = []
+var _cooldown_remaining: float = 0.0
+var _start_time: float = 0.0
+var _runtime_seconds: float = 0.0
 
 func _ready() -> void:
-	_action_names = [
-		"tweak_property",
-		"add_node",
-		"delete_node",
-		"reparent_or_move",
-		"duplicate_node",
-	]
 	_actions = [
 		Callable(self, "_action_tweak_property"),
 		Callable(self, "_action_add_node"),
@@ -33,20 +64,52 @@ func _ready() -> void:
 		Callable(self, "_action_duplicate_node"),
 	]
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not enabled or not Engine.is_editor_hint():
 		return
+
+	_runtime_seconds += delta
+	if max_run_time_seconds > 0.0 and _runtime_seconds - _start_time > max_run_time_seconds * 1000.0:
+		enabled = false
+		print("MonkeyTester: max run time reached, disabling")
+		disabled_self.emit("max run time reached")
+		return
+
+	if action_cooldown_seconds > 0.0:
+		_cooldown_remaining -= delta
+		if _cooldown_remaining > 0.0:
+			return
 
 	var edited_root: Node = EditorInterface.get_edited_scene_root()
 	if edited_root == null or not is_instance_valid(edited_root):
 		return
-
-	var all_nodes: Array[Node] = _collect_nodes(edited_root)
-	if all_nodes.is_empty() or _actions.is_empty():
+	if edited_root.get_scene_file_path().contains("patchwork/"):
+		enabled = false
+		printerr("MonkeyTester: edited scene is in patchwork folder, disabling")
+		disabled_self.emit("edited scene is in patchwork folder")
 		return
 
-	var action_index: int = randi_range(0, _actions.size() - 1)
-	var action_name: String = _action_names[action_index]
+	var all_nodes: Array[Node] = _collect_nodes(edited_root)
+	if all_nodes.is_empty() or enabled_actions.is_empty():
+		return
+
+	# we're all set to perform a random action, so reset the cooldown
+	_cooldown_remaining = action_cooldown_seconds
+	# set process to false so that any action we take doesn't trigger a stack overflow
+	set_process(false)
+
+	# roll for a number of changes to perform
+	var changes: int = randi_range(1, max_changes_per_action)
+	for i in changes:
+		perform_random_action(all_nodes, edited_root)
+
+	_save_current_scene()
+	set_process(true)
+
+func perform_random_action(all_nodes: Array[Node], edited_root: Node) -> void:
+	var action_index: int = randi_range(0, enabled_actions.size() - 1)
+	var action: MonkeyAction = enabled_actions[action_index]
+	var action_name: String = _action_names[action]
 	action_attempts += 1
 
 	var result: Dictionary = _actions[action_index].call(all_nodes, edited_root)
@@ -61,34 +124,28 @@ func _process(_delta: float) -> void:
 	if verbose_logging:
 		print("MonkeyTester action=", action_name, " ok=", ok, " details=", details)
 
-	_save_current_scene()
+func start() -> void:
+	enabled = true
+	_start_time = Time.get_ticks_msec()
+
+func stop() -> void:
+	enabled = false
+	_start_time = 0.0
 
 func _action_tweak_property(all_nodes: Array[Node], _edited_root: Node) -> Dictionary:
 	var node: Node = _pick_random_node(all_nodes)
 	if node == null:
 		return _fail("no node to tweak")
-
-	var tweak_mode: int = randi_range(0, 4)
-	match tweak_mode:
-		0:
-			_mutate_name(node)
-			return _ok("renamed " + String(node.name))
-		1:
-			if node is Node2D:
-				_mutate_node_2d(node)
-				return _ok("mutated Node2D transform")
-		2:
-			if node is Node3D:
-				_mutate_node_3d(node)
-				return _ok("mutated Node3D transform")
-		3:
-			if node is CanvasItem:
-				var canvas_item: CanvasItem = node
-				canvas_item.visible = not canvas_item.visible
-				return _ok("toggled visibility")
-		4:
-			node.set_process_priority(node.get_process_priority() + randi_range(-1, 1))
-			return _ok("changed process priority")
+	if node is Node2D:
+		_mutate_node_2d(node)
+		return _ok("mutated Node2D transform")
+	if node is Node3D:
+		_mutate_node_3d(node)
+		return _ok("mutated Node3D transform")
+	if node is CanvasItem:
+		var canvas_item: CanvasItem = node
+		canvas_item.visible = not canvas_item.visible
+		return _ok("toggled visibility")
 
 	_mutate_name(node)
 	return _ok("fallback rename " + String(node.name))
@@ -241,32 +298,40 @@ func _mutate_name(node: Node) -> void:
 	node.name = StringName("MonkeyNode_" + str(randi_range(1000, 9999)))
 
 func _mutate_node_2d(node: Node2D) -> void:
-	node.position += Vector2(
-		randf_range(-max_position_delta, max_position_delta),
-		randf_range(-max_position_delta, max_position_delta)
-	)
-	node.rotation += randf_range(-max_rotation_delta, max_rotation_delta)
-	node.scale += Vector2(
-		randf_range(-max_scale_delta, max_scale_delta),
-		randf_range(-max_scale_delta, max_scale_delta)
-	)
+	match randi_range(0, 2):
+		TweakTransformMode.POSITION:
+			node.position += Vector2(
+				randf_range(-max_position_delta, max_position_delta),
+				randf_range(-max_position_delta, max_position_delta)
+			)
+		TweakTransformMode.ROTATION:
+			node.rotation += randf_range(-max_rotation_delta, max_rotation_delta)
+		TweakTransformMode.SCALE:
+			node.scale += Vector2(
+				randf_range(-max_scale_delta, max_scale_delta),
+				randf_range(-max_scale_delta, max_scale_delta)
+			)
 
 func _mutate_node_3d(node: Node3D) -> void:
-	node.position += Vector3(
-		randf_range(-max_position_delta, max_position_delta),
-		randf_range(-max_position_delta, max_position_delta),
-		randf_range(-max_position_delta, max_position_delta)
-	)
-	node.rotation += Vector3(
-		randf_range(-max_rotation_delta, max_rotation_delta),
-		randf_range(-max_rotation_delta, max_rotation_delta),
-		randf_range(-max_rotation_delta, max_rotation_delta)
-	)
-	node.scale += Vector3(
-		randf_range(-max_scale_delta, max_scale_delta),
-		randf_range(-max_scale_delta, max_scale_delta),
-		randf_range(-max_scale_delta, max_scale_delta)
-	)
+	match randi_range(0, 2):
+		TweakTransformMode.POSITION:
+			node.position += Vector3(
+				randf_range(-max_position_delta, max_position_delta),
+				randf_range(-max_position_delta, max_position_delta),
+				randf_range(-max_position_delta, max_position_delta)
+			)
+		TweakTransformMode.ROTATION:
+			node.rotation += Vector3(
+				randf_range(-max_rotation_delta, max_rotation_delta),
+				randf_range(-max_rotation_delta, max_rotation_delta),
+				randf_range(-max_rotation_delta, max_rotation_delta)
+			)
+		TweakTransformMode.SCALE:
+			node.scale += Vector3(
+				randf_range(-max_scale_delta, max_scale_delta),
+				randf_range(-max_scale_delta, max_scale_delta),
+				randf_range(-max_scale_delta, max_scale_delta)
+			)
 
 func _apply_initial_random_transform(node: Node) -> void:
 	if node is Node2D:

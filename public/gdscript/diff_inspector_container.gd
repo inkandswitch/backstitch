@@ -380,7 +380,7 @@ func create_node_diff_section(file_section: DiffInspectorSection, node_diff: Dic
 		node_label += " (Modified)"
 		changed_nodes.append(fake_node)
 	prop_diffs = node_diff.get("changed_props", {})
-	if prop_diffs.size() == 0:
+	if prop_diffs.size() == 0 and change_type == "modified":
 		return null
 
 	inspector_section.setup(node_name, node_label, fake_node, color, true, 1, 2)

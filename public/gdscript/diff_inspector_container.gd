@@ -487,7 +487,7 @@ func pop_node_sections(name: String, map: Dictionary, parent_section: DiffInspec
 			elif count == 1:
 				var child_sec: DiffInspectorSection = sec.get_vbox().get_child(1)
 				if child_sec is DiffInspectorSection:
-					child_sec.label = sec.label + "/" + child_sec.label
+					child_sec.set_label(sec.get_label() + "/" + child_sec.get_label())
 					child_sec.reparent(parent_section.get_vbox())
 				else:
 					added_diff = true

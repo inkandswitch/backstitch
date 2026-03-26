@@ -62,6 +62,9 @@ const undo_redo_icon = preload("res://addons/patchwork/public/icons/UndoRedo.svg
 @onready var diff_section_button: Button = %DiffSectionButton
 @onready var diff_section_body: Control = %DiffSectionBody
 
+# Monkey tester
+@onready var monkey_tester: MonkeyTester = %MonkeyTester
+
 # Defines the column indices for the history tree.
 class HistoryColumns:
 	const HASH = 0
@@ -210,6 +213,8 @@ func set_history_item_hash(item: TreeItem, value: String) -> void:
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
+
+	monkey_tester.enabled = false
 
 	# @Paul: I think somewhere besides the plugin sidebar gets instantiated. Is this something godot does?
 	# to paper over this we check if plugin and godot_project are set
@@ -886,9 +891,21 @@ func _on_action_menu_item_selected(id: int) -> void:
 			var idx = action_menu_button.get_popup().get_item_index(id)
 			action_menu_button.get_popup().toggle_item_checked(idx)
 			var checked = action_menu_button.get_popup().is_item_checked(idx)
+			if monkey_tester.enabled && not checked:
+				print("MonkeyTester: disabling because developer mode is disabled")
+				monkey_tester.stop()
+			%MonkeyButton.visible = checked
 			toaster.push_toast("Developer mode enabled." if checked else "Developer mode disabled.")
 			update_ui()
 		ActionMenuItems.DUMP_BRANCH:
 			GodotProject.dump_current_branch()
 			toaster.push_toast("Dumped current branch state to res://.patchwork/.")
 			
+func _on_monkey_button_toggled(toggled_on: bool) -> void:
+	if (toggled_on):
+		monkey_tester.start()
+	else:
+		monkey_tester.stop()
+
+func _on_monkey_tester_disabled_self(reason: String) -> void:
+	%MonkeyButton.button_pressed = false

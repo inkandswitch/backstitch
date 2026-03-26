@@ -18,6 +18,7 @@
 [ext_resource type="Texture2D" uid="uid://bwl516giuyq0n" path="res://addons/patchwork/public/icons/StatusWarning32.svg" id="9_p7w5p"]
 [ext_resource type="Texture2D" uid="uid://br8vekrg7up5j" path="res://addons/patchwork/public/icons/Tools.svg" id="9_s0dyv"]
 [ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/patchwork/public/gdscript/branch_picker.gd" id="10_k46dq"]
+[ext_resource type="Texture2D" uid="uid://coaycd1enf24v" path="res://addons/patchwork/public/icons/Monkey.svg" id="10_yycpk"]
 [ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/patchwork/public/icons/PullRequest.svg" id="11_pt2pe"]
 [ext_resource type="Texture2D" uid="uid://dyjhwr8pnyuhf" path="res://addons/patchwork/public/icons/CollapsibleOpen.svg" id="12_onfam"]
 [ext_resource type="Texture2D" uid="uid://3hpc87bqt36t" path="res://addons/patchwork/public/icons/GuiClose.svg" id="13_dclp7"]
@@ -26,6 +27,31 @@
 [ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/patchwork/public/gdscript/collapse_button.gd" id="20_lnig1"]
 [ext_resource type="Texture2D" uid="uid://2cgni4fdnkx6" path="res://addons/patchwork/public/icons/GuiClose24.svg" id="23_dclp7"]
 [ext_resource type="Texture2D" uid="uid://c8twwi4bj6pxh" path="res://addons/patchwork/public/icons/Confirm24.svg" id="23_k46dq"]
+[ext_resource type="Script" uid="uid://ddj4tsbib43se" path="res://addons/patchwork/public/gdscript/monkey_tester.gd" id="28_l5ixe"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_yycpk"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(1, 0, 0, 0.34117648)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+corner_detail = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_l5ixe"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(1, 0, 0, 0.41568628)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+corner_detail = 5
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_of6ia"]
 bg_color = Color(0.129412, 0.14902, 0.180392, 1)
@@ -119,6 +145,16 @@ popup/item_3/text = "Developer Mode"
 popup/item_3/icon = ExtResource("9_s0dyv")
 popup/item_3/checkable = 1
 popup/item_3/id = 3
+
+[node name="MonkeyButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=665235736]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+tooltip_text = "Activate the MONKEY!!"
+theme_override_styles/pressed = SubResource("StyleBoxFlat_yycpk")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_l5ixe")
+toggle_mode = true
+icon = ExtResource("10_yycpk")
 
 [node name="BranchBar" type="HBoxContainer" parent="VBoxContainer" unique_id=24847367]
 layout_mode = 2
@@ -552,3 +588,17 @@ offset_bottom = 51.0
 unique_name_in_owner = true
 layout_mode = 2
 placeholder_text = "User Name..."
+
+[node name="MonkeyTester" type="Node" parent="." unique_id=1409873935]
+unique_name_in_owner = true
+script = ExtResource("28_l5ixe")
+verbose_logging = true
+action_cooldown_seconds = 1.0
+max_position_delta = 100.0
+max_rotation_delta = 0.5
+max_scale_delta = 0.5
+max_changes_per_action = 20
+enabled_actions = Array[int]([0, 3])
+
+[connection signal="toggled" from="VBoxContainer/StatusBar/MonkeyButton" to="." method="_on_monkey_button_toggled"]
+[connection signal="disabled_self" from="MonkeyTester" to="." method="_on_monkey_tester_disabled_self"]

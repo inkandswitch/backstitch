@@ -97,7 +97,8 @@ static func highlight_changes(root: Node, scene_changes: Dictionary):
 
 	var diff_layer = highlight_changes_layer_container.get_node_or_null("PatchworkHighlightChangesLayer")
 	var bounding_box = _get_node_bounding_box(root)
-
+	if not is_instance_valid(bounding_box):
+		return
 	if diff_layer == null:
 		diff_layer = HighlightChangesLayer.new()
 		diff_layer.name = "PatchworkHighlightChangesLayer"

@@ -192,6 +192,12 @@ impl PatchworkEditorAccessor {
         script_editor.call("close_file", &[path.to_variant()]);
     }
 
+    fn get_current_scene_path() -> Option<GString> {
+        EditorInterface::singleton()
+            .get_edited_scene_root()
+            .map(|scene| scene.get_scene_file_path())
+    }
+
     pub fn close_files_if_open(paths: &Vec<String>) {
         let open_scenes = EditorInterface::singleton().get_open_scenes();
         let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
@@ -201,12 +207,17 @@ impl PatchworkEditorAccessor {
             .iter_shared()
             .map(|script| script.get_path().to_string())
             .collect::<HashSet<String>>();
+        let current_scene = Self::get_current_scene_path().map(|path| path.to_string());
         for path in paths {
             if open_scenes.contains(path) {
-                EditorInterface::singleton().open_scene_from_path(path);
-                EditorInterface::singleton().close_scene();
-            }
-            if open_scripts.contains(path) {
+                if current_scene.is_some() && current_scene.as_ref().unwrap() == path {
+                    EditorInterface::singleton().close_scene();
+                } else {
+                    // TODO: https://github.com/godotengine/godot/pull/116905 has a bug in it that causes a crash if the scene is not the current scene and then we close it; so we need to wait until that's fixed
+                    // EditorInterface::singleton().open_scene_from_path(path);
+                    // EditorInterface::singleton().close_scene();
+                }
+            } else if open_scripts.contains(path) {
                 // TODO: when https://github.com/godotengine/godot/pull/113772 is merged and 4.7 is released, use the bound method instead
                 script_editor.call("close_file", &[path.to_variant()]);
             }
@@ -214,9 +225,7 @@ impl PatchworkEditorAccessor {
     }
 
     pub fn reload_scene_files() {
-        let current_scene = EditorInterface::singleton()
-            .get_edited_scene_root()
-            .map(|scene| scene.get_scene_file_path());
+        let current_scene = Self::get_current_scene_path();
         let open_scenes = EditorInterface::singleton().get_open_scenes();
         for scene in open_scenes.as_slice().iter() {
             if current_scene.is_some() && current_scene.as_ref().unwrap() == scene {

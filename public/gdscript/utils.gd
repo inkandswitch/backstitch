@@ -34,8 +34,15 @@ static func popup_box(parent_window: Node, dialog: AcceptDialog, message: String
 	dialog.connect("canceled", cancel_func)
 	dialog.popup_centered()
 
+static func unsaved_files_open() -> bool:
+	if EditorInterface.get_script_editor().get_unsaved_files().size() > 0:
+		return true
+	if EditorInterface.get_unsaved_scenes().size() > 0:
+		return true
+	return false
+
 static func create_unsaved_files_dialog(parent: Control, message: String):
-	if PatchworkEditor.unsaved_files_open():
+	if unsaved_files_open():
 		var dialog = AcceptDialog.new()
 		dialog.title = "Unsaved Files"
 		dialog.dialog_text = message

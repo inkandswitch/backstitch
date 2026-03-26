@@ -180,7 +180,8 @@ func get_default_val_for_class(node_type: String, prop_name):
 	# We can't get the default value for a script instance
 	if node_type.begins_with("Resource("):
 		var path = node_type.trim_prefix("Resource(").trim_suffix(")").trim_prefix('"').trim_suffix('"')
-		var script_class: String = PatchworkEditor.get_resource_script_class(path)
+		# TODO: This is on a hanging PR and is not really necessary; we should be doing this in the diff code instead
+		var script_class: String = ResourceLoader.get_resource_script_class(path)
 		if script_class:
 			return ClassDB.class_get_property_default_value(script_class, prop_name)
 		return "<default_value>"
@@ -312,7 +313,7 @@ func _on_text_box_clicked(section: String) -> void:
 	var file_path = section
 	var extension = file_path.get_extension().to_lower()
 	EditorInterface.get_file_system_dock().navigate_to_path(file_path)
-	PatchworkEditor.open_script_file(file_path)
+	EditorInterface.open_scene_or_resource_from_path(file_path)
 	EditorInterface.set_main_screen_editor("Script")
 
 

@@ -51,6 +51,16 @@ _clone repo_url directory checkout:
     #!/usr/bin/env sh
     # set -euxo pipefail
 
+    # if directory is empty (as a result of a previous clone that failed), remove it
+    if [[ -n $(find "{{directory}}" -maxdepth 0 -type d -empty) ]]; then
+        if rmdir "{{directory}}"; then
+            echo "Removed directory: {{directory}}"
+        else
+            echo "Failed to clean directory: {{directory}}"
+            exit 1
+        fi
+    fi
+
     # If the directory doesn't exist, freshly clone
     if [[ ! -d "{{directory}}" ]]; then
         git clone "git@github.com:{{repo_url}}" "{{directory}}" --no-checkout --filter=blob:none 
@@ -110,8 +120,16 @@ _link-project project: (_acquire-project project) _make-plugin-dir
     just _symlink "build/patchwork" "build/{{project}}/addons/patchwork"
 
 # Link our custom Godot editor module
-_link-godot: _acquire-godot
-    mkdir -p "build/godot/"
+[arg('skip_godot_clone', pattern='yes|no')]
+_link-godot skip_godot_clone="no":
+    #!/usr/bin/env sh
+    # set -euxo pipefail
+    if [[ "{{skip_godot_clone}}" = "no" ]] ; then
+        echo "**** Cloning Godot... ****"
+        just _acquire-godot
+    else
+        echo "**** Skipping Godot clone... ****"
+    fi
     just _symlink "editor" "build/godot/modules/patchwork_editor"
 
 # Link the assets directory for our plugin
@@ -120,26 +138,36 @@ _link-public: _make-plugin-dir
 
 # Build the Godot editor with our editor module linked in. Available profiles are release, debug, or sani (for use_asan=yes)
 [arg('profile', pattern='release|debug|sani')]
-build-godot profile: _link-godot
+[arg('skip_godot_clone', pattern='yes|no')]
+build-godot profile skip_godot_clone="no": (_link-godot skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
-    cd "build/godot"
-    EXTRA_BUILD_FLAGS=""
+    EXTRA_BUILD_FLAG=""
+    EXTRA_ID_FLAG=""
+
     # check for macos; if yes, add `generate_bundle=yes`
     if [[ "{{os()}}" = "macos" ]] ; then
-        EXTRA_BUILD_FLAGS="generate_bundle=yes"
+        EXTRA_BUILD_FLAG="generate_bundle=yes"
         # check for the .cargo/.devidentity file; if it exists, add `bundle_sign_identity=<contents>`
         if [ -f .cargo/.devidentity ]; then
-            EXTRA_BUILD_FLAGS="$EXTRA_BUILD_FLAGS bundle_sign_identity=$(cat .cargo/.devidentity)"
+            DEV_ID="$(cat .cargo/.devidentity)"
+            EXTRA_ID_FLAG="bundle_sign_identity=$DEV_ID"
+            echo "signing godot with identity: $DEV_ID"
+        else
+            echo "**** No development identity file found; if you want to enable code signing, create a .cargo/.devidentity file with your dev ID."
+            echo "**** Example: echo 'Developer ID Application: Your Name (TEAMID)' > .cargo/.devidentity"
+            echo "**** HINT: use 'security find-identity -p codesigning -v' to find your dev ID."
         fi
     fi
+    cd "build/godot"
     # TODO: figure out a way to see if scons actually needs a run, since this takes forever even when built
     if [[ {{profile}} = "release" ]] ; then
-        scons dev_build=no debug_symbols=no target=editor deprecated=yes minizip=yes compiledb=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        
+        scons dev_build=no debug_symbols=no target=editor deprecated=yes minizip=yes compiledb=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     elif [[ {{profile}} = "sani" ]] ; then
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     else
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes $EXTRA_BUILD_FLAGS
+        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
     fi
 
 # Build the Rust plugin binaries.
@@ -389,14 +417,29 @@ _write-url project url: (_link-project project)
     with open(path, "w") as file:
         file.writelines(new_lines)
 
+[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('patchwork_profile', pattern='release|debug')]
+[arg('godot_profile', pattern='release|debug|sani')]
+[arg('tracing_support', pattern='none|tokio-console')]
+[arg('skip_godot_clone', pattern='yes|no')]
+echo-parms project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no":
+    #!/usr/bin/env sh
+    # set -euxo pipefail
+    echo "patchwork_profile: {{patchwork_profile}}"
+    echo "godot_profile:     {{godot_profile}}"
+    echo "server_url:        {{server_url}}"
+    echo "tracing_support:   {{tracing_support}}"
+    echo "skip_godot_clone:  {{skip_godot_clone}}"
+
 # Prepare a project for launch with Godot. Available projects are threadbare, moddable-platformer.
 [parallel]
 [arg('project', pattern='moddable-platformer|threadbare')]
 [arg('patchwork_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
-prepare project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none": \
-        (_link-project project) (build-godot godot_profile) (build-patchwork patchwork_profile default_arch tracing_support) (_write-url project server_url)
+[arg('skip_godot_clone', pattern='yes|no')]
+prepare project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
+        (echo-parms project patchwork_profile godot_profile server_url tracing_support skip_godot_clone) (_link-project project) (build-godot godot_profile skip_godot_clone) (build-patchwork patchwork_profile default_arch tracing_support) (_write-url project server_url)
 
 
 # Launch a project with Godot. Available projects are threadbare, moddable-platformer.
@@ -404,8 +447,9 @@ prepare project="moddable-platformer" patchwork_profile="release" godot_profile=
 [arg('patchwork_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
-launch project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none": \
-        (prepare project patchwork_profile godot_profile server_url tracing_support)
+[arg('skip_godot_clone', pattern='yes|no')]
+launch project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
+        (prepare project patchwork_profile godot_profile server_url tracing_support skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
     
@@ -450,3 +494,8 @@ launch project="moddable-platformer" patchwork_profile="release" godot_profile="
     fi
 
     $godot_path -e --path "build/{{project}}"
+
+rebase-godot:
+    #!/usr/bin/env sh
+    # set -euxo pipefail
+    .scripts/rebase_godot.sh

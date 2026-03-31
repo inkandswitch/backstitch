@@ -33,6 +33,7 @@
             "cwd": "${workspaceFolder}",
 			"initCommands": [
                 // codelldb has rust support built-in, so we don't need to import the rust_lang_support script
+                "script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
 				"script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
 			],
             "preLaunchTask": "Build: Prepare moddable-platformer (Release)"
@@ -53,6 +54,7 @@
 			"console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
 			"initCommands": [
+                "script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
 				"script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
 			],
             "preLaunchTask": "Build: Prepare moddable-platformer (Debug)"
@@ -183,6 +185,7 @@
             "cwd": "${workspaceFolder}",
 			"initCommands": [
                 "command script import ${workspaceFolder}/build/GodotFormatters/rust_lang_support",
+                "command script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
 				"command script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
 			],
             "preLaunchTask": "Build: Prepare moddable-platformer (Release)"
@@ -204,6 +207,7 @@
             "cwd": "${workspaceFolder}",
 			"initCommands": [
 				"command script import ${workspaceFolder}/build/GodotFormatters/rust_lang_support",
+                "command script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
 				"command script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
 			],
             "preLaunchTask": "Build: Prepare moddable-platformer (Debug)"

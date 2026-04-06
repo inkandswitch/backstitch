@@ -1,6 +1,6 @@
 use crate::fs::file_utils::{FileContent, FileSystemEvent};
 use crate::helpers::history_ref::HistoryRef;
-use crate::interop::godot_accessors::{EditorFilesystemAccessor, PatchworkConfigAccessor, PatchworkEditorAccessor};
+use crate::interop::godot_accessors::{EditorFilesystemAccessor, BackstitchConfigAccessor, BackstitchEditorAccessor};
 use crate::project::project::{GodotProjectSignal, Project};
 use crate::project::project_api::{BranchViewModel, ProjectViewModel};
 use automerge::ChangeHash;
@@ -136,7 +136,7 @@ impl PendingEditorUpdate {
 	}
 }
 
-/// GodotProject is the main interface between Godot's API and the Patchwork Rust core.
+/// GodotProject is the main interface between Godot's API and the Backstitch Rust core.
 /// It is intended to be a gdscript-visible lightweight wrapper around the GodotProjectImpl, which contains the actual logic.
 /// It also handles signals and communication with Godot.
 #[derive(GodotClass, Debug)]
@@ -470,16 +470,16 @@ impl INode for GodotProject {
 			// if we rebase and this fails, we're going to have to do something else
 			panic!("Failed to steal reload methods from dialog signal handlers");
 		}
-		let project_id = PatchworkConfigAccessor::get_project_doc_id();
+		let project_id = BackstitchConfigAccessor::get_project_doc_id();
 		if project_id == "" {
-			tracing::info!("Patchwork config has no project id, not autostarting...");
+			tracing::info!("Backstitch config has no project id, not autostarting...");
 			return;
 		}
 		// for the autostart, we force save everything.
 		// Disable process, because `save_all()` can result in `Main::iteration()` being called,
 		// which can result in panic due to a bind when we're already bound mutable.
 		self.base_mut().set_process(false);
-		PatchworkEditorAccessor::save_all();
+		BackstitchEditorAccessor::save_all();
 		self.base_mut().set_process(true);
 		// wait some frames before starting
 		self.deferred_start = 3;
@@ -492,7 +492,7 @@ impl INode for GodotProject {
         // Perform typical plugin operations here.
     }
 
-	#[instrument(target = "patchwork_rust_core::godot_project::outer_process", level = tracing::Level::DEBUG, skip_all)]
+	#[instrument(target = "backstitch_rust_core::godot_project::outer_process", level = tracing::Level::DEBUG, skip_all)]
     fn process(&mut self, _delta: f64) {
 		if self.deferred_start > 0 {
 			self.deferred_start -= 1;
@@ -550,8 +550,8 @@ impl GodotProjectPlugin {
 	}
 
 	fn add_sidebar(&mut self) {
-		self.sidebar = self.instantiate_control("res://addons/patchwork/public/gdscript/sidebar.tscn");
-		self.toolbar = self.instantiate_control("res://addons/patchwork/public/gdscript/toolbar.tscn");
+		self.sidebar = self.instantiate_control("res://addons/backstitch/public/gdscript/sidebar.tscn");
+		self.toolbar = self.instantiate_control("res://addons/backstitch/public/gdscript/toolbar.tscn");
 		if let Some(sidebar) = self.sidebar.clone().as_mut() {
 			self.base_mut().add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
 			let _ = sidebar.deref_mut().connect("reload_ui", &Callable::from_object_method(&self.to_gd(), "on_reload_ui"));
@@ -602,7 +602,7 @@ impl GodotProjectPlugin {
 		}
 		self.base_mut().set_process(false);
 		p.base_mut().set_process(false);
-		PatchworkEditorAccessor::close_files_if_open(&p.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
+		BackstitchEditorAccessor::close_files_if_open(&p.pending_editor_update.deleted_files.iter().map(|path| path.clone()).collect::<Vec<String>>());
 		p.pending_editor_update.deleted_files.clear();
 		if p.pending_editor_update.reload_project_settings {
 			p.reload_project_settings();
@@ -612,7 +612,7 @@ impl GodotProjectPlugin {
 		// make sure to explicitly have p dropped so that sidebar can update, then rebind
 		drop(p);
 
-		if PatchworkEditorAccessor::refresh_after_source_change() {
+		if BackstitchEditorAccessor::refresh_after_source_change() {
 			let mut p = proj.bind_mut();
 			p.pending_editor_update.clear();
 		}
@@ -624,7 +624,7 @@ impl GodotProjectPlugin {
 
 	#[func]
 	fn on_scene_saved(&mut self, path: String) {
-		if path == "res://addons/patchwork/public/gdscript/sidebar.tscn" {
+		if path == "res://addons/backstitch/public/gdscript/sidebar.tscn" {
 			tracing::info!("Scene saved {path}; reloading sidebar");
 			self.on_reload_ui();
 		}
@@ -645,7 +645,7 @@ impl IEditorPlugin for GodotProjectPlugin {
 		// Don't initialize until the project is fully loaded and the editor is not importing
 		if !self.initialized
 			&& !EditorFilesystemAccessor::is_scanning()
-			&& !PatchworkEditorAccessor::is_editor_importing()
+			&& !BackstitchEditorAccessor::is_editor_importing()
 			&& DirAccess::dir_exists_absolute("res://.godot") // This is at the end because DirAccess::dir_exists_absolute locks a global mutex
 			{
 			// If we're already the parent of it, don't add it again

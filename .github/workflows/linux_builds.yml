@@ -1,4 +1,4 @@
-name: 🐧 Build Patchwork for Linux
+name: 🐧 Build Backstitch for Linux
 on:
   workflow_call:
 
@@ -38,7 +38,7 @@ jobs:
       - name: Restore Cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: patchwork_rust_plugin_linux-${{ matrix.arch.id }}
+          prefix-key: backstitch_rust_plugin_linux-${{ matrix.arch.id }}
 
       - name: Build
         uses: ./.github/actions/build-plugin
@@ -48,7 +48,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: patchwork-build-linux-${{ matrix.arch.id }}
-          path: ./build/patchwork/*
+          name: backstitch-build-linux-${{ matrix.arch.id }}
+          path: ./build/backstitch/*
           if-no-files-found: error
 

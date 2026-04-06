@@ -2,19 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Hot reload Patchwork",
+            "name": "Hot reload Backstitch",
             "type": "node-terminal",
             "request": "launch",
             // unsure if this works on non-windows platforms; test
-            "command": "just build-patchwork release && exit",
-            "windows": { "command": "just build-patchwork release && $host.SetShouldExit(0)" }
+            "command": "just build-backstitch release && exit",
+            "windows": { "command": "just build-backstitch release && $host.SetShouldExit(0)" }
         },
         {
-            "name": "Hot reload Patchwork (dev)",
+            "name": "Hot reload Backstitch (dev)",
             "type": "node-terminal",
             "request": "launch",
-            "command": "just build-patchwork debug && exit",
-            "windows": { "command": "just build-patchwork debug && $host.SetShouldExit(0)" }
+            "command": "just build-backstitch debug && exit",
+            "windows": { "command": "just build-backstitch debug && $host.SetShouldExit(0)" }
         },
         {
             "name": "lldb: Launch moddable-platformer",

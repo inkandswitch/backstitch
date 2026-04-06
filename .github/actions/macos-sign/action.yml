@@ -53,7 +53,7 @@ inputs:
     required: false
     description: |
       If provided, this will override the bundle identifier used for signing.
-      Eg. com.inkandswitch.patchwork.editor
+      Eg. com.inkandswitch.backstitch.editor
 outputs:
   zip_path:
     value: ${{ steps.sign.outputs.path }}

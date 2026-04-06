@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://by20y2qtuv28k"
-path="res://.godot/imported/Merge.svg-3ba1c7a2bd8dfa298fd299f1b960cbcf.ctex"
+path="res://.godot/imported/Merge.svg-472807d2b6032f2e9d863dfbfc540812.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/Merge.svg"
-dest_files=["res://.godot/imported/Merge.svg-3ba1c7a2bd8dfa298fd299f1b960cbcf.ctex"]
+source_file="res://addons/backstitch/public/icons/Merge.svg"
+dest_files=["res://.godot/imported/Merge.svg-472807d2b6032f2e9d863dfbfc540812.ctex"]
 
 [params]
 

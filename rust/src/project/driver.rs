@@ -76,8 +76,8 @@ impl Driver {
         "**/.DS_Store",
         "**/thumbs.db",
         "**/desktop.ini",
-        "**/patchwork.cfg",
-        "**/addons/patchwork*",
+        "**/backstitch.cfg",
+        "**/addons/backstitch*",
         "**/target/*",
         "**/.*",
     ];
@@ -86,7 +86,7 @@ impl Driver {
         let mut gitignore = GitignoreBuilder::new(project_dir.clone());
         let _err = gitignore.case_insensitive(true);
         let _err = gitignore.add(project_dir.join(".gitignore"));
-        let _err = gitignore.add(project_dir.join(".patchworkignore"));
+        let _err = gitignore.add(project_dir.join(".backstitchignore"));
         for glob in Self::DEFAULT_IGNORE_GLOBS {
             let _ = gitignore.add_line(None, glob);
         }

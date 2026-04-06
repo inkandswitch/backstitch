@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://dv4ndva1sl6nv"]
 
-[ext_resource type="Script" uid="uid://bfxbm15i5u1pq" path="res://addons/patchwork/public/gdscript/toolbar.gd" id="1_odfgr"]
-[ext_resource type="Texture2D" uid="uid://b3ix638u40s8q" path="res://addons/patchwork/public/icons/Branch16.svg" id="1_rqlv4"]
-[ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/patchwork/public/gdscript/branch_picker.gd" id="2_00i0l"]
+[ext_resource type="Script" uid="uid://bfxbm15i5u1pq" path="res://addons/backstitch/public/gdscript/toolbar.gd" id="1_odfgr"]
+[ext_resource type="Texture2D" uid="uid://b3ix638u40s8q" path="res://addons/backstitch/public/icons/Branch16.svg" id="1_rqlv4"]
+[ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/backstitch/public/gdscript/branch_picker.gd" id="2_00i0l"]
 
 [node name="Toolbar" type="MarginContainer" unique_id=1109335381]
 anchors_preset = -1

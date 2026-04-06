@@ -13,7 +13,7 @@ use crate::{
             human_readable_timestamp,
         },
     },
-    interop::godot_accessors::PatchworkConfigAccessor,
+    interop::godot_accessors::BackstitchConfigAccessor,
     project::{
         project::Project,
         project_api::{
@@ -46,7 +46,7 @@ impl ProjectViewModel for Project {
         if self.has_project() {
             return;
         }
-        PatchworkConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
+        BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
         self.start();
     }
 
@@ -55,21 +55,21 @@ impl ProjectViewModel for Project {
             return;
         }
         self.stop();
-        PatchworkConfigAccessor::set_user_value("user_name", "");
-        PatchworkConfigAccessor::set_project_value("project_doc_id", "");
-        PatchworkConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
+        BackstitchConfigAccessor::set_user_value("user_name", "");
+        BackstitchConfigAccessor::set_project_value("project_doc_id", "");
+        BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
     }
 
     fn has_user_name(&self) -> bool {
-        PatchworkConfigAccessor::get_user_value("user_name", "") != ""
+        BackstitchConfigAccessor::get_user_value("user_name", "") != ""
     }
 
     fn get_user_name(&self) -> String {
-        PatchworkConfigAccessor::get_user_value("user_name", "Anonymous")
+        BackstitchConfigAccessor::get_user_value("user_name", "Anonymous")
     }
 
     fn set_user_name(&self, name: String) {
-        PatchworkConfigAccessor::set_user_value("user_name", &name);
+        BackstitchConfigAccessor::set_user_value("user_name", &name);
         self.with_driver_blocking("Set username", |driver| async move {
             driver.as_ref()?.set_username(Some(name)).await;
             Some(())

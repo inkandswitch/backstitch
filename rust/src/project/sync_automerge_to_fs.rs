@@ -25,7 +25,7 @@ impl SyncAutomergeToFileSystem {
     // Currently, if we get a remote change, and a single file is unsaved in Godot, we can't call this method at all.
     // Ideally, we'd check out the synced ref, and just exclude the edited files.
 
-    /// Check out a [HistoryRef] from the Patchwork history, changing the filesystem as necessary.
+    /// Check out a [HistoryRef] from the Backstitch history, changing the filesystem as necessary.
     /// Returns a vector of file changes.
     #[instrument(skip_all)]
     pub async fn checkout_ref(&self, goal_ref: HistoryRef) -> Vec<FileSystemEvent> {

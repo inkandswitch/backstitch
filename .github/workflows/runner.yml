@@ -36,12 +36,12 @@ jobs:
       id-token: 'write'
 
   macos-plugin-builds:
-    name: 🍎 Build Patchwork for macOS
+    name: 🍎 Build Backstitch for macOS
     uses: ./.github/workflows/macos_builds.yml
     secrets: inherit
 
   windows-plugin-builds:
-    name: 🪟 Build Patchwork for Windows
+    name: 🪟 Build Backstitch for Windows
     uses: ./.github/workflows/windows_builds.yml
     secrets: inherit
     permissions:
@@ -49,11 +49,11 @@ jobs:
       id-token: 'write'
   
   linux-plugin-builds:
-    name: 🐧 Build Patchwork for Linux
+    name: 🐧 Build Backstitch for Linux
     uses: ./.github/workflows/linux_builds.yml
 
   merge-plugin-builds:
-    name: 🧩 Merge Patchwork Builds
+    name: 🧩 Merge Backstitch Builds
     needs: [macos-plugin-builds, windows-plugin-builds, linux-plugin-builds]
     uses: ./.github/workflows/merge_builds.yml
 

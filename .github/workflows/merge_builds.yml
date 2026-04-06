@@ -1,11 +1,11 @@
-name: 🧩 Merge Patchwork Builds
+name: 🧩 Merge Backstitch Builds
 on:
   workflow_call:
 
 jobs:
   merge-builds:
     runs-on: "ubuntu-latest"
-    name: 🧩 Merge Patchwork Builds
+    name: 🧩 Merge Backstitch Builds
     strategy:
       fail-fast: false
     steps:
@@ -13,15 +13,15 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: patchwork-build-*
-          path: ${{ github.workspace }}/patchwork-godot-plugin
+          pattern: backstitch-build-*
+          path: ${{ github.workspace }}/backstitch-godot-plugin
           merge-multiple: true
       - name: Wut
         run: |
-          ls -la ${{ github.workspace }}/patchwork-godot-plugin/bin || echo "No artifacts"
+          ls -la ${{ github.workspace }}/backstitch-godot-plugin/bin || echo "No artifacts"
 
-      - name: Upload patchwork-godot-plugin
+      - name: Upload backstitch-godot-plugin
         uses: actions/upload-artifact@v4
         with:
-          path: patchwork-godot-plugin
-          name: patchwork-godot-plugin
+          path: backstitch-godot-plugin
+          name: backstitch-godot-plugin

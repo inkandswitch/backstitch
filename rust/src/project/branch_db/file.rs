@@ -57,7 +57,7 @@ impl BranchDb {
     // Instead of fetching the file content, we could just get the changed files.
     // Then, later code could fetch the file content asynchronously.
 
-    /// Get a list of file operations between two points in Patchwork history.
+    /// Get a list of file operations between two points in Backstitch history.
     /// If one ref exists in the history of another, we can do a fast automerge diff.
     /// If they have diverged, we must do a slow file-wise diff.
     #[tracing::instrument(skip_all)]

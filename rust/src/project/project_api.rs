@@ -55,7 +55,7 @@ pub trait ProjectViewModel {
 	fn checkout_branch(&mut self, branch: &DocumentId);
 	/// Returns true if the branch is loaded (i.e. has all of its binary docs synced).
 	fn is_branch_loaded(&self, branch: &DocumentId) -> bool;
-	/// Dumps a binary representation of the current branch to ./.patchwork/.
+	/// Dumps a binary representation of the current branch to ./.backstitch/.
 	fn dump_current_branch(&self);
 
 	/// Whether we can begin a merge preview for the current branch into its direct ancestor.

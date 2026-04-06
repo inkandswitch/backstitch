@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://do66plo2fdvr7"
-path="res://.godot/imported/diff_stylebox_tex.png-573a98e9d9c11088d79e6fddae5308b9.ctex"
+path="res://.godot/imported/diff_stylebox_tex.png-8ccd18bc1a945ce7872ed95d9d118082.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/gdscript/diff_stylebox_tex.png"
-dest_files=["res://.godot/imported/diff_stylebox_tex.png-573a98e9d9c11088d79e6fddae5308b9.ctex"]
+source_file="res://addons/backstitch/public/gdscript/diff_stylebox_tex.png"
+dest_files=["res://.godot/imported/diff_stylebox_tex.png-8ccd18bc1a945ce7872ed95d9d118082.ctex"]
 
 [params]
 

@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://3hpc87bqt36t"
-path="res://.godot/imported/GuiClose.svg-473938e5b083142236968f242fb44bdb.ctex"
+path="res://.godot/imported/GuiClose.svg-457e4dd3d31675e8af8734133243307f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/GuiClose.svg"
-dest_files=["res://.godot/imported/GuiClose.svg-473938e5b083142236968f242fb44bdb.ctex"]
+source_file="res://addons/backstitch/public/icons/GuiClose.svg"
+dest_files=["res://.godot/imported/GuiClose.svg-457e4dd3d31675e8af8734133243307f.ctex"]
 
 [params]
 

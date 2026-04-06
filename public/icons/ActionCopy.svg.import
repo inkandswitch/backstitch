@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bcvyklo067kll"
-path="res://.godot/imported/ActionCopy.svg-17ace55bc66d4161e20de697b8ad51a0.ctex"
+path="res://.godot/imported/ActionCopy.svg-0d6cd03fcaf1b35666d91bc0321a61ed.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/ActionCopy.svg"
-dest_files=["res://.godot/imported/ActionCopy.svg-17ace55bc66d4161e20de697b8ad51a0.ctex"]
+source_file="res://addons/backstitch/public/icons/ActionCopy.svg"
+dest_files=["res://.godot/imported/ActionCopy.svg-0d6cd03fcaf1b35666d91bc0321a61ed.ctex"]
 
 [params]
 

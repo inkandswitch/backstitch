@@ -89,10 +89,10 @@ func _process(delta: float) -> void:
 	var edited_root: Node = EditorInterface.get_edited_scene_root()
 	if edited_root == null or not is_instance_valid(edited_root):
 		return
-	if edited_root.get_scene_file_path().contains("patchwork/"):
+	if edited_root.get_scene_file_path().contains("backstitch/"):
 		enabled = false
-		printerr("MonkeyTester: edited scene is in patchwork folder, disabling")
-		disabled_self.emit("edited scene is in patchwork folder")
+		printerr("MonkeyTester: edited scene is in backstitch folder, disabling")
+		disabled_self.emit("edited scene is in backstitch folder")
 		return
 
 	var all_nodes: Array[Node] = _collect_nodes(edited_root)

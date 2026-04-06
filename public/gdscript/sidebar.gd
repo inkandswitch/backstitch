@@ -1,18 +1,18 @@
 @tool
-class_name PatchworkSidebar
+class_name BackstitchSidebar
 extends MarginContainer
 
-const diff_inspector_script = preload("res://addons/patchwork/public/gdscript/diff_inspector_container.gd")
-const branch_icon_history = preload("res://addons/patchwork/public/icons/Branch16.svg")
-const collapsible_closed_icon = preload("res://addons/patchwork/public/icons/CollapsibleClosed.svg")
-const collapsible_open_icon = preload("res://addons/patchwork/public/icons/CollapsibleOpen.svg")
-const status_warning_32_icon = preload("res://addons/patchwork/public/icons/StatusWarning32.svg")
-const status_success_32_icon = preload("res://addons/patchwork/public/icons/StatusSuccess32.svg")
-const status_warning_icon = preload("res://addons/patchwork/public/icons/StatusWarning.svg")
-const status_sync_icon = preload("res://addons/patchwork/public/icons/StatusSync.svg")
-const status_success_icon = preload("res://addons/patchwork/public/icons/StatusSuccess.svg")
-const status_error_icon = preload("res://addons/patchwork/public/icons/StatusError.svg")
-const undo_redo_icon = preload("res://addons/patchwork/public/icons/UndoRedo.svg")
+const diff_inspector_script = preload("res://addons/backstitch/public/gdscript/diff_inspector_container.gd")
+const branch_icon_history = preload("res://addons/backstitch/public/icons/Branch16.svg")
+const collapsible_closed_icon = preload("res://addons/backstitch/public/icons/CollapsibleClosed.svg")
+const collapsible_open_icon = preload("res://addons/backstitch/public/icons/CollapsibleOpen.svg")
+const status_warning_32_icon = preload("res://addons/backstitch/public/icons/StatusWarning32.svg")
+const status_success_32_icon = preload("res://addons/backstitch/public/icons/StatusSuccess32.svg")
+const status_warning_icon = preload("res://addons/backstitch/public/icons/StatusWarning.svg")
+const status_sync_icon = preload("res://addons/backstitch/public/icons/StatusSync.svg")
+const status_success_icon = preload("res://addons/backstitch/public/icons/StatusSuccess.svg")
+const status_error_icon = preload("res://addons/backstitch/public/icons/StatusError.svg")
+const undo_redo_icon = preload("res://addons/backstitch/public/icons/UndoRedo.svg")
 
 # Status bar
 @onready var sync_button: Button = %SyncButton
@@ -21,7 +21,7 @@ const undo_redo_icon = preload("res://addons/patchwork/public/icons/UndoRedo.svg
 @onready var action_menu_button: MenuButton = %ActionMenuButton
 
 # Branch bar
-@onready var branch_picker: PatchworkBranchPicker = %BranchPicker
+@onready var branch_picker: BackstitchBranchPicker = %BranchPicker
 @onready var fork_button: Button = %ForkButton
 @onready var merge_button: Button = %MergeButton
 
@@ -102,10 +102,10 @@ var last_seen_branch: String = ""
 # or if a branch we're waiting on was checked out
 signal branch_checked_out
 
-static var instance: PatchworkSidebar
+static var instance: BackstitchSidebar
 
 func _update_ui_on_state_change():
-	print("Patchwork: Updating UI due to state change...")
+	print("Backstitch: Updating UI due to state change...")
 	update_ui()
 
 func _on_reload_ui_button_pressed():
@@ -116,14 +116,14 @@ func _is_dev_mode() -> bool:
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
 
-# Display a "Loading Patchwork" modal until we notice the branch has changed, then initialize.
+# Display a "Loading Backstitch" modal until we notice the branch has changed, then initialize.
 # Used when creating a new project, manually loading an existing project from ID, or auto-loading
 # an existing project from the project.
 func wait_for_checked_out_branch():
 	if not GodotProject.get_checked_out_branch():
-		task_modal.start_task("Loading Patchwork")
+		task_modal.start_task("Loading Backstitch")
 		await branch_checked_out
-		task_modal.end_task("Loading Patchwork")
+		task_modal.end_task("Loading Backstitch")
 	init()
 
 # Asks the user for their username, if there is none stored.
@@ -136,7 +136,7 @@ func require_user_name() -> bool:
 	return true
 
 func _on_init_button_pressed():
-	if PatchworkUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before initializing a new project."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before initializing a new project."):
 		return
 	if not await require_user_name():
 		return
@@ -145,11 +145,11 @@ func _on_init_button_pressed():
 	await wait_for_checked_out_branch()
 
 func _on_load_project_button_pressed():
-	if PatchworkUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before loading an existing project."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before loading an existing project."):
 		return
 	var doc_id = %ProjectIDBox.text.strip_edges()
 	if doc_id.is_empty():
-		PatchworkUtils.popup_box(self, $ErrorDialog, "Project ID is empty", "Error")
+		BackstitchUtils.popup_box(self, $ErrorDialog, "Project ID is empty", "Error")
 		return
 	if not await require_user_name():
 		return
@@ -186,11 +186,11 @@ func _on_user_name_confirmed():
 	var new_user_name = %UserNameEntry.text.strip_edges()
 	if new_user_name != "": GodotProject.set_user_name(new_user_name)
 	user_name_dialog_closed.emit()
-	print("Patchwork: Updating UI due to username confirmation...")
+	print("Backstitch: Updating UI due to username confirmation...")
 	update_ui()
 
 func _on_clear_project_button_pressed():
-	PatchworkUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to clear the project?", "Clear Project",
+	BackstitchUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to clear the project?", "Clear Project",
 		func(): clear_project(), func(): pass)
 
 func clear_project():
@@ -244,8 +244,8 @@ func _enter_tree():
 func bind_listeners(godot_project):
 	%InitializeButton.pressed.connect(self._on_init_button_pressed)
 	%LoadExistingButton.pressed.connect(self._on_load_project_button_pressed)
-	PatchworkUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
-	PatchworkUtils.add_listener_disable_button_if_text_is_empty(%LoadExistingButton, %ProjectIDBox)
+	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
+	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%LoadExistingButton, %ProjectIDBox)
 	user_button.pressed.connect(_on_user_button_pressed)
 
 	%UserNameDialog.canceled.connect(_on_user_name_canceled)
@@ -300,7 +300,7 @@ func _try_init():
 	if godot_project:
 		if !godot_project.has_project():
 			print("Not initialized, showing init panel")
-			print("Patchwork: Updating UI due to init...")
+			print("Backstitch: Updating UI due to init...")
 			update_ui()
 			return
 		else:
@@ -335,7 +335,7 @@ func _process(delta: float) -> void:
 
 func init() -> void:
 	print("Sidebar initialized!")
-	print("Patchwork: Updating UI due to init...")
+	print("Backstitch: Updating UI due to init...")
 	update_ui()
 
 	# Here, the user could easily just hit X and remain anonymous. This can only happen in the case
@@ -362,7 +362,7 @@ func checkout_branch(branch_id: String) -> void:
 	)
 
 func create_new_branch() -> void:
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before creating a new branch."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before creating a new branch."):
 		return
 
 	var dialog = ConfirmationDialog.new()
@@ -382,7 +382,7 @@ func create_new_branch() -> void:
 	dialog.size = Vector2(220, 100)
 
 	dialog.get_ok_button().text = "Create"
-	PatchworkUtils.add_listener_disable_button_if_text_is_empty(dialog.get_ok_button(), branch_name_input)
+	BackstitchUtils.add_listener_disable_button_if_text_is_empty(dialog.get_ok_button(), branch_name_input)
 
 	dialog.canceled.connect(func(): dialog.queue_free())
 
@@ -409,7 +409,7 @@ func move_inspector_to(node: Node) -> void:
 		inspector.visible = true
 
 func create_merge_preview_branch():
-	if PatchworkUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before merging."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before merging."):
 		return
 
 	# this shouldn't be possible due to UI disabling, but just in case
@@ -422,7 +422,7 @@ func create_merge_preview_branch():
 	)
 
 func create_revert_preview_branch(head):
-	if PatchworkUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before reverting."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before reverting."):
 		return
 	# this shouldn't be possible due to UI disabling, but just in case
 	if !GodotProject.can_create_revert_preview_branch(head): return
@@ -435,7 +435,7 @@ func create_revert_preview_branch(head):
 func cancel_revert_preview():
 	if !GodotProject.is_revert_preview_branch_active(): return
 
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before cancelling your revert."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before cancelling your revert."):
 		return
 
 	task_modal.do_task("Cancel revert preview", func():
@@ -446,12 +446,12 @@ func cancel_revert_preview():
 func confirm_revert_preview():
 	if !GodotProject.is_revert_preview_branch_active(): return
 
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before reverting."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before reverting."):
 		return
 
-	var target = PatchworkUtils.short_hash(GodotProject.get_checked_out_branch().reverted_to)
+	var target = BackstitchUtils.short_hash(GodotProject.get_checked_out_branch().reverted_to)
 
-	PatchworkUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to revert to \"%s\" ?" % target, "Revert Branch", func():
+	BackstitchUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to revert to \"%s\" ?" % target, "Revert Branch", func():
 		task_modal.do_task("Reverting to \"%s\"" % target, func():
 			GodotProject.confirm_preview_branch()
 			await branch_checked_out
@@ -460,7 +460,7 @@ func confirm_revert_preview():
 func cancel_merge_preview():
 	if !GodotProject.is_merge_preview_branch_active(): return
 
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before cancelling your merge."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before cancelling your merge."):
 		return
 
 	task_modal.do_task("Cancel merge preview", func():
@@ -472,14 +472,14 @@ func cancel_merge_preview():
 func confirm_merge_preview():
 	if !GodotProject.is_merge_preview_branch_active(): return
 
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before merging."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before merging."):
 		return
 
 	var current_branch = GodotProject.get_checked_out_branch()
 	var forked_from = GodotProject.get_branch(current_branch.parent).name
 	var target = GodotProject.get_branch(current_branch.merge_into).name
 
-	PatchworkUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to merge \"%s\" into \"%s\" ?" % [forked_from, target], "Merge Branch", func():
+	BackstitchUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to merge \"%s\" into \"%s\" ?" % [forked_from, target], "Merge Branch", func():
 		task_modal.do_task("Merging \"%s\" into \"%s\"" % [forked_from, target], func():
 			GodotProject.confirm_preview_branch()
 			await branch_checked_out
@@ -534,7 +534,7 @@ func update_history_tree():
 		# if we're a dev, we need another column for the commit hash
 		history_tree.columns = HistoryColumns.COUNT + column_offset
 		if dev_mode:
-			item.set_text(hash_column, PatchworkUtils.short_hash(change.hash))
+			item.set_text(hash_column, BackstitchUtils.short_hash(change.hash))
 			item.set_tooltip_text(hash_column, change.hash)
 			item.set_selectable(hash_column, false)
 			history_tree.set_column_expand(hash_column, true)
@@ -653,7 +653,7 @@ func update_revert_preview():
 		printerr("Branch revert info invalid!")
 		return
 
-	var change_hash = PatchworkUtils.short_hash(current_branch.reverted_to)
+	var change_hash = BackstitchUtils.short_hash(current_branch.reverted_to)
 
 	revert_preview_title.text = "Preview of reverting \"%s\" to %s" % [parent_branch.name, change_hash]
 	revert_preview_title.tooltip_text = revert_preview_title.text
@@ -708,7 +708,7 @@ func update_sync_status() -> void:
 	else: printerr("unknown sync status: " + sync_status.state)
 
 func update_highlight_changes(diff: Dictionary) -> void:
-	if (PatchworkEditor.is_changing_scene()):
+	if (BackstitchEditor.is_changing_scene()):
 		deferred_highlight_update = func(): update_highlight_changes(diff)
 		return
 
@@ -899,7 +899,7 @@ func _on_action_menu_item_selected(id: int) -> void:
 			update_ui()
 		ActionMenuItems.DUMP_BRANCH:
 			GodotProject.dump_current_branch()
-			toaster.push_toast("Dumped current branch state to res://.patchwork/.")
+			toaster.push_toast("Dumped current branch state to res://.backstitch/.")
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):

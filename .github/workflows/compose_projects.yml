@@ -46,21 +46,21 @@ jobs:
           lfs: ${{ matrix.project.lfs }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Download Patchwork
+      - name: Download Backstitch
         uses: actions/download-artifact@v7
         with:
-          pattern: patchwork-godot-plugin
-          path: patchwork-godot-plugin
+          pattern: backstitch-godot-plugin
+          path: backstitch-godot-plugin
       - name: Copy to addons
         shell: sh
         run: |
-          mkdir -p ${{ matrix.project.name }}/addons/patchwork
-          cp -r patchwork-godot-plugin/. ${{ matrix.project.name }}/addons/patchwork
+          mkdir -p ${{ matrix.project.name }}/addons/backstitch
+          cp -r backstitch-godot-plugin/. ${{ matrix.project.name }}/addons/backstitch
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           include-hidden-files: true
-          name: ${{ matrix.project.name }}-with-patchwork
+          name: ${{ matrix.project.name }}-with-backstitch
           path: |
             ${{ matrix.project.name }}
           if-no-files-found: error

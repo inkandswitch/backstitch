@@ -7,13 +7,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>libpatchwork_rust_core.dylib</string>
+	<string>libbackstitch_rust_core.dylib</string>
 	<key>CFBundleName</key>
-	<string>Patchwork Godot Plugin</string>
+	<string>Backstitch Godot Plugin</string>
 	<key>CFBundleDisplayName</key>
-	<string>Patchwork Godot Plugin</string>
+	<string>Backstitch Godot Plugin</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.inkandswitch.test.patchworkgodot</string>
+	<string>com.inkandswitch.test.backstitchgodot</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright (c) 2024-present Ink and Switch, LLC.</string>
 	<key>CFBundleVersion</key>

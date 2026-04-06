@@ -6,7 +6,7 @@ fn test_should_ignore_windows_style_paths() {
     // ignores windows style paths
     assert!(
         gitignore
-            .matched_path_or_any_parents(dir.join(".patchwork\\thingy.txt").as_path(), false)
+            .matched_path_or_any_parents(dir.join(".backstitch\\thingy.txt").as_path(), false)
             .is_ignore()
     );
     assert!(

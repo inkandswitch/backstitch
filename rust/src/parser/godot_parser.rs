@@ -358,7 +358,7 @@ impl GodotScene {
         self.serialize_with_ext_resource_override(None, false)
     }
 
-    // helper for the patchwork_resource_loader to serialize the scene at a given history ref for loading
+    // helper for the backstitch_resource_loader to serialize the scene at a given history ref for loading
     pub fn serialize_with_ext_resource_override(&self, history_ref: Option<&HistoryRef>, remove_uid_in_ext_resources: bool) -> String {
 
         let mut output = String::new();
@@ -814,7 +814,7 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
 
                 // NODE
                 } else if section_id == "node" {
-                    // Check if node has a patchwork_id in metadata
+                    // Check if node has a backstitch_id in metadata
                     let mut node_id_num = match heading.get("unique_id") {
                         Some(unique_id) => NodeId { id: unique_id.parse::<i32>().unwrap_or(UNIQUE_SCENE_ID_UNASSIGNED_NUMBER), root_instance_id: None },
                         None => UNIQUE_SCENE_ID_UNASSIGNED

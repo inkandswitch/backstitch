@@ -4,7 +4,7 @@ use samod::DocumentId;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
-/// Represents a location anywhere in Patchwork's history.
+/// Represents a location anywhere in Backstitch's history.
 /// Associates a branch with heads on that branch.
 #[derive(Debug, Clone, Serialize, Deserialize, Reconcile, Hydrate)]
 pub struct HistoryRef {
@@ -17,7 +17,7 @@ pub struct HistoryRef {
 }
 
 impl HistoryRef {
-    pub const PATCHWORK_SCHEME_PREFIX: &'static str = "patchwork-";
+    pub const BACKSTITCH_SCHEME_PREFIX: &'static str = "backstitch-";
     // these should be safe to use as path seperators; DocumentId is base58-encoded (only a-z, A-Z, 0-9), and ChangeHash is hex-encoded
     pub const BRANCH_DIVIDER: char = '+';
     pub const CHANGE_HASH_DIVIDER: char = '.';
@@ -43,7 +43,7 @@ impl HistoryRef {
     }
 
     pub fn to_uri_scheme_prefix(&self) -> String {
-        format!("{}{}", HistoryRef::PATCHWORK_SCHEME_PREFIX, self)
+        format!("{}{}", HistoryRef::BACKSTITCH_SCHEME_PREFIX, self)
     }
 
     pub fn short_heads(&self) -> String {

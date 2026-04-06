@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://xec6o14n4y2v"
-path="res://.godot/imported/Person.svg-95e1126521e9cdaa1137a838e872b021.ctex"
+path="res://.godot/imported/Person.svg-05780d7ff49844c9a0537a040a661b4a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/Person.svg"
-dest_files=["res://.godot/imported/Person.svg-95e1126521e9cdaa1137a838e872b021.ctex"]
+source_file="res://addons/backstitch/public/icons/Person.svg"
+dest_files=["res://.godot/imported/Person.svg-05780d7ff49844c9a0537a040a661b4a.ctex"]
 
 [params]
 

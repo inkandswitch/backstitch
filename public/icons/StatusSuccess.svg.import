@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b88aqsd5v8fi1"
-path="res://.godot/imported/StatusSuccess.svg-caed2ea079bb551725bfa5b82307b156.ctex"
+path="res://.godot/imported/StatusSuccess.svg-339909f849814c74762835f251f2de3f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/StatusSuccess.svg"
-dest_files=["res://.godot/imported/StatusSuccess.svg-caed2ea079bb551725bfa5b82307b156.ctex"]
+source_file="res://addons/backstitch/public/icons/StatusSuccess.svg"
+dest_files=["res://.godot/imported/StatusSuccess.svg-339909f849814c74762835f251f2de3f.ctex"]
 
 [params]
 

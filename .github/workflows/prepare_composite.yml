@@ -4,50 +4,50 @@ on:
 
 jobs:
   # Endless has requested a special version of moddable-platformer with:
-  # 1. Patchwork installed
+  # 1. Backstitch installed
   # 2. Godot for Windows installed in godot_editor/
-  # 3. Launch and update scripts from LilithSilver/patchwork-update-script
-  # moddable-platformer-with-patchwork already provides 1, so we just need to handle 2 and 3
+  # 3. Launch and update scripts from LilithSilver/backstitch-update-script
+  # moddable-platformer-with-backstitch already provides 1, so we just need to handle 2 and 3
   prepare-moddable-platformer-composite:
     runs-on: ubuntu-latest
     name: 🚀 Prepare Windows-Ready Projects
     steps:
-      - name: Acquire moddable-platformer-with-patchwork
+      - name: Acquire moddable-platformer-with-backstitch
         uses: actions/download-artifact@v4
         with:
-          name: moddable-platformer-with-patchwork
+          name: moddable-platformer-with-backstitch
           path: ${{ github.workspace }}/moddable-platformer
       - name: Acquire godot-windows
         uses: actions/download-artifact@v4
         with:
-          name: godot-with-patchwork-windows
-          path: ${{ github.workspace }}/godot-with-patchwork-windows
+          name: godot-with-backstitch-windows
+          path: ${{ github.workspace }}/godot-with-backstitch-windows
       - name: Copy Godot into moddable-platformer
         run: |
           mkdir moddable-platformer/godot_editor
-          cp godot-with-patchwork-windows/* moddable-platformer/godot_editor
+          cp godot-with-backstitch-windows/* moddable-platformer/godot_editor
       - uses: robinraju/release-downloader@v1
         with:
-          repository: 'LilithSilver/patchwork-update-script'
+          repository: 'LilithSilver/backstitch-update-script'
           latest: true
           fileName: '*'
-          out-file-path: 'patchwork-update-script'
+          out-file-path: 'backstitch-update-script'
 
       - name: Write info
         run: |
           find . -maxdepth 3
-      - name: Checkout patchwork # for actions
+      - name: Checkout backstitch # for actions
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          path: patchwork-tmp
-          repository: inkandswitch/patchwork-godot-plugin
+          path: backstitch-tmp
+          repository: inkandswitch/backstitch-godot-plugin
       - name: Windows Sign
-        uses: ./patchwork-tmp/.github/actions/windows-sign
+        uses: ./backstitch-tmp/.github/actions/windows-sign
         with:
           BINARY_PATHS: |
-            ./patchwork-update-script/update-patchwork.exe
-            ./patchwork-update-script/launch-patchwork.exe
+            ./backstitch-update-script/update-backstitch.exe
+            ./backstitch-update-script/launch-backstitch.exe
           KMS_CREDENTIALS_JSON: ${{ secrets.GCLOUD_SERVICE_ACCOUNT_KEY }}
           KMS_PUBLIC_CERT: ${{ secrets.CODESIGN_PUBLIC_CERT }}
           KMS_PROJECT: ${{ secrets.KMS_PROJECT }}
@@ -55,11 +55,11 @@ jobs:
           KMS_KEYRING: ${{ secrets.KMS_KEYRING }}
           KMS_KEY: ${{ secrets.KMS_KEY }}
       - name: Copy exe files
-        run: cp patchwork-update-script/*.exe moddable-platformer
+        run: cp backstitch-update-script/*.exe moddable-platformer
       - name: Merge .gitignore
-        run: cat patchwork-update-script/default.gitignore >> moddable-platformer/.gitignore
-      - name: Write .patchwork_version
-        run: echo "${{ github.ref_name }}" >> moddable-platformer/.patchwork_version
+        run: cat backstitch-update-script/default.gitignore >> moddable-platformer/.gitignore
+      - name: Write .backstitch_version
+        run: echo "${{ github.ref_name }}" >> moddable-platformer/.backstitch_version
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

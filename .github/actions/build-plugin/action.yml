@@ -1,5 +1,5 @@
-name: Godot Patchwork Plugin Build
-description: Build Godot plugin for Patchwork.
+name: Godot Backstitch Plugin Build
+description: Build Godot plugin for Backstitch.
 
 inputs:
   arch:
@@ -34,14 +34,14 @@ runs:
         CI: 1
       if: ${{ inputs.arch != 'x86_64-apple-darwin'}}
       run: |
-        just build-patchwork release ${{ inputs.arch }}
+        just build-backstitch release ${{ inputs.arch }}
     - name: Build for Mac
       shell: sh
       env:
         CI: 1
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
       run: |
-        just build-patchwork release "all-apple-darwin"
+        just build-backstitch release "all-apple-darwin"
     - name: Copy to release
       shell: sh
       run: |

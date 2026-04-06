@@ -1,4 +1,4 @@
-class_name PatchworkUtils
+class_name BackstitchUtils
 
 static func short_hash(hash: String) -> String:
 	return hash.substr(0, 7)

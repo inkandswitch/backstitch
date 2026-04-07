@@ -273,6 +273,7 @@ func bind_listeners(godot_project):
 	history_tree.button_clicked.connect(_on_history_tree_button_clicked)
 	history_tree.empty_clicked.connect(_on_history_tree_empty_clicked)
 	history_tree.item_mouse_selected.connect(_on_history_tree_mouse_selected)
+	history_tree.gui_input.connect(_on_history_tree_gui_input)
 	history_tree.allow_rmb_select = true
 	inspector.node_hovered.connect(_on_node_hovered)
 	inspector.node_unhovered.connect(_on_node_unhovered)
@@ -781,6 +782,28 @@ func _on_history_tree_mouse_selected(_at_position: Vector2, button_idx: int) -> 
 		# if the selected item is disabled, do not.
 		if get_history_item_enabled(history_tree.get_selected()) == false: return
 		show_contextmenu(get_history_item_hash(history_tree.get_selected()))
+
+func _on_history_tree_gui_input(event: InputEvent) -> void:
+	if !_is_dev_mode():
+		return
+
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var click_position = event.position
+		var clicked_item = history_tree.get_item_at_position(click_position)
+		if clicked_item == null:
+			return
+
+		var clicked_column = history_tree.get_column_at_position(click_position)
+		if clicked_column != HistoryColumns.HASH:
+			return
+
+		var full_hash = get_history_item_hash(clicked_item)
+		if full_hash.is_empty():
+			return
+
+		DisplayServer.clipboard_set(full_hash)
+		var toaster = EditorInterface.get_editor_toaster()
+		toaster.push_toast("Change hash copied to clipboard.")
 
 func show_contextmenu(item_hash):
 	context_menu_hash = item_hash

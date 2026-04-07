@@ -163,11 +163,15 @@ impl BranchDb {
         // Gather the information of what files changed from the patches.
         let deleted_files: HashSet<_> = old_file_set.difference(&curr_file_set).cloned().collect();
         let added_files: HashSet<_> = curr_file_set.difference(&old_file_set).cloned().collect();
-        let modified_files: HashSet<_> = get_changed_files(&patches)
+        let modified_files: HashSet<_> = if patches.len() == 0 {
+            HashSet::new()
+        } else {
+            get_changed_files(&patches)
             .into_iter()
             .filter(|f| !deleted_files.contains(f))
             .filter(|f| !added_files.contains(f))
-            .collect();
+            .collect()
+        };
         let all_files: HashSet<_> = deleted_files
             .iter()
             .chain(added_files.iter())
@@ -175,6 +179,10 @@ impl BranchDb {
             .cloned()
             .collect();
 
+        // Valid diff, just no changes
+        if all_files.len() == 0 {
+            return Some(Vec::new());
+        }
         // Get the files, then convert them into events using the information we gathered.
         Some(
             self.get_files_at_ref(new_ref, &all_files)

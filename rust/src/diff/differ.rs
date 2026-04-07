@@ -96,6 +96,9 @@ impl Differ {
             // Something went wrong
             return ProjectDiff::default();
         };
+        if new_file_contents.is_empty() {
+            return ProjectDiff::default();
+        }
 
         let changed_filter: HashSet<String> = new_file_contents
             .iter()

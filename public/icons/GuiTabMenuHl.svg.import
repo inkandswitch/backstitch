@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ymewwqpn0vi4"
-path="res://.godot/imported/GuiTabMenuHl.svg-96d22ff765433578d20d34219e553d4d.ctex"
+path="res://.godot/imported/GuiTabMenuHl.svg-bd59106ec16bd4f25a2069735ebf518d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/GuiTabMenuHl.svg"
-dest_files=["res://.godot/imported/GuiTabMenuHl.svg-96d22ff765433578d20d34219e553d4d.ctex"]
+source_file="res://addons/backstitch/public/icons/GuiTabMenuHl.svg"
+dest_files=["res://.godot/imported/GuiTabMenuHl.svg-bd59106ec16bd4f25a2069735ebf518d.ctex"]
 
 [params]
 

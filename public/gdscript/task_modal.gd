@@ -10,12 +10,12 @@ var queued_calls = []
 
 func start_task(name: String):
 	queued_calls.append(func():
-		PatchworkEditor.progress_add_task(name, name, 10, false)
+		BackstitchEditor.progress_add_task(name, name, 10, false)
 	)
 
 func end_task(name: String):
 	queued_calls.append(func():
-		PatchworkEditor.progress_end_task(name)
+		BackstitchEditor.progress_end_task(name)
 	)
 
 # do_task is a helper function that adds a task to the queue and waits for it to finish

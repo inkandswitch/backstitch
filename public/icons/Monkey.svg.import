@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://coaycd1enf24v"
-path="res://.godot/imported/Monkey.svg-6fb2d0556cb11586a7d6b1a61aecb8c3.ctex"
+path="res://.godot/imported/Monkey.svg-ec61264aa4568e031590adce0cf33179.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/Monkey.svg"
-dest_files=["res://.godot/imported/Monkey.svg-6fb2d0556cb11586a7d6b1a61aecb8c3.ctex"]
+source_file="res://addons/backstitch/public/icons/Monkey.svg"
+dest_files=["res://.godot/imported/Monkey.svg-ec61264aa4568e031590adce0cf33179.ctex"]
 
 [params]
 

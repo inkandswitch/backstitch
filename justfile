@@ -42,9 +42,9 @@ _symlink src dest:
 @_make-build-dir:
     mkdir -p build
 
-# Create build/patchwork
+# Create build/backstitch
 @_make-plugin-dir: _make-build-dir
-    mkdir -p build/patchwork
+    mkdir -p build/backstitch
 
 # Clone a repository to a directory and check out a commit.
 _clone repo_url directory checkout:
@@ -117,7 +117,7 @@ _acquire-formatters: _make-build-dir
 # Link our plugin build directory to the desired project.
 _link-project project: (_acquire-project project) _make-plugin-dir
     mkdir -p "build/{{project}}/addons"
-    just _symlink "build/patchwork" "build/{{project}}/addons/patchwork"
+    just _symlink "build/backstitch" "build/{{project}}/addons/backstitch"
 
 # Link our custom Godot editor module
 [arg('skip_godot_clone', pattern='yes|no')]
@@ -130,11 +130,11 @@ _link-godot skip_godot_clone="no":
     else
         echo "**** Skipping Godot clone... ****"
     fi
-    just _symlink "editor" "build/godot/modules/patchwork_editor"
+    just _symlink "editor" "build/godot/modules/backstitch_editor"
 
 # Link the assets directory for our plugin
 _link-public: _make-plugin-dir
-    just _symlink "public" "build/patchwork/public"
+    just _symlink "public" "build/backstitch/public"
 
 # Build the Godot editor with our editor module linked in. Available profiles are release, debug, or sani (for use_asan=yes)
 [arg('profile', pattern='release|debug|sani')]
@@ -198,7 +198,7 @@ _build-plugin architecture profile tracing_support:
         exit 0
     fi
     identity=$(cat .cargo/.devidentity)
-    framework="build/patchwork/bin/libpatchwork_rust_core.macos.framework"
+    framework="build/backstitch/bin/libbackstitch_rust_core.macos.framework"
     if [ ! -d "$framework" ]; then
         exit 0
     fi
@@ -211,16 +211,16 @@ _build-plugin architecture profile tracing_support:
 [parallel]
 _build-plugin-all-macos profile tracing_support: (_build-plugin "aarch64-apple-darwin" profile tracing_support) \
         (_build-plugin "x86_64-apple-darwin" profile tracing_support) _make-plugin-dir
-    mkdir -p build/patchwork/bin
+    mkdir -p build/backstitch/bin
 
     # Copy the entire macos directory to get the Resources framework directory
-    rm -rf "build/patchwork/bin/libpatchwork_rust_core.macos.framework"
-    cp -r "rust/macos/libpatchwork_rust_core.macos.framework" "build/patchwork/bin/libpatchwork_rust_core.macos.framework"
+    rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
 
     # Rather than copying the generated .dylibs, we combine them into a single one.
-    lipo -create -output build/patchwork/bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.dylib \
-        target/aarch64-apple-darwin/{{profile}}/libpatchwork_rust_core.dylib \
-        target/x86_64-apple-darwin/{{profile}}/libpatchwork_rust_core.dylib
+    lipo -create -output build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib \
+        target/aarch64-apple-darwin/{{profile}}/libbackstitch_rust_core.dylib \
+        target/x86_64-apple-darwin/{{profile}}/libbackstitch_rust_core.dylib
 
     just _sign-macos-plugin
 
@@ -228,35 +228,35 @@ _build-plugin-all-macos profile tracing_support: (_build-plugin "aarch64-apple-d
 _build-plugin-single-arch architecture profile tracing_support: (_build-plugin architecture profile tracing_support) _make-plugin-dir
     #!/usr/bin/env sh
     # set -euo pipefail
-    mkdir -p build/patchwork/bin
+    mkdir -p build/backstitch/bin
 
     # Copy the entire macos directory to get the Resources framework directory
-    rm -rf "build/patchwork/bin/libpatchwork_rust_core.macos.framework"
-    cp -r "rust/macos/libpatchwork_rust_core.macos.framework" "build/patchwork/bin/libpatchwork_rust_core.macos.framework"
+    rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
 
-    if [ -f "target/{{architecture}}/{{profile}}/patchwork_rust_core.dll" ] ; then
-        cp "target/{{architecture}}/{{profile}}/patchwork_rust_core.dll" \
-            build/patchwork/bin/patchwork_rust_core.windows.{{architecture}}.dll
+    if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" ] ; then
+        cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" \
+            build/backstitch/bin/backstitch_rust_core.windows.{{architecture}}.dll
     fi
 
-    if [ -f "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.so" ] ; then
-        cp "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.so" \
-            build/patchwork/bin/patchwork_rust_core.linux.{{architecture}}.so
+    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.so" ] ; then
+        cp "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.so" \
+            build/backstitch/bin/backstitch_rust_core.linux.{{architecture}}.so
     fi
 
-    if [ -f "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.dylib" ] ; then
-        cp "target/{{architecture}}/{{profile}}/libpatchwork_rust_core.dylib" \
-            build/patchwork/bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.dylib
+    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.dylib" ] ; then
+        cp "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.dylib" \
+            build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib
         just _sign-macos-plugin
     fi
     
-    if [ -f "target/{{architecture}}/{{profile}}/patchwork_rust_core.pdb" ] ; then
-        cp "target/{{architecture}}/{{profile}}/patchwork_rust_core.pdb" \
-            build/patchwork/bin/patchwork_rust_core.pdb
+    if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" ] ; then
+        cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" \
+            build/backstitch/bin/backstitch_rust_core.pdb
     fi
 
-# Write plugin.cfg and Patchwork.gdextension
-_configure-patchwork: _make-plugin-dir
+# Write plugin.cfg and Backstitch.gdextension
+_configure-backstitch: _make-plugin-dir
     #!/usr/bin/env python3
     import os
     import subprocess
@@ -275,41 +275,41 @@ _configure-patchwork: _make-plugin-dir
 
     print(f"Loaded version from Git repository: {git_describe}")
 
-    with open("build/patchwork/plugin.cfg", "w") as file:
+    with open("build/backstitch/plugin.cfg", "w") as file:
         file.write(f"""[plugin]
-    name="Patchwork"
+    name="Backstitch"
     description="Version control for Godot"
     author="Ink & Switch"
     version="{git_describe}"
     script=""
     """)
 
-    with open("build/patchwork/Patchwork.gdextension", "w") as file:
+    with open("build/backstitch/Backstitch.gdextension", "w") as file:
         file.write(f"""[configuration]
     entry_symbol = "gdext_rust_init"
     compatibility_minimum = 4.6
     reloadable = true
 
     [libraries]
-    linux.debug.x86_64 =        "bin/patchwork_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.release.x86_64 =      "bin/patchwork_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.debug.arm64 =         "bin/patchwork_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.release.arm64 =       "bin/patchwork_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.debug.arm32 =         "bin/patchwork_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    linux.release.arm32 =       "bin/patchwork_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    windows.debug.x86_64 =      "bin/patchwork_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.release.x86_64 =    "bin/patchwork_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.debug.arm64 =       "bin/patchwork_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    windows.release.arm64 =     "bin/patchwork_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    macos.debug =               "bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.dylib"
-    macos.release =             "bin/libpatchwork_rust_core.macos.framework/libpatchwork_rust_core.dylib"
+    linux.debug.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
+    linux.release.x86_64 =      "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
+    linux.debug.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
+    linux.release.arm64 =       "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
+    linux.debug.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
+    linux.release.arm32 =       "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
+    windows.debug.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
+    windows.release.x86_64 =    "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
+    windows.debug.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
+    windows.release.arm64 =     "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
+    macos.debug =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
+    macos.release =             "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
     """)
 
 # Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures.
 [parallel]
 [arg('profile', pattern='release|debug')]
 [arg('tracing_support', pattern='none|tokio-console')]
-build-patchwork profile architecture=(default_arch) tracing_support="none": _configure-patchwork _link-public
+build-backstitch profile architecture=(default_arch) tracing_support="none": _configure-backstitch _link-public
     #!/usr/bin/env sh
     # set -euxo pipefail
     if [[ "{{architecture}}" = "all-apple-darwin" ]] ; then
@@ -341,17 +341,17 @@ clean-godot:
     git checkout -f $GODOT_REF
     git clean -xdf
 
-# Remove any built Patchwork artifacts.
-clean-patchwork:
+# Remove any built Backstitch artifacts.
+clean-backstitch:
     #!/usr/bin/env sh
     # set -euxo pipefail
     cargo clean
-    if [[ ! -d "build/patchwork" ]]; then
+    if [[ ! -d "build/backstitch" ]]; then
         exit 0
     fi
-    rm -rf "build/patchwork"
+    rm -rf "build/backstitch"
 
-# Clean a single project, resetting the repository and unlinking Patchwork.
+# Clean a single project, resetting the repository and unlinking Backstitch.
 [arg('project', pattern='moddable-platformer|threadbare')]
 clean-project project:
     #!/usr/bin/env sh
@@ -374,8 +374,8 @@ clean-project project:
     git checkout -f "$checkout"
     git clean -xdf
 
-# Clean Patchwork, and the projects threadbare, moddable-platformer.
-clean: (clean-project "threadbare") (clean-project "moddable-platformer") clean-patchwork
+# Clean Backstitch, and the projects threadbare, moddable-platformer.
+clean: (clean-project "threadbare") (clean-project "moddable-platformer") clean-backstitch
 
 # Write to the project .cfg with a new server url
 [arg('project', pattern='moddable-platformer|threadbare')]
@@ -390,7 +390,7 @@ _write-url project url: (_link-project project)
     if "{{url}}" == "":
         exit(0)
 
-    path = "build/{{project}}/patchwork.cfg"
+    path = "build/{{project}}/backstitch.cfg"
 
     try:
         f = open(path)
@@ -400,32 +400,32 @@ _write-url project url: (_link-project project)
         with f: lines = f.readlines()
 
     new_lines: list[str] = []
-    found_patchwork = False
+    found_backstitch = False
     for line in lines:
-        # place the server url immediately after patchwork
-        if line.startswith("[patchwork]"):
-            found_patchwork = True
+        # place the server url immediately after backstitch
+        if line.startswith("[backstitch]"):
+            found_backstitch = True
             new_lines.append(line)
             new_lines.append('server_url="{{url}}"\n')
         # skip future server URLs
         elif not line.startswith("server_url="):
             new_lines.append(line)
     
-    if not found_patchwork:
-        new_lines = ['[patchwork]\n', 'server_url="{{url}}"']
+    if not found_backstitch:
+        new_lines = ['[backstitch]\n', 'server_url="{{url}}"']
 
     with open(path, "w") as file:
         file.writelines(new_lines)
 
 [arg('project', pattern='moddable-platformer|threadbare')]
-[arg('patchwork_profile', pattern='release|debug')]
+[arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
 [arg('skip_godot_clone', pattern='yes|no')]
-echo-parms project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no":
+echo-parms project="moddable-platformer" backstitch_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no":
     #!/usr/bin/env sh
     # set -euxo pipefail
-    echo "patchwork_profile: {{patchwork_profile}}"
+    echo "backstitch_profile: {{backstitch_profile}}"
     echo "godot_profile:     {{godot_profile}}"
     echo "server_url:        {{server_url}}"
     echo "tracing_support:   {{tracing_support}}"
@@ -434,22 +434,22 @@ echo-parms project="moddable-platformer" patchwork_profile="release" godot_profi
 # Prepare a project for launch with Godot. Available projects are threadbare, moddable-platformer.
 [parallel]
 [arg('project', pattern='moddable-platformer|threadbare')]
-[arg('patchwork_profile', pattern='release|debug')]
+[arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
 [arg('skip_godot_clone', pattern='yes|no')]
-prepare project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
-        (echo-parms project patchwork_profile godot_profile server_url tracing_support skip_godot_clone) (_link-project project) (build-godot godot_profile skip_godot_clone) (build-patchwork patchwork_profile default_arch tracing_support) (_write-url project server_url)
+prepare project="moddable-platformer" backstitch_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
+        (echo-parms project backstitch_profile godot_profile server_url tracing_support skip_godot_clone) (_link-project project) (build-godot godot_profile skip_godot_clone) (build-backstitch backstitch_profile default_arch tracing_support) (_write-url project server_url)
 
 
 # Launch a project with Godot. Available projects are threadbare, moddable-platformer.
 [arg('project', pattern='moddable-platformer|threadbare')]
-[arg('patchwork_profile', pattern='release|debug')]
+[arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
 [arg('skip_godot_clone', pattern='yes|no')]
-launch project="moddable-platformer" patchwork_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
-        (prepare project patchwork_profile godot_profile server_url tracing_support skip_godot_clone)
+launch project="moddable-platformer" backstitch_profile="release" godot_profile="release" server_url="" tracing_support="none" skip_godot_clone="no": \
+        (prepare project backstitch_profile godot_profile server_url tracing_support skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
     

@@ -26,13 +26,13 @@ impl FormatTime for CompactTime {
 }
 static mut M_FILE_WRITER_MUTEX: Option<WorkerGuard> = None;
 pub fn initialize_tracing() {
-    let file_appender = tracing_appender::rolling::daily(get_user_dir(), "patchwork.log");
+    let file_appender = tracing_appender::rolling::daily(get_user_dir(), "backstitch.log");
     let (non_blocking_file_writer, _guard) = tracing_appender::non_blocking(file_appender);
     // if the mutex gets dropped, the file writer will be closed, so we need to keep it alive
     unsafe {
         M_FILE_WRITER_MUTEX = Some(_guard);
     }
-    println!("!!! Logging to {:?}/patchwork.log", get_user_dir());
+    println!("!!! Logging to {:?}/backstitch.log", get_user_dir());
 
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_timer(CompactTime)
@@ -43,7 +43,7 @@ pub fn initialize_tracing() {
             EnvFilter::new("info")
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
-                .add_directive("patchwork_rust_core=debug".parse().unwrap())
+                .add_directive("backstitch_rust_core=debug".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
                 .add_directive("samod_core=info".parse().unwrap()),
         );
@@ -53,7 +53,7 @@ pub fn initialize_tracing() {
         .with_writer(non_blocking_file_writer.clone())
         .with_filter(
             EnvFilter::new("info")
-                .add_directive("patchwork_rust_core=trace".parse().unwrap())
+                .add_directive("backstitch_rust_core=trace".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
                 .add_directive("samod_core=info".parse().unwrap()),
         );
@@ -224,7 +224,7 @@ const LEVEL_NAMES_TO_REPLACEMENT: &[(&str, &str)] = &[
     ("ERROR", "X"),
 ];
 
-const CRATE_NAME: &str = "patchwork_rust_core";
+const CRATE_NAME: &str = "backstitch_rust_core";
 
 impl Write for CustomStdoutWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

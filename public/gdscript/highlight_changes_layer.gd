@@ -18,12 +18,12 @@ func _ready():
 	color_rect.position = Vector2(0, 0)
 	color_rect.color = Color(1.0, 0.0, 0.0, 0.75)
 	color_rect.size = Vector2(1000, 1000)
-	color_rect.name = "PatchworkColorRect"
+	color_rect.name = "BackstitchColorRect"
 	add_child(color_rect)
 
 	# Create and assign the shader material
 	shader_material = ShaderMaterial.new()
-	var shader = load("res://addons/patchwork/public/gdscript/highlight_shader.gdshader")
+	var shader = load("res://addons/backstitch/public/gdscript/highlight_shader.gdshader")
 	shader_material.shader = shader
 	color_rect.material = shader_material
 
@@ -87,21 +87,21 @@ func update_overlay(scene_changes: Dictionary):
 
 
 static func highlight_changes(root: Node, scene_changes: Dictionary):
-	var highlight_changes_layer_container = root.get_node_or_null("PatchworkHighlightChangesLayerContainer")
+	var highlight_changes_layer_container = root.get_node_or_null("BackstitchHighlightChangesLayerContainer")
 
 	if highlight_changes_layer_container == null:
 		highlight_changes_layer_container = CanvasLayer.new()
-		highlight_changes_layer_container.name = "PatchworkHighlightChangesLayerContainer"
+		highlight_changes_layer_container.name = "BackstitchHighlightChangesLayerContainer"
 		highlight_changes_layer_container.layer = 1025
 		root.add_child(highlight_changes_layer_container)
 
-	var diff_layer = highlight_changes_layer_container.get_node_or_null("PatchworkHighlightChangesLayer")
+	var diff_layer = highlight_changes_layer_container.get_node_or_null("BackstitchHighlightChangesLayer")
 	var bounding_box = _get_node_bounding_box(root)
 	if not is_instance_valid(bounding_box):
 		return
 	if diff_layer == null:
 		diff_layer = HighlightChangesLayer.new()
-		diff_layer.name = "PatchworkHighlightChangesLayer"
+		diff_layer.name = "BackstitchHighlightChangesLayer"
 		diff_layer.scene_node = root
 		highlight_changes_layer_container.add_child(diff_layer)
 
@@ -112,7 +112,7 @@ static func highlight_changes(root: Node, scene_changes: Dictionary):
 
 
 static func remove_highlight(root: Node):
-	var highlight_changes_layer_container = root.get_node_or_null("PatchworkHighlightChangesLayerContainer")
+	var highlight_changes_layer_container = root.get_node_or_null("BackstitchHighlightChangesLayerContainer")
 
 	if highlight_changes_layer_container:
 		root.remove_child(highlight_changes_layer_container)

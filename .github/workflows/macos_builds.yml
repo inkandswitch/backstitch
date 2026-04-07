@@ -1,4 +1,4 @@
-name: 🍎 Build Patchwork for macOS
+name: 🍎 Build Backstitch for macOS
 on:
   workflow_call:
 
@@ -20,7 +20,7 @@ jobs:
       - name: Restore Cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: patchwork_rust_plugin_macos-${{ matrix.arch }}
+          prefix-key: backstitch_rust_plugin_macos-${{ matrix.arch }}
 
       - name: Build
         uses: ./.github/actions/build-plugin
@@ -30,7 +30,7 @@ jobs:
       - name: Mac Sign
         uses: ./.github/actions/macos-sign
         with:
-          FRAMEWORK_PATH: ./build/patchwork/bin/libpatchwork_rust_core.macos.framework
+          FRAMEWORK_PATH: ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
           SIGN_FLAGS: "--deep"
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
@@ -42,6 +42,6 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: patchwork-build-macos-${{ matrix.arch }}
-          path: ./build/patchwork/*
+          name: backstitch-build-macos-${{ matrix.arch }}
+          path: ./build/backstitch/*
           if-no-files-found: error

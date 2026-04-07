@@ -17,15 +17,15 @@ use uuid::Uuid;
 use crate::fs::file_utils::FileContent;
 use crate::helpers::history_path::HistoryRefPath;
 use crate::helpers::history_ref::HistoryRef;
-use crate::interop::godot_accessors::PatchworkEditorAccessor;
+use crate::interop::godot_accessors::BackstitchEditorAccessor;
 use crate::interop::godot_project::GodotProject;
 
-/// This class allows us to load resources directly from patchwork history.
+/// This class allows us to load resources directly from backstitch history.
 /// It is registered as a resource format loader with Godot.
-/// Works on paths that are formatted as `patchwork://<doc_id>+<ChangeHash>/<actual_path>`
+/// Works on paths that are formatted as `backstitch://<doc_id>+<ChangeHash>/<actual_path>`
 #[derive(GodotClass)]
 #[class(base = ResourceFormatLoader)]
-pub struct PatchworkResourceLoader {
+pub struct BackstitchResourceLoader {
     #[base]
     base: Base<ResourceFormatLoader>,
 }
@@ -34,7 +34,7 @@ pub struct PatchworkResourceLoader {
 fn recognize_path(path: GString) -> bool {
     HistoryRefPath::recognize_path(&path.to_string())
 }
-impl PatchworkResourceLoader {
+impl BackstitchResourceLoader {
     fn get_content_at_ref_path_str(&self, ref_path_str: &str) -> Result<FileContent, Error> {
         let history_ref_path = match HistoryRefPath::from_str(ref_path_str) {
             Ok(history_ref_path) => history_ref_path,
@@ -88,7 +88,7 @@ impl PatchworkResourceLoader {
         }
         Ok((content, import_content))
     }
-    /// ext_resource path to the patchwork path at the same history ref and sets UIDs to -1
+    /// ext_resource path to the backstitch path at the same history ref and sets UIDs to -1
     /// (None) so Godot loads by path via this loader.
     fn content_bytes_for_temp(
         content: &FileContent,
@@ -117,7 +117,7 @@ impl PatchworkResourceLoader {
                 .and_then(|e| e.to_str())
                 .unwrap_or("res")
         };
-        let temp_name = format!("patchwork_{}.{}", Uuid::new_v4(), ext);
+        let temp_name = format!("backstitch_{}.{}", Uuid::new_v4(), ext);
         let temp_path = std::env::temp_dir().join(&temp_name);
         temp_path
     }
@@ -177,7 +177,7 @@ impl PatchworkResourceLoader {
 }
 
 #[godot_api]
-impl IResourceFormatLoader for PatchworkResourceLoader {
+impl IResourceFormatLoader for BackstitchResourceLoader {
     fn init(base: Base<ResourceFormatLoader>) -> Self {
         Self { base }
     }
@@ -288,7 +288,7 @@ impl IResourceFormatLoader for PatchworkResourceLoader {
     }
 
     fn rename_dependencies(&self, _path: GString, _renames: VarDictionary) -> Error {
-        // Patchwork resources are loaded from history and are read-only; we don't support renaming deps.
+        // Backstitch resources are loaded from history and are read-only; we don't support renaming deps.
         Error::ERR_UNAVAILABLE
     }
 
@@ -346,7 +346,7 @@ impl IResourceFormatLoader for PatchworkResourceLoader {
             let temp_imported_path = Self::get_temp_path(&history_ref_path, Some(&ext));
             // temp_imported_path minus the extension
             let temp_base_name = temp_imported_path.to_string_lossy().to_string().strip_suffix(&format!(".{}", ext)).unwrap_or(&temp_imported_path.to_string_lossy().to_string()).to_string();
-            let err = PatchworkEditorAccessor::import_and_save_resource(
+            let err = BackstitchEditorAccessor::import_and_save_resource(
                 &temp_path.to_string_lossy().to_string(),
                 &import_file_content,
                 &temp_base_name,
@@ -419,19 +419,19 @@ impl IResourceFormatLoader for PatchworkResourceLoader {
 
 #[derive(GodotClass)]
 #[class(base = ResourceFormatSaver)]
-pub struct PatchworkResourceFormatSaver {
+pub struct BackstitchResourceFormatSaver {
     #[base]
     base: Base<ResourceFormatSaver>,
 }
 
 #[godot_api]
-impl IResourceFormatSaver for PatchworkResourceFormatSaver {
+impl IResourceFormatSaver for BackstitchResourceFormatSaver {
     fn init(base: Base<ResourceFormatSaver>) -> Self {
         Self { base }
     }
 
     fn save(&mut self, _resource: Option<Gd<Resource>>, _path: GString, _flags: u32) -> Error {
-        // TODO: Decide if and how we want to save resources loaded from patchwork history; right now this is just here to prevent saving loaded history resources
+        // TODO: Decide if and how we want to save resources loaded from backstitch history; right now this is just here to prevent saving loaded history resources
         Error::ERR_LOCKED // indicate read-only
     }
 
@@ -449,7 +449,7 @@ impl IResourceFormatSaver for PatchworkResourceFormatSaver {
 
     fn get_recognized_extensions(&self, _resource: Option<Gd<Resource>>) -> PackedStringArray {
         // get_all_recognized_extensions()
-        // see note in PatchworkResourceLoader::get_recognized_extensions()
+        // see note in BackstitchResourceLoader::get_recognized_extensions()
         PackedStringArray::new()
     }
 

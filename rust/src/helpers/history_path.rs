@@ -62,7 +62,7 @@ impl FromStr for HistoryRefPath {
     type Err = &'static str;
     fn from_str(path: &str) -> Result<Self, Self::Err> {
         let path = path
-            .strip_prefix(HistoryRef::PATCHWORK_SCHEME_PREFIX)
+            .strip_prefix(HistoryRef::BACKSTITCH_SCHEME_PREFIX)
             .ok_or_else(|| "Invalid path")?;
         let (history_ref_part, path) = path
             .split_once(HistoryRefPath::REF_DIVIDER)

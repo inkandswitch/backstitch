@@ -5,7 +5,7 @@ on:
 # Global Settings
 # SCONS_CACHE for windows must be set in the build environment
 env:
-  SCONSFLAGS: verbose=yes warnings=all werror=no module_text_server_fb_enabled=yes minizip=yes deprecated=yes module_patchwork_editor_enabled=yes
+  SCONSFLAGS: verbose=yes warnings=all werror=no module_text_server_fb_enabled=yes minizip=yes deprecated=yes module_backstitch_editor_enabled=yes
 
 concurrency:
   group: ci-${{github.actor}}-${{github.head_ref || github.run_number}}-${{github.ref}}
@@ -45,26 +45,26 @@ jobs:
             bin: ./bin/godot.macos.editor.arm64
 
     steps:
-      # Checkout patchwork to tmp/
-      - name: Checkout patchwork-godot-plugin
+      # Checkout backstitch to tmp/
+      - name: Checkout backstitch-godot-plugin
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: tmp/patchwork-tmp
+          path: tmp/backstitch-tmp
 
-      # We must move patchwork to a higher directory than our CWD,
-      # because if we don't, cloning godot will overwrite patchwork.
+      # We must move backstitch to a higher directory than our CWD,
+      # because if we don't, cloning godot will overwrite backstitch.
       # (And Godot's actions expect Godot to be our CWD.)
       - name: Move to higher directory
         shell: sh
-        run: mv tmp/patchwork-tmp ../patchwork-tmp
+        run: mv tmp/backstitch-tmp ../backstitch-tmp
 
       # Grab the environment variables from build.env and output them
       - name: Fetch env variables
         id: dotenv
         uses: falti/dotenv-action@v1.1.5
         with:
-          path: ../patchwork-tmp/build.env
+          path: ../backstitch-tmp/build.env
           keys-case: bypass
       - name: Checkout Godot
         uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
       - name: Copy editor directory
         shell: bash
         run: |
-          cp -R ../patchwork-tmp/editor modules/patchwork_editor
+          cp -R ../backstitch-tmp/editor modules/backstitch_editor
 
       - name: Select Xcode 16
         if: matrix.platform == 'macos'
@@ -146,7 +146,7 @@ jobs:
       - name: Prepare artifact
       # Stripping the debug symbols screws up lipo'd binaries on macos, so don't do it
         if: matrix.platform != 'macos'
-        uses: ./../patchwork-tmp/.github/actions/godot-prepare-artifact
+        uses: ./../backstitch-tmp/.github/actions/godot-prepare-artifact
 
       - name: Save Godot build cache
         # if: success() || (steps.restore-cache.outputs.cache-hit == 'false' && (steps.compile-editor.outcome != 'skipped' || steps.compile-template.outcome != 'skipped'))
@@ -163,7 +163,7 @@ jobs:
           chmod +x bin/godot_macos_editor.app/Contents/MacOS/Godot
       - name: Windows Sign
         if: matrix.platform == 'windows' && matrix.target == 'editor'
-        uses: ./../patchwork-tmp/.github/actions/windows-sign
+        uses: ./../backstitch-tmp/.github/actions/windows-sign
         with:
           BINARY_PATHS: |
             ./bin/godot.windows.editor.x86_64.exe
@@ -176,7 +176,7 @@ jobs:
           KMS_KEY: ${{ secrets.KMS_KEY }}
       - name: Mac Sign
         if: matrix.platform == 'macos' && matrix.target == 'editor'
-        uses: ./../patchwork-tmp/.github/actions/macos-sign
+        uses: ./../backstitch-tmp/.github/actions/macos-sign
         with:
           FRAMEWORK_PATH: ${{ github.workspace }}/bin/godot_macos_editor.app
           SIGN_FLAGS: "--deep --force --options=runtime --entitlements ${{ github.workspace }}/misc/dist/macos/editor.entitlements"
@@ -186,11 +186,11 @@ jobs:
           APPLE_DEV_ID: ${{ secrets.APPLE_DEV_ID }}
           APPLE_DEV_TEAM_ID: ${{ secrets.APPLE_DEV_TEAM_ID }}
           APPLE_DEV_APP_ID: ${{ secrets.APPLE_DEV_APP_ID }}
-          BUNDLE_IDENTIFIER_OVERRIDE: "com.inkandswitch.patchworkgodoteditor"
+          BUNDLE_IDENTIFIER_OVERRIDE: "com.inkandswitch.backstitchgodoteditor"
 
       - uses: actions/upload-artifact@v4
         if: matrix.id != 'linux-sanitizers'
         with:
-          name: godot-with-patchwork-${{ matrix.platform }}
+          name: godot-with-backstitch-${{ matrix.platform }}
           path: ${{ github.workspace }}/bin/*
           retention-days: 90

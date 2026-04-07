@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d3pdp5ic2v3v3"
-path="res://.godot/imported/StatusError.svg-4d96ae639b204568f3d6dea43ca4867f.ctex"
+path="res://.godot/imported/StatusError.svg-2b527404d09262b0014790a434303a48.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/StatusError.svg"
-dest_files=["res://.godot/imported/StatusError.svg-4d96ae639b204568f3d6dea43ca4867f.ctex"]
+source_file="res://addons/backstitch/public/icons/StatusError.svg"
+dest_files=["res://.godot/imported/StatusError.svg-2b527404d09262b0014790a434303a48.ctex"]
 
 [params]
 

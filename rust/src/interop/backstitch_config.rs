@@ -5,7 +5,7 @@ use godot::builtin::{Variant};
 
 #[derive(GodotClass)]
 #[class(base=Object)]
-pub struct PatchworkConfig {
+pub struct BackstitchConfig {
     #[base]
     base: Base<Object>,
 
@@ -14,48 +14,48 @@ pub struct PatchworkConfig {
 	user_config_path: GString,
 }
 
-const CONFIG_FILE_NAME: &str = "patchwork.cfg";
-const USER_DIR_NAME: &str = "patchwork_plugin";
-const CONFIG_PROJECT_FILE: &str = "res://patchwork.cfg";
+const CONFIG_FILE_NAME: &str = "backstitch.cfg";
+const USER_DIR_NAME: &str = "backstitch_plugin";
+const CONFIG_PROJECT_FILE: &str = "res://backstitch.cfg";
 
 #[godot_api]
-impl PatchworkConfig {
+impl BackstitchConfig {
 
 	pub fn singleton() -> Gd<Self> {
-		Engine::singleton().get_singleton("PatchworkConfig").unwrap().cast::<Self>()
+		Engine::singleton().get_singleton("BackstitchConfig").unwrap().cast::<Self>()
 	}
 
     #[func]
     pub fn get_project_value(&self, key: GString, default: Variant) -> Variant {
         self.project_config
-            .get_value_ex("patchwork", &key).default(&default).done()
+            .get_value_ex("backstitch", &key).default(&default).done()
     }
 
     #[func]
     pub fn get_user_value(&self, key: GString, default: Variant) -> Variant {
         self.user_config
-            .get_value_ex("patchwork", &key).default(&default).done()
+            .get_value_ex("backstitch", &key).default(&default).done()
     }
 
     #[func]
     pub fn set_project_value(&mut self, key: GString, value: Variant) {
-        self.project_config.set_value("patchwork", &key, &value);
+        self.project_config.set_value("backstitch", &key, &value);
         if self.project_config.save(CONFIG_PROJECT_FILE) != Error::OK {
-            godot_error!("Failed to save patchwork configuration");
+            godot_error!("Failed to save backstitch configuration");
         }
     }
 
     #[func]
     pub fn set_user_value(&mut self, key: GString, value: Variant) {
-        self.user_config.set_value("patchwork", &key, &value);
+        self.user_config.set_value("backstitch", &key, &value);
         if self.user_config.save(&self.user_config_path) != Error::OK{
-            godot_error!("Failed to save patchwork user configuration");
+            godot_error!("Failed to save backstitch user configuration");
         }
     }
 }
 
 #[godot_api]
-impl IObject for PatchworkConfig {
+impl IObject for BackstitchConfig {
     fn init(_base: Base<Object>) -> Self {
 		// user_data_dir points to "user://", which is project specific, so we need to get the base dir and join it with the plugin name
 		let user_dir = Os::singleton().get_user_data_dir().get_base_dir().path_join(USER_DIR_NAME);

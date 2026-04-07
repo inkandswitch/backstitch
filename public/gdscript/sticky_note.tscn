@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://b853277vwgxxm"]
 
-[ext_resource type="Script" uid="uid://bsvqjddqcc6vw" path="res://addons/patchwork/public/gdscript/sticky_note.gd" id="1_rpp8a"]
+[ext_resource type="Script" uid="uid://bsvqjddqcc6vw" path="res://addons/backstitch/public/gdscript/sticky_note.gd" id="1_rpp8a"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_rpp8a"]
 bg_color = Color(1, 0.862745, 0, 1)

@@ -11,31 +11,31 @@ use godot::{
     obj::Gd,
 };
 
-use crate::interop::patchwork_config::PatchworkConfig;
+use crate::interop::backstitch_config::BackstitchConfig;
 
-/// Allows Rust code to easily get and set Patchwork configuration values via Godot's config system.
-pub struct PatchworkConfigAccessor {}
+/// Allows Rust code to easily get and set Backstitch configuration values via Godot's config system.
+pub struct BackstitchConfigAccessor {}
 
-impl PatchworkConfigAccessor {
+impl BackstitchConfigAccessor {
     pub fn get_project_doc_id() -> String {
-        PatchworkConfigAccessor::get_project_value("project_doc_id", "")
+        BackstitchConfigAccessor::get_project_value("project_doc_id", "")
     }
 
     pub fn get_project_value(name: &str, default: &str) -> String {
-        PatchworkConfig::singleton()
+        BackstitchConfig::singleton()
             .bind()
             .get_project_value(GString::from(name), default.to_variant())
             .to::<String>()
     }
 
     pub fn set_project_value(name: &str, value: &str) {
-        PatchworkConfig::singleton()
+        BackstitchConfig::singleton()
             .bind_mut()
             .set_project_value(GString::from(name), value.to_variant());
     }
 
     pub fn get_user_value(name: &str, default: &str) -> String {
-        PatchworkConfig::singleton()
+        BackstitchConfig::singleton()
             .bind()
             .get_user_value(GString::from(name), default.to_variant())
             .to::<String>()
@@ -43,17 +43,17 @@ impl PatchworkConfigAccessor {
 
     #[allow(dead_code)] // will be used later
     pub fn set_user_value(name: &str, value: &str) {
-        PatchworkConfig::singleton()
+        BackstitchConfig::singleton()
             .bind_mut()
             .set_user_value(GString::from(name), value.to_variant());
     }
 }
 
-/// Allows Rust code to access the C++ PatchworkEditor editor module from Godot.
-pub struct PatchworkEditorAccessor {}
+/// Allows Rust code to access the C++ BackstitchEditor editor module from Godot.
+pub struct BackstitchEditorAccessor {}
 
 #[allow(dead_code)] // entire API might not be used yet
-impl PatchworkEditorAccessor {
+impl BackstitchEditorAccessor {
     pub fn import_and_save_resource(
         path: &str,
         import_file_content: &str,
@@ -96,7 +96,7 @@ impl PatchworkEditorAccessor {
     // TODO: This should never be true now because of reload scene changes, but we need to test it
     pub fn is_changing_scene() -> bool {
         let result = ClassDb::singleton()
-            .class_call_static("PatchworkEditor", "is_changing_scene", &[])
+            .class_call_static("BackstitchEditor", "is_changing_scene", &[])
             .to::<bool>();
         if result {
             tracing::warn!("************** is_changing_scene is TRUE?!");
@@ -107,7 +107,7 @@ impl PatchworkEditorAccessor {
     // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
     // pub fn force_refresh_editor_inspector() {
     //     ClassDb::singleton().class_call_static(
-    //         "PatchworkEditor",
+    //         "BackstitchEditor",
     //         "force_refresh_editor_inspector",
     //         &[],
     //     );
@@ -116,7 +116,7 @@ impl PatchworkEditorAccessor {
     // TODO: Remove the progress dialog stuff entirely and replace it with something else, like our own modal progress dialog
     pub fn progress_add_task(task: &str, label: &str, steps: i32, can_cancel: bool) {
         ClassDb::singleton().class_call_static(
-            "PatchworkEditor",
+            "BackstitchEditor",
             "progress_add_task",
             &[
                 task.to_variant(),
@@ -129,7 +129,7 @@ impl PatchworkEditorAccessor {
 
     pub fn progress_task_step(task: &str, state: &str, step: i32, force_refresh: bool) {
         ClassDb::singleton().class_call_static(
-            "PatchworkEditor",
+            "BackstitchEditor",
             "progress_task_step",
             &[
                 task.to_variant(),
@@ -142,7 +142,7 @@ impl PatchworkEditorAccessor {
 
     pub fn progress_end_task(task: &str) {
         ClassDb::singleton().class_call_static(
-            "PatchworkEditor",
+            "BackstitchEditor",
             "progress_end_task",
             &[task.to_variant()],
         );
@@ -175,7 +175,7 @@ impl PatchworkEditorAccessor {
 
     // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
     // pub fn clear_editor_selection() {
-    //     ClassDb::singleton().class_call_static("PatchworkEditor", "clear_editor_selection", &[]);
+    //     ClassDb::singleton().class_call_static("BackstitchEditor", "clear_editor_selection", &[]);
     // }
 
     fn close_scene_file(path: &str) {
@@ -262,7 +262,7 @@ impl PatchworkEditorAccessor {
         // if (shader_editor) {
         //     shader_editor->save_external_data();
         // }
-        PatchworkEditorAccessor::save_all_scripts();
+        BackstitchEditorAccessor::save_all_scripts();
         EditorInterface::singleton().save_all_scenes();
     }
 }

@@ -1,8 +1,8 @@
 @tool
 extends OptionButton
-class_name PatchworkBranchPicker
+class_name BackstitchBranchPicker
 
-const node_warning_icon = preload("res://addons/patchwork/public/icons/NodeWarning.svg")
+const node_warning_icon = preload("res://addons/backstitch/public/icons/NodeWarning.svg")
 
 @export var override_icon: Texture2D
 @export var max_char_length: int = -1
@@ -70,7 +70,7 @@ func _on_item_selected(_index: int) -> void:
 	var selected_branch = GodotProject.get_branch(get_item_metadata(_index))
 	
 	if (!selected_branch):
-		PatchworkUtils.popup_box(self, $ErrorDialog, "Branch not found", "Error")
+		BackstitchUtils.popup_box(self, $ErrorDialog, "Branch not found", "Error")
 		populate()
 		return
 
@@ -95,7 +95,7 @@ func _on_item_selected(_index: int) -> void:
 		populate()
 		return
 
-	if PatchworkUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before checking out another branch."):
+	if BackstitchUtils.create_unsaved_files_dialog(self, "You have unsaved files open. You need to save them before checking out another branch."):
 		populate()
 		return;
 

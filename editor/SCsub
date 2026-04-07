@@ -6,10 +6,10 @@ from subprocess import Popen, PIPE
 Import("env")
 Import("env_modules")
 
-env_patchwork_editor = env_modules.Clone()
-env_patchwork_editor["disable_exceptions"] = False
+env_backstitch_editor = env_modules.Clone()
+env_backstitch_editor["disable_exceptions"] = False
 
-env_patchwork_editor.Append(CPPPATH=["."])
+env_backstitch_editor.Append(CPPPATH=["."])
 
 
 def doproc(cmd):
@@ -24,6 +24,6 @@ def doproc(cmd):
 
 module_obj = []
 
-env_patchwork_editor.add_source_files(module_obj, "*.cpp")
-# build_patchwork_rust(module_obj)
+env_backstitch_editor.add_source_files(module_obj, "*.cpp")
+# build_backstitch_rust(module_obj)
 env.modules_sources += module_obj

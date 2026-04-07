@@ -10,12 +10,12 @@ jobs:
       fail-fast: false
       matrix:
         artifact:
-          - godot-with-patchwork-windows
-          - godot-with-patchwork-linux
-          - godot-with-patchwork-macos
-          - patchwork-godot-plugin
-          - threadbare-with-patchwork
-          - moddable-platformer-with-patchwork
+          - godot-with-backstitch-windows
+          - godot-with-backstitch-linux
+          - godot-with-backstitch-macos
+          - backstitch-godot-plugin
+          - threadbare-with-backstitch
+          - moddable-platformer-with-backstitch
           - moddable-platformer-windows-ready
 
     steps:
@@ -27,12 +27,12 @@ jobs:
 
       # set permissions
       - name: Set permissions for Linux
-        if: matrix.artifact == 'godot-with-patchwork-linux'
+        if: matrix.artifact == 'godot-with-backstitch-linux'
         shell: bash
         run: |
           chmod +x ${{ matrix.artifact }}/*
       - name: Set permissions for macOS
-        if: matrix.artifact == 'godot-with-patchwork-macos'
+        if: matrix.artifact == 'godot-with-backstitch-macos'
         shell: bash
         run: |
           chmod +x ${{ matrix.artifact }}/godot_macos_editor.app/Contents/MacOS/Godot

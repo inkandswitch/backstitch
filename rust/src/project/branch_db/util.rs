@@ -177,11 +177,11 @@ impl BranchDb {
         }).await.ok()
     }
 
-    /// Dumps a branch document to disk, at ./.patchwork/DUMP_{id}.bin
+    /// Dumps a branch document to disk, at ./.backstitch/DUMP_{id}.bin
     pub async fn dump_branch_doc(&self, id: &DocumentId) {
         let path = self
             .get_project_dir()
-            .join("./.patchwork/")
+            .join("./.backstitch/")
             .join(format!("DUMP_{id}.bin"));
         let handle = {
             let states = self.branch_sync_states.lock().await;

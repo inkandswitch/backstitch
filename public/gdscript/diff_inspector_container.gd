@@ -251,7 +251,7 @@ func do_node_box_click(sec: DiffInspectorSection, file_path: String, section: St
 		if section.begins_with("./"):
 			node_path = node_path.substr(2)
 
-		if PatchworkEditor.is_changing_scene():
+		if BackstitchEditor.is_changing_scene():
 			waiting_callables.append(func():
 				self.do_node_box_click(sec, file_path, section, true)
 			)

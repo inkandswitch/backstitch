@@ -36,13 +36,13 @@ To view a detailed list of targets, type `just`.
 
 ### Quick start: Launching projects
 
-If you want to get up and running as fast as possible, type `just launch`. It will launch Endless's `moddable-platformer` project with Patchwork installed, using a custom-built Godot editor with the Patchwork module.
+If you want to get up and running as fast as possible, type `just launch`. It will launch Endless's `moddable-platformer` project with Backstitch installed, using a custom-built Godot editor with the Backstitch module.
 
 Otherwise, you can specify arguments for `just launch`:
 
 ```bash
 project=[moddable-platformer|threadbare] # launch threadbare or moddable-platformer projects
-patchwork_profile=[release|debug] # whether we should build the rust code with release or debug configuration
+backstitch_profile=[release|debug] # whether we should build the rust code with release or debug configuration
 godot_profile=[release|debug|sani] # whether we should build Godot with release, debug, or sani configuration
 server_url=<url> # force embed a server URL into the project. By default, just keeps whatever server URL is already configured in the project.
 tracing_support=[none|tokio-console] # allows a tokio-console to be connected at the default port for debugging
@@ -59,16 +59,16 @@ When working with GDScript, you'll need to open `moddable-platformer` or `thread
 
 When you run `just launch`, the output generated files are copied to `build/`. There are several important directories, here:
 
-- `build/patchwork`:
+- `build/backstitch`:
   + The built plugin.
   + `bin`: Rust binaries
   + `public`: Symlinked from `public/` in the repo root. For GDScript and assets we must ship directly with the plugin.
 - `build/moddable-platformer`/`build/threadbare`:
   + A clone of each project repository.
-  + `addons/patchwork`: Symlinked from `build/patchwork`, so feel free to make GDScript or UI changes directly to `addons/patchwork/public`.
+  + `addons/backstitch`: Symlinked from `build/backstitch`, so feel free to make GDScript or UI changes directly to `addons/backstitch/public`.
 - `build/godot`:
   + A clone of the Godot repository
-  + `modules/patchwork_editor`: Symlinked from `editor/` to form a new editor module.
+  + `modules/backstitch_editor`: Symlinked from `editor/` to form a new editor module.
   + `bin`: Contains the built Godot executable.
 - `GodotFormatters`:
   + A special `lldb` formatter for Godot objects. Only cloned when running the project through VSCode.
@@ -76,24 +76,24 @@ When you run `just launch`, the output generated files are copied to `build/`. T
 
 
 
-### Understanding Patchwork's Architecture
+### Understanding Backstitch's Architecture
 
-Patchwork is a **hybrid Godot Engine C++ module + GDExtension**, not a traditional plugin:
+Backstitch is a **hybrid Godot Engine C++ module + GDExtension**, not a traditional plugin:
 
 - **Godot Engine C++ Module** (`editor/`) - Built INTO your custom Godot editor
   - Automatically active when you launch the custom editor
-  - Registers the `PatchworkEditor` class
+  - Registers the `BackstitchEditor` class
   - Only here to provide editor functionality that is not currently exposed to GDExtensions
     - Will eventually be removed once this functionality is upstreamed to Godot
 
 - **GDExtension Component** (`public/` and `rust/`) - Actually runs the application
   - Contains the Rust plugin DLL/library
   - Contains public GDScript UI components
-  - Located in your project's `addons/patchwork/` folder
+  - Located in your project's `addons/backstitch/` folder
 
-Because the C++ module is compiled directly into Godot (see [register_types.cpp:11-14](register_types.cpp#L11-L14)), Patchwork automatically initializes when the editor starts. The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
+Because the C++ module is compiled directly into Godot (see [register_types.cpp:11-14](register_types.cpp#L11-L14)), Backstitch automatically initializes when the editor starts. The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
 
-**In summary:** When `just` builds Godot with Patchwork and symlinks the files to `addons/patchwork/`, the plugin is **always active** - you don't need to manually enable it in the Plugins menu. The Patchwork tab will appear automatically.
+**In summary:** When `just` builds Godot with Backstitch and symlinks the files to `addons/backstitch/`, the plugin is **always active** - you don't need to manually enable it in the Plugins menu. The Backstitch tab will appear automatically.
 
 ### Development Workflow
 
@@ -101,11 +101,11 @@ When developing manually, after making changes:
 
 **For GDScript changes:**
 
-Click the "Reload UI" button in the Patchwork tab to reload the UI.
+Click the "Reload UI" button in the Backstitch tab to reload the UI.
 
 **For Rust changes:**
 
-Either run `just build-patchwork (release/debug)` in a terminal, or launch the `Hot reload patchwork` target in VSCode. Godot should reload the Rust binary automatically, but you may have to restart the editor if it explodes.
+Either run `just build-backstitch (release/debug)` in a terminal, or launch the `Hot reload backstitch` target in VSCode. Godot should reload the Rust binary automatically, but you may have to restart the editor if it explodes.
 
 **For C++ module changes:**
 
@@ -130,16 +130,16 @@ cargo install watchexec-cli
 # Or download from: https://github.com/watchexec/watchexec/releases
 ```
 
-**2. Run auto-rebuild from the patchwork_editor root:**
+**2. Run auto-rebuild from the backstitch_editor root:**
 
 ```bash
-cd godot/modules/patchwork_editor
+cd godot/modules/backstitch_editor
 
 # Auto-rebuild on any .rs or .toml file change
-watchexec -e rs,toml just build-patchwork (release/debug)
+watchexec -e rs,toml just build-backstitch (release/debug)
 ```
 
-This will watch for changes to `.rs` and `.toml` files and automatically run `just build-patchwork` when changes are detected.
+This will watch for changes to `.rs` and `.toml` files and automatically run `just build-backstitch` when changes are detected.
 Godot will automatically reload the plugin after the build is complete.
 
 **3. macOS Code Signing (if needed):**
@@ -234,7 +234,7 @@ sudo apt-get install build-essential pkg-config libx11-dev libxcursor-dev \
 
 ### 4. Platform-Specific Setup
 
-#### macOS: Vulkan SDK (Required for patchwork-4.6)
+#### macOS: Vulkan SDK (Required for backstitch-4.6)
 
 ```bash
 cd godot  # In the godot repository root
@@ -244,7 +244,7 @@ sh misc/scripts/install_vulkan_sdk_macos.sh
 #### macOS: Code Signing
 
 ```bash
-cd modules/patchwork_editor/rust/plugin
+cd modules/backstitch_editor/rust/plugin
 
 # Create identity file with your Apple Developer certificate
 echo "Apple Development: Your Name (TEAMID)" > .cargo/.devidentity

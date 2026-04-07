@@ -5,7 +5,7 @@ use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
 use crate::helpers::utils::CommitInfo;
 use crate::interop::godot_accessors::{
-    EditorFilesystemAccessor, PatchworkConfigAccessor, PatchworkEditorAccessor,
+    EditorFilesystemAccessor, BackstitchConfigAccessor, BackstitchEditorAccessor,
 };
 use crate::project::driver::Driver;
 use crate::project::main_thread_block::MainThreadBlock;
@@ -19,7 +19,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OwnedMutexGuard, watch};
 use tracing::instrument;
 
-/// Manages the state and operations of a Patchwork project within Godot.
+/// Manages the state and operations of a Backstitch project within Godot.
 /// Its API is exposed to GDScript via the GodotProject struct.
 #[derive(Debug)]
 pub struct Project {
@@ -44,7 +44,7 @@ pub struct Project {
     pub(super) diff_cache: RefCell<HashMap<(HistoryRef, HistoryRef), ProjectDiff>>,
 }
 
-/// The default server URL used for syncing Patchwork projects. Can be overridden by user or project configuration.
+/// The default server URL used for syncing Backstitch projects. Can be overridden by user or project configuration.
 const DEFAULT_SERVER_URL: &str = "24.199.97.236:8085";
 
 /// Notifications that can be emitted via process and consumed by GodotProject, in order to trigger signals to GDScript.
@@ -60,7 +60,7 @@ impl Project {
         // So it's fine. But if we want other code besides the driver to be multi-threaded...
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .thread_name("patchwork-driver-worker")
+            .thread_name("backstitch-driver-worker")
             .build()
             .unwrap();
 
@@ -107,9 +107,9 @@ impl Project {
     // Do not run this on anything except the main thread!
     pub fn safe_to_update_godot() -> bool {
         return !(EditorFilesystemAccessor::is_scanning()
-            || PatchworkEditorAccessor::is_editor_importing()
-            || PatchworkEditorAccessor::is_changing_scene()
-            || PatchworkEditorAccessor::unsaved_files_open());
+            || BackstitchEditorAccessor::is_editor_importing()
+            || BackstitchEditorAccessor::is_changing_scene()
+            || BackstitchEditorAccessor::unsaved_files_open());
     }
 
     pub fn get_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
@@ -124,10 +124,10 @@ impl Project {
             return;
         }
 
-        let storage_dir = self.project_dir.join(".patchwork");
+        let storage_dir = self.project_dir.join(".backstitch");
         let server_url = {
-            let project = PatchworkConfigAccessor::get_project_value("server_url", "");
-            let user = PatchworkConfigAccessor::get_user_value("server_url", "");
+            let project = BackstitchConfigAccessor::get_project_value("server_url", "");
+            let user = BackstitchConfigAccessor::get_user_value("server_url", "");
             if !project.is_empty() {
                 tracing::info!("Using project override for server url: {:?}", project);
                 project
@@ -151,7 +151,7 @@ impl Project {
 
         // If the metadata ID is not a valid document ID, give up.
         // If it's an empty string, returns None so we can make a new doc.
-        let metadata_id = match Some(PatchworkConfigAccessor::get_project_value(
+        let metadata_id = match Some(BackstitchConfigAccessor::get_project_value(
             "project_doc_id",
             "",
         ))
@@ -167,7 +167,7 @@ impl Project {
             None => None,
         };
 
-        let saved_branch_id = match Some(PatchworkConfigAccessor::get_project_value(
+        let saved_branch_id = match Some(BackstitchConfigAccessor::get_project_value(
             "checked_out_branch_doc_id",
             "",
         ))
@@ -189,7 +189,7 @@ impl Project {
         );
 
         let project_dir = self.project_dir.clone();
-        let username = PatchworkConfigAccessor::get_user_value("user_name", "");
+        let username = BackstitchConfigAccessor::get_user_value("user_name", "");
         let block = self.main_thread_block.clone();
 
         // TODO: Don't block on main thread for checkin
@@ -219,7 +219,7 @@ impl Project {
             return;
         };
 
-        PatchworkConfigAccessor::set_project_value(
+        BackstitchConfigAccessor::set_project_value(
             "project_doc_id",
             &metadata
                 .expect("Driver started, but metadata null!")
@@ -329,7 +329,7 @@ impl Project {
                 .as_ref()
                 .map(|r| r.branch().to_string())
                 .unwrap_or("".to_string());
-            PatchworkConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
+            BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
             signals.push(GodotProjectSignal::CheckedOutBranch);
             rx.mark_unchanged();
         }

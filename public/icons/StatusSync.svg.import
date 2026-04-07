@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bke3k5pmnruje"
-path="res://.godot/imported/StatusSync.svg-e7aa7ae049a447de691a1136f2f7cc89.ctex"
+path="res://.godot/imported/StatusSync.svg-307ddd05c3d2fdb216a0c7e349a48a0e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/patchwork/public/icons/StatusSync.svg"
-dest_files=["res://.godot/imported/StatusSync.svg-e7aa7ae049a447de691a1136f2f7cc89.ctex"]
+source_file="res://addons/backstitch/public/icons/StatusSync.svg"
+dest_files=["res://.godot/imported/StatusSync.svg-307ddd05c3d2fdb216a0c7e349a48a0e.ctex"]
 
 [params]
 

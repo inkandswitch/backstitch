@@ -23,32 +23,32 @@ We have long-term plans to upstream our changes into Godot, which will allow thi
 
 Download our fork of Godot for your platform
 
-- [Mac OS](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/patchwork_editor-v0.0.1-alpha.20-macos.zip)
-- [Windows](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/patchwork_editor-v0.0.1-alpha.20-windows.zip)
-- [Linux](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/patchwork_editor-v0.0.1-alpha.20-linux.zip)
+- [Mac OS](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/backstitch_editor-v0.0.1-alpha.20-macos.zip)
+- [Windows](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/backstitch_editor-v0.0.1-alpha.20-windows.zip)
+- [Linux](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/backstitch_editor-v0.0.1-alpha.20-linux.zip)
 
 Then you can either:
 
 Download example project with plugin already set up
 
-- [Moddable Platformer](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/moddable-platformer-with-patchwork.zip) (recommended)
-- [Threadbare](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/threadbare-with-patchwork.zip) (experimental)
+- [Moddable Platformer](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/moddable-platformer-with-backstitch.zip) (recommended)
+- [Threadbare](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/threadbare-with-backstitch.zip) (experimental)
 
 *or* 
 
 Download the plugin and copy it into an existing project
 
-- [Plugin](https://github.com/inkandswitch/patchwork-godot-plugin/releases/download/v0.0.1-alpha.20/patchwork-godot-plugin.zip)
+- [Plugin](https://github.com/inkandswitch/backstitch-godot-plugin/releases/download/v0.0.1-alpha.20/backstitch-godot-plugin.zip)
 
 ## Getting Started
 
-Most of the Godot editor works as you're used to. To start using the collaboration features, click the Patchwork tab in the right sidebar:
+Most of the Godot editor works as you're used to. To start using the collaboration features, click the Backstitch tab in the right sidebar:
 
 ![](./assets/plugin-tab.webp)
 
-To collaborate with others, you need to be in the same Patchwork Project.
+To collaborate with others, you need to be in the same Backstitch Project.
 
->💡 A Patchwork Project is a shared online session where everyone can see the same thing. Think of it sort of like a Google Doc. If you're familiar with Git, it's also similar to a Git repo with live synchronization.
+>💡 A Backstitch Project is a shared online session where everyone can see the same thing. Think of it sort of like a Google Doc. If you're familiar with Git, it's also similar to a Git repo with live synchronization.
 
 
 You can either create a new project or load an existing one.
@@ -60,14 +60,14 @@ To create a new project: click the “create a new project” button
 To share a project with someone:
 
 - You can click the "Copy Project ID" button in the bottom toolbar and then send the Project ID to another user
-- The project ID is also written into the filesystem, so if you share your project folder with someone it will now contain the Patchwork Project ID in the `patchwork.cfg` file
+- The project ID is also written into the filesystem, so if you share your project folder with someone it will now contain the Backstitch Project ID in the `backstitch.cfg` file
 
 **Joining an existing project**
 
 - manually paste the ID into the Project ID box if someone has shared that
-- You may already be in a Patchwork project, if someone shared a file with you that contains a project ID.
+- You may already be in a Backstitch project, if someone shared a file with you that contains a project ID.
 
-# Using Patchwork
+# Using Backstitch
 
 **Set your username**
 
@@ -102,7 +102,7 @@ Now you can make changes privately on this branch without disrupting others.
 
 The history list now shows just a list of changes on this branch.
 
-The "changes" panel in the bottom of the Patchwork pane shows you the difference between this branch and the main branch. If you hover on different parts of the change list you can see highlights on the changed parts in the scene.
+The "changes" panel in the bottom of the Backstitch pane shows you the difference between this branch and the main branch. If you hover on different parts of the change list you can see highlights on the changed parts in the scene.
 
 ![](./assets/diff.webp)
 
@@ -130,12 +130,12 @@ In a small collaborative team, you could try:
 
 ## Configuration
 
-Plugin configuration is stored in your project as `res://patchwork.cfg/`. The following configuration options are available:
+Plugin configuration is stored in your project as `res://backstitch.cfg/`. The following configuration options are available:
 
 | Config | Description |
 | --- | --- |
-| project_doc_id | The ID of your project. Empty if there is no Patchwork project created.
-| checked_out_branch_doc_id | Your current checked out branch inside your project. Empty for the main branch, or if there is no Patchwork project.
+| project_doc_id | The ID of your project. Empty if there is no Backstitch project created.
+| checked_out_branch_doc_id | Your current checked out branch inside your project. Empty for the main branch, or if there is no Backstitch project.
 | server_url | The URL for the sync server. If empty or missing, uses the default testing sync server run by Ink & Switch. If the URL or IP address is prefixed with `ws://`, uses a WebSockets server; otherwise, it uses raw TCP from a `samod` server like the one [here](https://github.com/paulsonnentag/automerge-rust-sync-server/).
 
 

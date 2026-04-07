@@ -1,5 +1,5 @@
-#ifndef PATCHWORK_EDITOR_H
-#define PATCHWORK_EDITOR_H
+#ifndef BACKSTITCH_EDITOR_H
+#define BACKSTITCH_EDITOR_H
 
 #include "core/io/resource_importer.h"
 #include "core/object/ref_counted.h"
@@ -9,8 +9,8 @@
 #include "scene/gui/control.h"
 #include "scene/main/node.h"
 
-class PatchworkEditor : public Object {
-  GDCLASS(PatchworkEditor, Object);
+class BackstitchEditor : public Object {
+  GDCLASS(BackstitchEditor, Object);
 
 private:
   static Callable steal_close_current_script_tab_file_callback();
@@ -19,8 +19,8 @@ protected:
   static void _bind_methods();
 
 public:
-  PatchworkEditor();
-  ~PatchworkEditor();
+  BackstitchEditor();
+  ~BackstitchEditor();
   static bool is_changing_scene();
   static void progress_add_task(const String &p_task, const String &p_label,
                                 int p_steps, bool p_can_cancel = false);
@@ -29,4 +29,4 @@ public:
   static void progress_end_task(const String &p_task);
 };
 
-#endif // PATCHWORK_EDITOR_H
+#endif // BACKSTITCH_EDITOR_H

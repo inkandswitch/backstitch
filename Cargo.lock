@@ -231,6 +231,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "backstitch_rust"
+version = "0.0.1"
+dependencies = [
+ "async-stream",
+ "automerge",
+ "autosurgeon",
+ "base64 0.22.1",
+ "cargo-post",
+ "cbindgen",
+ "chrono",
+ "console-subscriber",
+ "futures",
+ "glob",
+ "godot",
+ "ignore",
+ "indexmap",
+ "lexical",
+ "md5",
+ "notify",
+ "notify-debouncer-full",
+ "num-traits",
+ "pretty_assertions",
+ "rand 0.9.2",
+ "rayon",
+ "regex",
+ "rlimit",
+ "safer-ffi",
+ "samod",
+ "serde",
+ "serde_json",
+ "similar",
+ "static_vcruntime",
+ "sys-locale",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-godot-resource",
+ "uuid",
+]
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1828,53 +1875,6 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "patchwork_rust"
-version = "0.0.1"
-dependencies = [
- "async-stream",
- "automerge",
- "autosurgeon",
- "base64 0.22.1",
- "cargo-post",
- "cbindgen",
- "chrono",
- "console-subscriber",
- "futures",
- "glob",
- "godot",
- "ignore",
- "indexmap",
- "lexical",
- "md5",
- "notify",
- "notify-debouncer-full",
- "num-traits",
- "pretty_assertions",
- "rand 0.9.2",
- "rayon",
- "regex",
- "rlimit",
- "safer-ffi",
- "samod",
- "serde",
- "serde_json",
- "similar",
- "static_vcruntime",
- "sys-locale",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tokio-util",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-godot-resource",
- "uuid",
-]
 
 [[package]]
 name = "percent-encoding"

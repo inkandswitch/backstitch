@@ -287,13 +287,22 @@ func bind_listeners(godot_project):
 	_style_button(action_menu_button)
 	_style_button(fork_button)
 	_style_button(merge_button)
+	_style_button(%MonkeyButton)
 	_style_button(%ClearDiffButton)
+	# Have to manually scale the icons of the popup menu
+	for item in action_menu_button.get_popup().get_item_count():
+		var menu: PopupMenu = action_menu_button.get_popup()
+		var icon = menu.get_item_icon(item)
+		icon.base_scale = EditorInterface.get_editor_scale()
 
 
 func _style_button(button: Button):
 	var theme = EditorInterface.get_editor_theme()
 	button.theme_type_variation = "FlatButton"
 	button.theme = theme
+	# For some reason, the icon isn't scaling automatically in the editor
+	button.icon.base_scale = EditorInterface.get_editor_scale()
+	#print("Backstitch: Button icon base scale: ", button.icon.base_scale)
 
 
 func _try_init():

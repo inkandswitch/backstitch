@@ -56,7 +56,7 @@ jobs:
         with:
           fetch-depth: 0
           path: backstitch-tmp
-          repository: inkandswitch/backstitch-godot-plugin
+          repository: inkandswitch/backstitch
       - name: Copy to addons
         shell: sh
         run: |

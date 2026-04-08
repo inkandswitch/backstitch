@@ -1,4 +1,8 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::{
     helpers::{
@@ -62,7 +66,23 @@ impl DocumentWatcher {
 
 impl DocumentWatcherInner {
     // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
-    async fn track_branch_document(&self, handle: DocHandle) {
+    async fn track_branch_document(&self, id: DocumentId) {
+        // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
+        // Permissive announce policies on the server fix it because the server is allowed to check with peers before
+        // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
+        // So, we need to call find() over and over until it is available on the server... then we can ingest.
+        // Alex wants to add Repo::query(), that returns an ongoing query for a document rather than a future. Then, we can
+        // improve this significantly.
+        let handle = loop {
+            tracing::info!("Polling for branch document {id}");
+            if let Some(handle) = self.repo.find(id.clone()).await.unwrap() {
+                break handle;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        };
+        
+        self.ingest_branch_document(handle.clone()).await;
+
         let mut stream = handle.changes();
         loop {
             select! {
@@ -184,19 +204,11 @@ impl DocumentWatcherInner {
         let mut tracked_branches = self.tracked_branches.lock().await;
         for (branch_id, _) in meta.branches.iter() {
             if !tracked_branches.contains(branch_id) {
-                let Some(handle) = self.repo.find(branch_id.clone()).await.unwrap() else {
-                    tracing::error!(
-                        "Document {:?} exists in the branch metadata document, but not the repo! Skipping.",
-                        branch_id
-                    );
-                    continue;
-                };
                 tracked_branches.insert(branch_id.clone());
-                self.ingest_branch_document(handle.clone()).await;
-                // Track the document
                 let this = self.clone();
+                let id = branch_id.clone();
                 spawn_named(&format!("Document tracker: {:?}", branch_id), async move {
-                    this.track_branch_document(handle).await
+                    this.track_branch_document(id).await
                 });
             }
         }

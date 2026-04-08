@@ -26,7 +26,7 @@ Learn more on our [website](https://backstitch.dev/).
 
 ## Setup & Tutorial
 
-To get started with Backstitch, check out the [docs on our website](https://backstitch.dev/). 
+To get started with Backstitch, check out the [docs on our website](https://backstitch.dev/docs). 
 
 ## Configuration
 

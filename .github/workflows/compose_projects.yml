@@ -65,7 +65,7 @@ jobs:
       - name: Install Backstitch Launcher
         uses: ./backstitch-tmp/.github/actions/install-launcher
         with:
-          path: ${{ matrix.project.name }}
+          project_path: ${{ matrix.project.name }}
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

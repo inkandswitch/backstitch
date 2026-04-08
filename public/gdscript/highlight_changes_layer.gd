@@ -97,8 +97,10 @@ static func highlight_changes(root: Node, scene_changes: Dictionary):
 
 	var diff_layer = highlight_changes_layer_container.get_node_or_null("BackstitchHighlightChangesLayer")
 	var bounding_box = _get_node_bounding_box(root)
-	if not is_instance_valid(bounding_box):
+
+	if !bounding_box.is_finite():
 		return
+
 	if diff_layer == null:
 		diff_layer = HighlightChangesLayer.new()
 		diff_layer.name = "BackstitchHighlightChangesLayer"
@@ -119,12 +121,12 @@ static func remove_highlight(root: Node):
 		highlight_changes_layer_container.queue_free()
 
 
-static func _get_node_bounding_box(node: Node):
-	var bounding_box
+static func _get_node_bounding_box(node: Node) -> Rect2:
+	var bounding_box = Rect2()
 
 	# ignore HighlightChangesLayer
 	if node is HighlightChangesLayer:
-		return null
+		return bounding_box
 
 	# Special handling for collision shapes
 	if node is CollisionShape2D:
@@ -146,6 +148,7 @@ static func _get_node_bounding_box(node: Node):
 		var transform = node.get_global_transform()
 		rect = transform * rect
 		bounding_box = rect
+
 	# Check if the node has a get_rect method
 	elif node.has_method("get_rect"):
 		var rect = node.get_rect()
@@ -154,7 +157,7 @@ static func _get_node_bounding_box(node: Node):
 			var transform = node.get_global_transform()
 			rect = transform * rect
 		bounding_box = rect
-
+		
 	# Recursively process all children
 	for child in node.get_children():
 		# Get the bounding box of the child

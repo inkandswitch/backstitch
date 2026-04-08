@@ -1,0 +1,32 @@
+name: Install Backstitch launcher
+description: Installs inkandswitch/backstitch-launcher into project.
+inputs:
+  project_path:
+    required: true
+    description: Project path to install launcher into.
+
+runs:
+  using: composite
+  steps:
+    - uses: robinraju/release-downloader@v1
+      with:
+        repository: 'inkandswitch/backstitch-launcher'
+        tag: 'v1.0.0-alpha'
+        fileName: 'backstitch-launcher-*.zip'
+        out-file-path: 'backstitch-launcher'
+        extract: true
+
+    - name: Copy exe files
+      shell: bash
+      run:
+        cp backstitch-launcher/*.windows.exe ${{ inputs.project_path }}
+        cp backstitch-launcher/*.linux ${{ inputs.project_path }}
+        cp backstitch-launcher/*.macos ${{ inputs.project_path }}
+    - name: Merge .gitignore
+      shell: bash
+      run: cat backstitch-launcher/default.gitignore >> ${{ inputs.project_path }}/.gitignore
+    - name: Write .backstitch_version
+      shell: bash
+      run: echo "${{ github.ref_name }}" >> ${{ inputs.project_path }}/.backstitch_version
+
+

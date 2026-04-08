@@ -46,7 +46,7 @@ jobs:
 
     steps:
       # Checkout backstitch to tmp/
-      - name: Checkout backstitch-godot-plugin
+      - name: Checkout backstitch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0

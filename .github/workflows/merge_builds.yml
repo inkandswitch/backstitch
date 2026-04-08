@@ -14,14 +14,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: backstitch-build-*
-          path: ${{ github.workspace }}/backstitch-godot-plugin
+          path: ${{ github.workspace }}/backstitch
           merge-multiple: true
       - name: Wut
         run: |
-          ls -la ${{ github.workspace }}/backstitch-godot-plugin/bin || echo "No artifacts"
+          ls -la ${{ github.workspace }}/backstitch/bin || echo "No artifacts"
 
-      - name: Upload backstitch-godot-plugin
+      - name: Upload backstitch
         uses: actions/upload-artifact@v4
         with:
-          path: backstitch-godot-plugin
-          name: backstitch-godot-plugin
+          path: backstitch
+          name: backstitch

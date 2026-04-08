@@ -13,10 +13,9 @@ jobs:
           - godot-with-backstitch-windows
           - godot-with-backstitch-linux
           - godot-with-backstitch-macos
-          - backstitch-godot-plugin
+          - backstitch
           - threadbare-with-backstitch
           - moddable-platformer-with-backstitch
-          - moddable-platformer-windows-ready
 
     steps:
       - name: Download artifact
@@ -46,11 +45,11 @@ jobs:
       - name: Zip artifact
         run: |
           cd ${{ matrix.artifact }}
-          zip -r9  ../${{ matrix.artifact }}-${{ github.ref_name }}.zip .
+          zip -r9  ../${{ matrix.artifact }}.zip .
 
       - name: Release artifact
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ matrix.artifact }}-${{ github.ref_name }}.zip
+            ${{ matrix.artifact }}.zip

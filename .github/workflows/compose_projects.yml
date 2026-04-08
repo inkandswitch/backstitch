@@ -49,13 +49,23 @@ jobs:
       - name: Download Backstitch
         uses: actions/download-artifact@v7
         with:
-          pattern: backstitch-godot-plugin
-          path: backstitch-godot-plugin
+          pattern: backstitch
+          path: backstitch
+      - name: Checkout backstitch # for actions
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          path: backstitch-tmp
+          repository: inkandswitch/backstitch
       - name: Copy to addons
         shell: sh
         run: |
           mkdir -p ${{ matrix.project.name }}/addons/backstitch
-          cp -r backstitch-godot-plugin/. ${{ matrix.project.name }}/addons/backstitch
+          cp -r backstitch/. ${{ matrix.project.name }}/addons/backstitch
+      - name: Install Backstitch Launcher
+        uses: ./backstitch-tmp/.github/actions/install-launcher
+        with:
+          project_path: ${{ matrix.project.name }}
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

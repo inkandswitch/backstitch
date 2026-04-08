@@ -24,7 +24,7 @@ runs:
         cp ./backstitch-launcher/backstitch-launcher.macos ${{ inputs.project_path }}
     - name: Merge .gitignore
       shell: bash
-      run: cat backstitch-launcher/default.gitignore >> ${{ inputs.project_path }}/.gitignore
+      run: cat ./backstitch-launcher/.gitignore.template >> ${{ inputs.project_path }}/.gitignore
     - name: Write .backstitch_version
       shell: bash
       run: echo "${{ github.ref_name }}" >> ${{ inputs.project_path }}/.backstitch_version

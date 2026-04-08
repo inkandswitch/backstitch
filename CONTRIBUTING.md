@@ -1,4 +1,6 @@
-# Godot Collaboration Plugin: Developer's Guide
+# Backstitch: Contributor's Guide
+
+We'd love your help developing Backstitch. Here's how to get started.
 
 ### Prerequisites
 

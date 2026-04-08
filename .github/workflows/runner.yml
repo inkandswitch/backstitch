@@ -65,5 +65,5 @@ jobs:
   release:
     name: 📦 Release
     if: github.ref_type == 'tag'
-    needs: [editor-builds, merge-plugin-builds, compose-projects, prepare-composite]
+    needs: [editor-builds, merge-plugin-builds, compose-projects]
     uses: ./.github/workflows/release.yml

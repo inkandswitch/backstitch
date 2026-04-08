@@ -18,7 +18,8 @@ runs:
 
     - name: Copy exe files
       shell: bash
-      run:
+      run: |
+        ls -R
         cp backstitch-launcher/backstitch-launcher-*/*.windows.exe ${{ inputs.project_path }}
         cp backstitch-launcher/backstitch-launcher-*/*.linux ${{ inputs.project_path }}
         cp backstitch-launcher/backstitch-launcher-*/*.macos ${{ inputs.project_path }}

@@ -62,12 +62,6 @@ jobs:
     needs: [merge-plugin-builds]
     uses: ./.github/workflows/compose_projects.yml
 
-  prepare-composite:
-    name: 🚀 Prepare Windows-Ready Projects
-    needs: [compose-projects, editor-builds]
-    secrets: inherit
-    uses: ./.github/workflows/prepare_composite.yml
-
   release:
     name: 📦 Release
     if: github.ref_type == 'tag'

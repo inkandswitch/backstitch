@@ -173,16 +173,16 @@ func _on_load_project_button_pressed():
 	await wait_for_checked_out_branch()
 
 func update_init_panel():
-	var visible = !GodotProject.has_project()
-	%InitPanelContainer.visible = visible
-	main_v_split.visible = !visible
-	sync_button.disabled = visible
-	branch_picker.disabled = visible
-	fork_button.disabled = visible
-	copy_project_id_button.disabled = visible
-	share_button.disabled = visible && _share_available()
-	_set_action_disabled(visible, ActionMenuItems.CLEAR_PROJECT)
-	_set_action_disabled(visible, ActionMenuItems.DUMP_BRANCH)
+	var has_project = GodotProject.has_project()
+	%InitPanelContainer.visible = !has_project
+	main_v_split.visible = has_project
+	sync_button.disabled = !has_project
+	branch_picker.disabled = !has_project
+	fork_button.disabled = !has_project
+	copy_project_id_button.disabled = !has_project
+	share_button.disabled = !(has_project && _share_available())
+	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
+	_set_action_disabled(!has_project, ActionMenuItems.DUMP_BRANCH)
 
 
 func _share_available() -> bool:

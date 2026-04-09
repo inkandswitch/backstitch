@@ -24,7 +24,7 @@ impl RemoteConnection {
         let handle = if server_url.scheme() == "ws" || server_url.scheme() == "wss" {
             repo.dial_websocket(server_url, BackoffConfig::default())
                 .ok()?
-        } else if server_url.scheme() == "tcp" {
+        } else if server_url.scheme() == "tcp" || server_url.scheme() == "" {
             repo.dial_tcp(server_url, BackoffConfig::default()).ok()?
         } else {
             tracing::error!(

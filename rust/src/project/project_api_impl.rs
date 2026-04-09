@@ -35,19 +35,19 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) {
+    fn new_project(&mut self) -> Result<(), String> {
         if self.has_project() {
-            return;
+            return Ok(());
         }
-        self.start();
+        return self.start();
     }
 
-    fn load_project(&mut self, id: &DocumentId) {
+    fn load_project(&mut self, id: &DocumentId) -> Result<(), String> {
         if self.has_project() {
-            return;
+            return Ok(());
         }
         BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
-        self.start();
+        return self.start();
     }
 
     fn clear_project(&mut self) {
@@ -123,7 +123,10 @@ impl ProjectViewModel for Project {
         };
 
         self.with_driver_blocking("Create revert preview branch", move |driver| async move {
-            driver.as_ref()?.create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head])).await;
+            driver
+                .as_ref()?
+                .create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head]))
+                .await;
             Some(())
         });
     }
@@ -536,6 +539,39 @@ impl ProjectViewModel for Project {
             };
             dr.get_branch_db().dump_branch_doc(ref_.branch()).await;
         });
+    }
+
+    fn get_server(&self) -> Option<String> {
+        // note... we're not doing URL parsing here because a user could just open up the text file and add
+        // some BS. So there's no invariant that these URLs are even valid.
+        let res = BackstitchConfigAccessor::get_project_value("server_url", "");
+        (!res.is_empty()).then_some(res)
+    }
+
+    fn set_server(&self, server: Option<String>) {
+        BackstitchConfigAccessor::set_project_value(
+            "server_url",
+            &server.unwrap_or("".to_string()),
+        );
+    }
+
+    fn add_server(&self, server: String) {
+        if server == "" { return; }
+        let mut servers = self.get_available_servers();
+        servers.push(server);
+        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+    }
+
+    fn remove_server(&self, server: String) {
+        if server == "" { return; }
+        let mut servers = self.get_available_servers();
+        servers.retain(|s| s != &server && s != "");
+        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+    }
+
+    fn get_available_servers(&self) -> Vec<String> {
+        let servers = BackstitchConfigAccessor::get_project_value("available_servers", "");
+        return servers.split(",").filter(|s| *s != "").map(|s| s.to_string()).collect();
     }
 }
 

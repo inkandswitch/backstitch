@@ -98,7 +98,7 @@ impl Driver {
     /// If we couldn't start the driver, [None] is returned.
     pub async fn new(
         main_thread_block: MainThreadBlock,
-        server_url: Url,
+        server_url: Option<Url>,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
@@ -115,7 +115,13 @@ impl Driver {
             .await;
 
         // Start the connection
-        let Some(connection) = RemoteConnection::new(repo.clone(), server_url).await else {
+        // Terrible hack: If we're not provided a server URL, default to a garbage localhost URL.
+        let Some(connection) = RemoteConnection::new(
+            repo.clone(),
+            server_url.unwrap_or(Url::parse("tcp://localhost:9999").unwrap()),
+        )
+        .await
+        else {
             tracing::error!("Could not start connection!");
             return None;
         };
@@ -221,10 +227,10 @@ impl Driver {
                         continue;
                     }
                     return false;
-                },
+                }
                 _ => return false,
             }
-        };
+        }
     }
 
     /// Request the sync task to checkout the latest ref on a branch the next opportunity.

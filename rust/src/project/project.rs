@@ -5,7 +5,7 @@ use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
 use crate::helpers::utils::CommitInfo;
 use crate::interop::godot_accessors::{
-    EditorFilesystemAccessor, BackstitchConfigAccessor, BackstitchEditorAccessor,
+    BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
 };
 use crate::project::driver::Driver;
 use crate::project::main_thread_block::MainThreadBlock;
@@ -43,9 +43,6 @@ pub struct Project {
     // Cached diffs between refs
     pub(super) diff_cache: RefCell<HashMap<(HistoryRef, HistoryRef), ProjectDiff>>,
 }
-
-/// The default server URL used for syncing Backstitch projects. Can be overridden by user or project configuration.
-const DEFAULT_SERVER_URL: &str = "24.199.97.236:8085";
 
 /// Notifications that can be emitted via process and consumed by GodotProject, in order to trigger signals to GDScript.
 pub enum GodotProjectSignal {
@@ -118,35 +115,36 @@ impl Project {
         })
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self) -> Result<(), String> {
         if self.driver.blocking_lock().is_some() {
             tracing::error!("Driver is already started!");
-            return;
+            return Ok(());
         }
 
         let storage_dir = self.project_dir.join(".backstitch");
         let server_url = {
             let project = BackstitchConfigAccessor::get_project_value("server_url", "");
-            let user = BackstitchConfigAccessor::get_user_value("server_url", "");
             if !project.is_empty() {
                 tracing::info!("Using project override for server url: {:?}", project);
                 project
-            } else if !user.is_empty() {
-                tracing::info!("Using user override for server url: {:?}", user);
-                user
             } else {
-                let default = DEFAULT_SERVER_URL.to_string();
-                tracing::info!("Using default server url: {:?}", default);
-                default
+                "".to_string()
             }
         };
 
         // if the URL doesn't have a scheme, add tcp://
-        let Ok(server_url) =
-            Url::parse(&server_url).or_else(|_| Url::parse(&format!("tcp://{}", server_url)))
-        else {
-            tracing::error!("Could not start project! Invalid server URL {server_url}");
-            return;
+        let server_url = {
+            if server_url == "" {
+                None
+            } else {
+                let Ok(url) = Url::parse(&server_url)
+                    .or_else(|_| Url::parse(&format!("tcp://{}", server_url)))
+                else {
+                    tracing::error!("Could not start project! Invalid server URL {server_url}");
+                    return Err("Invalid server URL!".to_string());
+                };
+                Some(url)
+            }
         };
 
         // If the metadata ID is not a valid document ID, give up.
@@ -161,7 +159,7 @@ impl Project {
                 Ok(id) => Some(id),
                 Err(_) => {
                     tracing::error!("Invalid metadata document ID! Not starting driver.");
-                    return;
+                    return Err("Invalid metadata document ID!".to_string());
                 }
             },
             None => None,
@@ -205,10 +203,14 @@ impl Project {
                         username,
                         storage_dir,
                         metadata_id,
-                        saved_branch_id
+                        saved_branch_id,
                     )
                     .await;
-                    let metadata = driver.as_ref().unwrap().get_metadata_doc().await;
+                    let metadata = if let Some(driver) = &driver {
+                        driver.get_metadata_doc().await
+                    } else {
+                        None
+                    };
                     (driver, metadata)
                 }),
             )
@@ -216,7 +218,7 @@ impl Project {
 
         let Some(driver) = driver else {
             tracing::error!("Could not start the driver!");
-            return;
+            return Err("Could not start driver!".to_string());
         };
 
         BackstitchConfigAccessor::set_project_value(
@@ -229,6 +231,7 @@ impl Project {
         self.checked_out_ref_rx = Some(driver.get_ref_rx());
 
         *self.driver.blocking_lock() = Some(driver);
+        Ok(())
     }
 
     pub fn stop(&mut self) {

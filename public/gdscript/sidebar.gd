@@ -180,9 +180,14 @@ func update_init_panel():
 	branch_picker.disabled = visible
 	fork_button.disabled = visible
 	copy_project_id_button.disabled = visible
-	share_button.disabled = visible
+	share_button.disabled = visible && _share_available()
 	_set_action_disabled(visible, ActionMenuItems.CLEAR_PROJECT)
 	_set_action_disabled(visible, ActionMenuItems.DUMP_BRANCH)
+
+
+func _share_available() -> bool:
+	var server = GodotProject.get_server()
+	return server.contains("alpha.backstitch.dev")
 
 func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
@@ -971,7 +976,7 @@ func _on_share_button_pressed() -> void:
 	var project_id = GodotProject.get_project_id()
 	var branch_id = GodotProject.get_checked_out_branch().id;
 	if not project_id.is_empty() && not branch_id.is_empty():
-		DisplayServer.clipboard_set("https://godot-viewer.netlify.app/?project=%s&branch=%s" % [project_id, branch_id])
+		DisplayServer.clipboard_set("https://web.backstitch.dev/?project=%s&branch=%s" % [project_id, branch_id])
 		toaster.push_toast("Share URL copied to clipboard.")
 	else:
 		toaster.push_toast("Couldn't create share URL!", EditorToaster.Severity.SEVERITY_ERROR)

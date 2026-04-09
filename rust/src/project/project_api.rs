@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::DocumentId;
+use samod::{DocumentId, Url};
 
 use crate::{diff::differ::ProjectDiff, fs::file_utils::FileContent, helpers::history_ref::HistoryRef};
 
@@ -26,6 +26,17 @@ pub trait ProjectViewModel {
 	/// Set a new username.
     fn set_user_name(&self, name: String);
 
+	/// Get the current server URL
+	fn get_server(&self) -> Option<String>;
+	/// Set the current server URL
+	fn set_server(&self, server: Option<String>);
+	/// Add a server to the list of available servers
+	fn add_server(&self, server: String);
+	/// Remove a server from the list of available servers
+	fn remove_server(&self, server: String);
+	/// Get the list of available servers
+	fn get_available_servers(&self) -> Vec<String>;
+
 	/// Remove the existing project and de-init.
     fn clear_project(&mut self);
 	/// Whether we have initialized with a project yet.
@@ -33,9 +44,9 @@ pub trait ProjectViewModel {
 	/// Get the current project [DocumentId], if it exists. Otherwise, return [None]
 	fn get_project_id(&self) -> Option<DocumentId>;
 	/// Creates a new project.
-	fn new_project(&mut self);
+	fn new_project(&mut self) -> Result<(), String>;
 	/// Loads a project, given a [DocumentId].
-	fn load_project(&mut self, id: &DocumentId);
+	fn load_project(&mut self, id: &DocumentId) -> Result<(), String>;
 
 	/// Gets the current project [SyncStatus].
     fn get_sync_status(&self) -> SyncStatus;

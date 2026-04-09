@@ -156,6 +156,9 @@ impl GodotProject {
 	#[signal]
 	fn state_changed();
 
+	#[signal]
+	fn create_failed();
+
 	#[func]
 	fn has_user_name(&self) -> bool {
 		self.project.has_user_name()
@@ -169,6 +172,32 @@ impl GodotProject {
 	#[func]
 	fn set_user_name(&self, name: String) {
 		self.project.set_user_name(name);
+	}
+
+	#[func]
+	fn set_server(&self, server: String) {
+		let server = if server == "" { None } else { Some(server) };
+		self.project.set_server(server)
+	}
+
+	#[func]
+	fn get_server(&self) -> String {
+		self.project.get_server().unwrap_or("".to_string())
+	}
+
+	#[func]
+	fn get_available_servers(&self) -> PackedStringArray {
+		self.project.get_available_servers().to_godot()
+	}
+
+	#[func]
+	fn add_server(&self, server: String) {
+		self.project.add_server(server)
+	}
+
+	#[func]
+	fn remove_server(&self, server: String) {
+		self.project.remove_server(server)
 	}
 
 	#[func]
@@ -191,13 +220,17 @@ impl GodotProject {
 
 	#[func]
 	fn new_project(&mut self) {
-		self.project.new_project()
+		if let Err(_) = self.project.new_project() {
+			self.base_mut().call_deferred("emit_signal", &["create_failed".to_variant()]);
+		}
 	}
 
 	#[func]
 	fn load_project(&mut self, id: String) {
 		if let Ok(id) = DocumentId::from_str(&id) {
-			self.project.load_project(&id);
+			if let Err(_) = self.project.load_project(&id) {
+				self.base_mut().call_deferred("emit_signal", &["create_failed".to_variant()]);
+			}
 		}
 	}
 
@@ -497,7 +530,9 @@ impl INode for GodotProject {
 		if self.deferred_start > 0 {
 			self.deferred_start -= 1;
 			if self.deferred_start == 0 {
-				self.project.start();
+				if let Err(_) = self.project.start() {
+					self.base_mut().call_deferred("emit_signal", &["create_failed".to_variant()]);
+				}
 			}
 			return;
 		}

@@ -121,10 +121,25 @@ func _is_dev_mode() -> bool:
 # an existing project from the project.
 func wait_for_checked_out_branch():
 	if not GodotProject.get_checked_out_branch():
+		branch_checked_out.connect(_on_branch_checked_out)
+		GodotProject.create_failed.connect(_on_create_failed)
 		task_modal.start_task("Loading Backstitch")
-		await branch_checked_out
-		task_modal.end_task("Loading Backstitch")
+	else:
+		init()
+
+func _on_branch_checked_out():
+	branch_checked_out.disconnect(_on_branch_checked_out)
+	GodotProject.create_failed.disconnect(_on_create_failed)
+	task_modal.end_task("Loading Backstitch")
 	init()
+
+func _on_create_failed():
+	branch_checked_out.disconnect(_on_branch_checked_out)
+	GodotProject.create_failed.disconnect(_on_create_failed)
+	task_modal.end_task("Loading Backstitch")
+
+	var toaster = EditorInterface.get_editor_toaster()
+	toaster.push_toast("Couldn't start the project! Check your server URL.");
 
 # Asks the user for their username, if there is none stored.
 # If they cancel or close, returns false. If the username is confirmed, returns true.
@@ -242,6 +257,15 @@ func _enter_tree():
 	instance = self
 
 func bind_listeners(godot_project):
+	%AddServerButton.pressed.connect(self._on_add_server_button_pressed)
+	%RemoveServerButton.pressed.connect(self._on_remove_server_button_pressed)
+	%ServerPicker.item_selected.connect(self._on_server_picker_item_selected)
+
+	%AddServerDialog.visible = false
+	%AddServerDialog.confirmed.connect(self._on_add_server_confirmed)
+
+	self._update_server_picker()
+
 	%InitializeButton.pressed.connect(self._on_init_button_pressed)
 	%LoadExistingButton.pressed.connect(self._on_load_project_button_pressed)
 	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
@@ -289,6 +313,8 @@ func bind_listeners(godot_project):
 	_style_button(merge_button)
 	_style_button(%MonkeyButton)
 	_style_button(%ClearDiffButton)
+	_style_button(%AddServerButton)
+	_style_button(%RemoveServerButton)
 	# Have to manually scale the icons of the popup menu
 	for item in action_menu_button.get_popup().get_item_count():
 		var menu: PopupMenu = action_menu_button.get_popup()
@@ -353,6 +379,45 @@ func init() -> void:
 	# If we want to force the user to enter a username, we could do `while(!require_user_name()): pass`.
 	# But that seems bad.
 	require_user_name()
+
+
+func _on_add_server_button_pressed() -> void:
+	%AddServerDialog.popup_centered()
+
+func _on_remove_server_button_pressed() -> void:
+	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
+	GodotProject.remove_server(text)
+	GodotProject.set_server("")
+	_update_server_picker()
+
+func _on_server_picker_item_selected(item: int) -> void:
+	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
+	if text == "(No server)": text = ""
+	GodotProject.set_server(text)
+
+	_update_server_picker()
+
+func _on_add_server_confirmed() -> void:
+	var server = %AddServerEntry.text.strip_edges()
+	%AddServerEntry.text = ""
+	GodotProject.add_server(server)
+	GodotProject.set_server(server)
+	_update_server_picker()
+
+func _update_server_picker() -> void:
+	%ServerPicker.clear()
+	var index := 0
+	%ServerPicker.add_item("(No server)", index)
+	%ServerPicker.select(index)
+	var selected = GodotProject.get_server()
+	for server in GodotProject.get_available_servers():
+		index += 1
+		%ServerPicker.add_item(server, index)
+		if selected == server:
+			%ServerPicker.select(index)
+
+	%RemoveServerButton.visible = selected != ""
+	%AlphaWarning.visible = selected.contains("alpha.backstitch.dev")
 
 func _on_sync_button_pressed():
 	var toaster = EditorInterface.get_editor_toaster()

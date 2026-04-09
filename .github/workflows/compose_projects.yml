@@ -57,6 +57,13 @@ jobs:
           fetch-depth: 0
           path: backstitch-tmp
           repository: inkandswitch/backstitch
+      - name: Write backstitch.cfg
+        run: |
+          cat <<'EOF' > ${{ matrix.project.name }}/backstitch.cfg
+          [backstitch]
+          server_url="alpha.backstitch.dev:8085"
+          available_servers="alpha.backstitch.dev:8085"
+          EOF
       - name: Copy to addons
         shell: sh
         run: |

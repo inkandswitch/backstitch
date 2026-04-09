@@ -22,6 +22,7 @@
 [ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/backstitch/public/icons/PullRequest.svg" id="11_pt2pe"]
 [ext_resource type="Texture2D" uid="uid://dyjhwr8pnyuhf" path="res://addons/backstitch/public/icons/CollapsibleOpen.svg" id="12_onfam"]
 [ext_resource type="Texture2D" uid="uid://3hpc87bqt36t" path="res://addons/backstitch/public/icons/GuiClose.svg" id="13_dclp7"]
+[ext_resource type="Texture2D" uid="uid://dw14ph5xtnqmu" path="res://addons/backstitch/public/icons/Add.svg" id="14_8lssb"]
 [ext_resource type="Texture2D" uid="uid://bjp4gkyrnd1dr" path="res://addons/backstitch/public/icons/ArrowUp32.svg" id="15_pt2pe"]
 [ext_resource type="Texture2D" uid="uid://by20y2qtuv28k" path="res://addons/backstitch/public/icons/Merge.svg" id="16_lnig1"]
 [ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/backstitch/public/gdscript/collapse_button.gd" id="20_lnig1"]
@@ -55,6 +56,28 @@ corner_detail = 5
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_of6ia"]
 bg_color = Color(0.129412, 0.14902, 0.180392, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_8lssb"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0, 0, 0, 0.1254902)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_g5r1k"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0, 0, 0, 0.18039216)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_42yji"]
 bg_color = Color(0.156863, 0.176471, 0.207843, 1)
@@ -213,31 +236,96 @@ layout_mode = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer" unique_id=981296798]
 layout_mode = 2
-theme_override_constants/margin_left = 20
-theme_override_constants/margin_top = 20
-theme_override_constants/margin_right = 20
-theme_override_constants/margin_bottom = 20
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer" unique_id=1869675868]
 layout_mode = 2
-alignment = 1
 
-[node name="InitializeButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=449251788]
+[node name="Panel" type="PanelContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=608561314]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_8lssb")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel" unique_id=1216622580]
+layout_mode = 2
+
+[node name="Step1Label" type="Label" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer" unique_id=1498456519]
+custom_minimum_size = Vector2(1, 1)
+layout_mode = 2
+text = "Step 1: Choose a server"
+autowrap_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer" unique_id=815633810]
+layout_mode = 2
+
+[node name="ServerPicker" type="OptionButton" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer/HBoxContainer" unique_id=2028631405]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Select a server..."
+text_overrun_behavior = 3
+selected = 0
+item_count = 2
+popup/item_0/text = "(No server)"
+popup/item_0/id = 1
+popup/item_1/text = "alpha.backstitch.dev:8080"
+popup/item_1/id = 0
+
+[node name="AddServerButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer/HBoxContainer" unique_id=1843619904]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add a new server..."
+icon = ExtResource("14_8lssb")
+
+[node name="RemoveServerButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer/HBoxContainer" unique_id=265740594]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Remove server"
+icon = ExtResource("8_s0dyv")
+
+[node name="AlphaWarning" type="Label" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel/VBoxContainer" unique_id=914139357]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(1, 1)
+layout_mode = 2
+text = "The Alpha Test Server is experimental and potentially unstable. Don't store any sensitive data. "
+autowrap_mode = 2
+
+[node name="HSeparator" type="HSeparator" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=20965340]
+layout_mode = 2
+theme_override_constants/separation = 25
+
+[node name="Panel2" type="PanelContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=1243937986]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_g5r1k")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2" unique_id=834144784]
+layout_mode = 2
+
+[node name="Label3" type="Label" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2/VBoxContainer" unique_id=639567090]
+custom_minimum_size = Vector2(1, 1)
+layout_mode = 2
+text = "Step 2: Create or Load Project"
+autowrap_mode = 2
+
+[node name="InitializeButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2/VBoxContainer" unique_id=449251788]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Create a new project..."
 autowrap_mode = 2
 
-[node name="VSeparator" type="HSeparator" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=715093933]
+[node name="Label2" type="Label" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2/VBoxContainer" unique_id=1794482895]
 layout_mode = 2
-theme_override_constants/separation = 25
+text = "or"
+horizontal_alignment = 1
 
-[node name="ProjectIDBox" type="LineEdit" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=860254745]
+[node name="ProjectIDBox" type="LineEdit" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2/VBoxContainer" unique_id=860254745]
 unique_name_in_owner = true
 layout_mode = 2
 placeholder_text = "Project ID"
 
-[node name="LoadExistingButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=1398646379]
+[node name="LoadExistingButton" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer/Panel2/VBoxContainer" unique_id=1398646379]
 unique_name_in_owner = true
 layout_mode = 2
 disabled = true
@@ -364,6 +452,7 @@ oversampling_override = 1.0
 
 [node name="MergePreviewModal" type="PanelContainer" parent="." unique_id=888402724]
 unique_name_in_owner = true
+visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
@@ -508,6 +597,7 @@ theme_override_constants/separation = 8
 
 [node name="RevertPreviewModal" type="PanelContainer" parent="." unique_id=100826618]
 unique_name_in_owner = true
+visible = false
 z_index = 4
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_nb8ns")
@@ -574,6 +664,7 @@ theme_override_constants/separation = 8
 
 [node name="UserNameDialog" type="ConfirmationDialog" parent="." unique_id=310781976]
 unique_name_in_owner = true
+oversampling_override = 1.0
 title = "Set User Name"
 position = Vector2i(0, 36)
 min_size = Vector2i(100, 70)
@@ -581,13 +672,32 @@ min_size = Vector2i(100, 70)
 [node name="VBoxContainer" type="VBoxContainer" parent="UserNameDialog" unique_id=1496103014]
 offset_left = 8.0
 offset_top = 8.0
-offset_right = 142.0
+offset_right = 192.0
 offset_bottom = 51.0
 
 [node name="UserNameEntry" type="LineEdit" parent="UserNameDialog/VBoxContainer" unique_id=1182832485]
 unique_name_in_owner = true
 layout_mode = 2
 placeholder_text = "User Name..."
+
+[node name="AddServerDialog" type="ConfirmationDialog" parent="." unique_id=2126550828]
+unique_name_in_owner = true
+oversampling_override = 1.0
+title = "Add Server"
+position = Vector2i(0, 36)
+size = Vector2i(236, 88)
+min_size = Vector2i(100, 70)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="AddServerDialog" unique_id=1694281113]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 228.0
+offset_bottom = 39.0
+
+[node name="AddServerEntry" type="LineEdit" parent="AddServerDialog/VBoxContainer" unique_id=2139367185]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "alpha.backstitch.dev:8085"
 
 [node name="MonkeyTester" type="Node" parent="." unique_id=1409873935]
 unique_name_in_owner = true

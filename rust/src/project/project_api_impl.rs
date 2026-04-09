@@ -570,7 +570,7 @@ impl ProjectViewModel for Project {
     }
 
     fn get_available_servers(&self) -> Vec<String> {
-        let servers = BackstitchConfigAccessor::get_project_value("available_servers", "");
+        let servers = BackstitchConfigAccessor::get_project_value("available_servers", "alpha.backstitch.dev:8085");
         return servers.split(",").filter(|s| *s != "").map(|s| s.to_string()).collect();
     }
 }

@@ -417,6 +417,7 @@ func _update_server_picker() -> void:
 			%ServerPicker.select(index)
 
 	%RemoveServerButton.visible = selected != ""
+	%AlphaWarning.visible = selected.contains("alpha.backstitch.dev")
 
 func _on_sync_button_pressed():
 	var toaster = EditorInterface.get_editor_toaster()

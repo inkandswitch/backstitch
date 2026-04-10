@@ -1,6 +1,8 @@
 # Backstitch
 
-[Backstitch](https://backstitch.dev/) provides real-time version control for the [Godot](https://godotengine.org/) game engine. 
+![Backstitch logo](./backstitch_logo_banner.svg)
+
+[Backstitch](https://backstitch.dev/) provides real-time version control for the [Godot](https://godotengine.org/) game engine.
 
 ![A screenshot of Backstitch](backstitch-screenshot.png)
 
@@ -26,17 +28,17 @@ Learn more on our [website](https://backstitch.dev/).
 
 ## Setup & Tutorial
 
-To get started with Backstitch, check out the [docs on our website](https://backstitch.dev/docs). 
+To get started with Backstitch, check out the [docs on our website](https://backstitch.dev/docs).
 
 ## Configuration
 
 Plugin configuration is stored in your project as `res://backstitch.cfg/`. The following configuration options are available:
 
-| Config | Description |
-| --- | --- |
-| project_doc_id | The ID of your project. Empty if there is no Backstitch project created.
-| checked_out_branch_doc_id | Your current checked out branch inside your project. Empty for the main branch, or if there is no Backstitch project.
-| server_url | The URL for the sync server. If the URL or IP address is prefixed with `ws://`, uses a WebSockets server; otherwise, it uses raw TCP from a `samod` server like the one [here](https://github.com/inkandswitch/backstitch-sync-server/).
+| Config                    | Description                                                                                                                                                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| project_doc_id            | The ID of your project. Empty if there is no Backstitch project created.                                                                                                                                                                 |
+| checked_out_branch_doc_id | Your current checked out branch inside your project. Empty for the main branch, or if there is no Backstitch project.                                                                                                                    |
+| server_url                | The URL for the sync server. If the URL or IP address is prefixed with `ws://`, uses a WebSockets server; otherwise, it uses raw TCP from a `samod` server like the one [here](https://github.com/inkandswitch/backstitch-sync-server/). |
 
 ## Contributing
 

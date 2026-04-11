@@ -11,7 +11,7 @@ runs:
     - uses: robinraju/release-downloader@v1
       with:
         repository: 'inkandswitch/backstitch-launcher'
-        tag: 'v1.0.0-alpha'
+        tag: 'v1.0.0'
         fileName: 'backstitch-launcher-*.zip'
         out-file-path: 'backstitch-launcher'
         extract: true

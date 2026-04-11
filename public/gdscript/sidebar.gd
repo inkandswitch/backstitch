@@ -173,16 +173,21 @@ func _on_load_project_button_pressed():
 	await wait_for_checked_out_branch()
 
 func update_init_panel():
-	var visible = !GodotProject.has_project()
-	%InitPanelContainer.visible = visible
-	main_v_split.visible = !visible
-	sync_button.disabled = visible
-	branch_picker.disabled = visible
-	fork_button.disabled = visible
-	copy_project_id_button.disabled = visible
-	share_button.disabled = visible
-	_set_action_disabled(visible, ActionMenuItems.CLEAR_PROJECT)
-	_set_action_disabled(visible, ActionMenuItems.DUMP_BRANCH)
+	var has_project = GodotProject.has_project()
+	%InitPanelContainer.visible = !has_project
+	main_v_split.visible = has_project
+	sync_button.disabled = !has_project
+	branch_picker.disabled = !has_project
+	fork_button.disabled = !has_project
+	copy_project_id_button.disabled = !has_project
+	share_button.disabled = !(has_project && _share_available())
+	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
+	_set_action_disabled(!has_project, ActionMenuItems.DUMP_BRANCH)
+
+
+func _share_available() -> bool:
+	var server = GodotProject.get_server()
+	return server.contains("alpha.backstitch.dev")
 
 func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
@@ -971,7 +976,7 @@ func _on_share_button_pressed() -> void:
 	var project_id = GodotProject.get_project_id()
 	var branch_id = GodotProject.get_checked_out_branch().id;
 	if not project_id.is_empty() && not branch_id.is_empty():
-		DisplayServer.clipboard_set("https://godot-viewer.netlify.app/?project=%s&branch=%s" % [project_id, branch_id])
+		DisplayServer.clipboard_set("https://web.backstitch.dev/?project=%s&branch=%s" % [project_id, branch_id])
 		toaster.push_toast("Share URL copied to clipboard.")
 	else:
 		toaster.push_toast("Couldn't create share URL!", EditorToaster.Severity.SEVERITY_ERROR)

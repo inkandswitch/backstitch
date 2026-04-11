@@ -137,9 +137,13 @@ impl Project {
             if server_url == "" {
                 None
             } else {
-                let Ok(url) = Url::parse(&server_url)
-                    .or_else(|_| Url::parse(&format!("tcp://{}", server_url)))
-                else {
+                let server_url = if server_url.contains("://") {
+                    server_url
+                } else {
+                    format!("tcp://{}", server_url)
+                };
+
+                let Ok(url) = Url::parse(&server_url) else {
                     tracing::error!("Could not start project! Invalid server URL {server_url}");
                     return Err("Invalid server URL!".to_string());
                 };

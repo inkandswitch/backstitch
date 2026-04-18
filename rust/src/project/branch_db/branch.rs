@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use automerge::Automerge;
+use automerge::{Automerge, ROOT, transaction::Transactable};
 use autosurgeon::{hydrate, reconcile};
 use samod::{DocHandle, DocumentId};
 use tracing::instrument;
 
 use crate::{
     helpers::{
-        branch::{Branch, BranchesMetadataDoc, GodotProjectDoc},
+        branch::{BRANCH_DOC_VERSION, Branch, BranchesMetadataDoc, GodotProjectDoc},
         utils::{CommitMetadata, commit_with_metadata},
     },
     project::branch_db::{BranchDb, HistoryRef},
@@ -40,6 +40,7 @@ impl BranchDb {
                         state: HashMap::new(),
                     },
                 );
+                let _ = tx.put(ROOT, "version", BRANCH_DOC_VERSION as i64);
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {

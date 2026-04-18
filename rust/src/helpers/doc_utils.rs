@@ -4,6 +4,13 @@ use automerge::{transaction::Transaction, Automerge, ChangeHash, ObjId, Prop, Re
 pub trait SimpleDocReader {
     fn get_bytes<O: AsRef<ObjId>, P: Into<Prop>>(&self, obj: O, prop: P) -> Option<Vec<u8>>;
 
+    fn get_bytes_at<O: AsRef<ObjId>, P: Into<Prop>>(
+        &self,
+        obj: O,
+        prop: P,
+        heads: &[automerge::ChangeHash],
+    ) -> Option<Vec<u8>>;
+
     fn get_int<O: AsRef<ObjId>, P: Into<Prop>>(&self, obj: O, prop: P) -> Option<i64>;
 
     fn get_int_at<O: AsRef<ObjId>, P: Into<Prop>>(
@@ -37,6 +44,21 @@ pub trait SimpleDocReader {
 impl SimpleDocReader for Automerge {
     fn get_bytes<O: AsRef<ObjId>, P: Into<Prop>>(&self, obj: O, prop: P) -> Option<Vec<u8>> {
         match self.get(obj, prop) {
+            Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
+                automerge::ScalarValue::Bytes(bytes) => Some(bytes),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn get_bytes_at<O: AsRef<ObjId>, P: Into<Prop>>(
+        &self,
+        obj: O,
+        prop: P,
+        heads: &[ChangeHash],
+    ) -> Option<Vec<u8>> {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Bytes(bytes) => Some(bytes),
                 _ => None,
@@ -128,6 +150,21 @@ impl SimpleDocReader for Automerge {
 impl SimpleDocReader for Transaction<'_> {
     fn get_bytes<O: AsRef<ObjId>, P: Into<Prop>>(&self, obj: O, prop: P) -> Option<Vec<u8>> {
         match self.get(obj, prop) {
+            Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
+                automerge::ScalarValue::Bytes(bytes) => Some(bytes),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn get_bytes_at<O: AsRef<ObjId>, P: Into<Prop>>(
+        &self,
+        obj: O,
+        prop: P,
+        heads: &[ChangeHash],
+    ) -> Option<Vec<u8>> {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Bytes(bytes) => Some(bytes),
                 _ => None,

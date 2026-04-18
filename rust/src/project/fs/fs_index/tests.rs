@@ -2,7 +2,6 @@
 use super::*;
 use std::io::Write;
 use tempfile::tempdir;
-use tokio::fs;
 
 fn write_file(path: &Path, contents: &[u8]) {
     let mut f = std::fs::File::create(path).unwrap();
@@ -92,34 +91,6 @@ async fn test_persistence_across_reloads() {
     let hash2 = index2.get_hash(&file_path).await.unwrap();
 
     assert_eq!(hash1, hash2);
-}
-
-#[tokio::test]
-async fn test_empty_index_file_is_handled() {
-    let dir = tempdir().unwrap();
-    let index_path = dir.path().join("index.bin");
-
-    // Create empty file
-    fs::File::create(&index_path).await.unwrap();
-
-    let index = FileSystemIndex::new(&index_path).await.unwrap();
-
-    let entries = index.entries.read().await;
-    assert!(entries.is_empty());
-}
-
-#[tokio::test]
-async fn test_invalid_data_in_index_file_returns_error() {
-    let dir = tempdir().unwrap();
-    let index_path = dir.path().join("index.bin");
-
-    // Write garbage
-    write_file(&index_path, b"not valid wincode");
-
-    let result = FileSystemIndex::new(&index_path).await;
-
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[tokio::test]

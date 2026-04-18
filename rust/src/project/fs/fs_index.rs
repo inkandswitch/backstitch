@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use anyhow::Result;
+use fjall::{Database, KeyspaceCreateOptions, PersistMode};
 use std::fs::Metadata;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
-use tokio::sync::RwLock;
-use wincode::{SchemaRead, SchemaWrite};
 use tokio::fs::{self, File};
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt};
+use wincode::{SchemaRead, SchemaWrite};
 
 #[cfg(test)]
 mod tests;
@@ -18,10 +18,7 @@ struct FileEntry {
 }
 
 impl FileEntry {
-    fn from_metadata(
-        metadata: &Metadata,
-        hash: blake3::Hash,
-    ) -> io::Result<Self> {
+    fn from_metadata(metadata: &Metadata, hash: blake3::Hash) -> io::Result<Self> {
         let modified = metadata.modified()?;
         let hash = hash.as_bytes();
         Ok(Self {
@@ -38,102 +35,70 @@ impl FileEntry {
     fn matches(&self, metadata: &Metadata) -> io::Result<bool> {
         let modified = metadata.modified()?;
 
-        Ok(self.last_modified == modified
-            && self.size == metadata.len())
+        Ok(self.last_modified == modified && self.size == metadata.len())
     }
 }
 
-// TODO: This is probably slow, consider using a proper database instead.
-// Maybe redb? fjall?
-#[derive(Debug, SchemaRead, SchemaWrite)]
-struct PersistedIndex {
-    entries: HashMap<String, FileEntry>,
-}
-
-#[derive(Debug, Default)]
+#[derive(Clone)]
 pub struct FileSystemIndex {
-    entries: RwLock<HashMap<PathBuf, FileEntry>>,
-    backing_path: PathBuf,
+    db: fjall::Database,
 }
 
 impl FileSystemIndex {
-    pub async fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let path_buf = path.as_ref().to_path_buf();
+    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let db = Self::init_db(path).await?;
 
-        let entries = if path_buf.exists() {
-            let mut file = File::open(&path_buf).await?;
-            let mut buf = Vec::new();
-            file.read_to_end(&mut buf).await?;
+        Ok(Self { db })
+    }
 
-            if buf.is_empty() {
-                HashMap::new()
-            } else {
-                let persisted: PersistedIndex =
-                    wincode::deserialize(&buf)
-                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                persisted.entries.into_iter().map(|(k, v)| (PathBuf::from(k), v)).collect()
+    async fn init_db<P: AsRef<Path>>(path: P) -> fjall::Result<Database> {
+        let db = Database::builder(path).open()?;
+
+        let version = db.keyspace("version", KeyspaceCreateOptions::default)?;
+        let bytes = version.get("version")?;
+
+        // increment this when changes
+        let current_version = "0";
+
+        if let Some(version) = bytes {
+            if version != current_version.as_bytes() {
+                let index = db.keyspace("index", KeyspaceCreateOptions::default)?;
+                db.delete_keyspace(index)?;
             }
-        } else {
-            // Create empty file
-            File::create(&path_buf).await?;
-            HashMap::new()
-        };
+        }
 
-        Ok(Self {
-            entries: RwLock::new(entries),
-            backing_path: path_buf,
-        })
+        db.persist(PersistMode::SyncAll)?;
+        Ok(db)
     }
 
     /// Get the current hash of a file, recomputing if needed
-    pub async fn get_hash<P: AsRef<Path>>(&self, path: P) -> io::Result<blake3::Hash> {
-        let entries = self.entries.read().await;
+    pub async fn get_hash<P: AsRef<Path>>(&self, path: P) -> Result<blake3::Hash> {
+        let index = self.db.keyspace("index", KeyspaceCreateOptions::default)?;
         let path_buf = path.as_ref().to_path_buf();
 
         let metadata = fs::metadata(&path_buf).await?;
 
-        if let Some(entry) = entries.get(&path_buf) {
-            if entry.matches(&metadata)? {
-                return Ok(entry.hash());
+        let path_str = path.as_ref().to_string_lossy().to_string();
+        {
+            let index = index.clone();
+            if let Some(entry) = tokio::task::spawn_blocking(move || index.get(path_str)).await?? {
+                let entry: FileEntry = wincode::deserialize(&entry)?;
+                if entry.matches(&metadata)? {
+                    return Ok(entry.hash());
+                }
             }
         }
-
-        drop(entries);
-
-        // Technically, there's a brief race condition here where the read lock gets discarded and the write lock gets reacquired.
-        // That's OK though, because we're about to recompute the hash while the write guard is got, and there's never anything
-        // wrong with recomputing the hash on a single entry twice. It just means it's more up to date.
-        let mut entries = self.entries.write().await;
 
         // Recompute hash
         let hash = compute_hash(&path_buf).await?;
         let entry = FileEntry::from_metadata(&metadata, hash)?;
-        entries.insert(path_buf, entry);
-    println!("persisting...");
-        self.persist(entries.clone()).await?; // persist after update
-
-        Ok(hash)
-    }
-
-    /// Persist entire index to disk
-    async fn persist(&self, entries: HashMap<PathBuf, FileEntry>) -> io::Result<()> {
-        let tmp_path = self.backing_path.with_extension("tmp");
-
-        let entries = entries.into_iter().map(|(k, v)| (k.to_string_lossy().to_string(), v)).collect();
-
-        let data = wincode::serialize(&PersistedIndex {
-            entries,
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
+        let entry = wincode::serialize(&entry)?;
         {
-            let mut tmp_file = File::create(&tmp_path).await?;
-            tmp_file.write_all(&data).await?;
-            tmp_file.sync_all().await?;
+            let index = index.clone();
+            tokio::task::spawn_blocking(move || index.insert(path_buf, entry)).await??;
         }
-
-        fs::rename(tmp_path, &self.backing_path).await?;
-        Ok(())
+        self.db.persist(PersistMode::SyncAll)?;
+        Ok(hash)
     }
 }
 

@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent}, helpers::spawn_utils::spawn_named, project::{branch_db::BranchDb, fs_watcher::FileSystemWatcher}
+    fs::file_utils::{FileContent, FileSystemEvent}, helpers::spawn_utils::spawn_named, project::{branch_db::BranchDb, fs::fs_watcher::FileSystemWatcher}
 };
 
 /// Tracks changes using [FileSystemWatcher], handles the changes, and tracks them as pending.

@@ -63,6 +63,8 @@ async-stream = "0.3.6"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
 sys-locale = "0.3.2"
+blake3 = { version = "1.8.4", features = ["serde"] }
+wincode = { version = "0.5.3", features = ["derive"] }
 
 [build-dependencies]
 cbindgen = "^0.27"

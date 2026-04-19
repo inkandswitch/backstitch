@@ -9,36 +9,41 @@ use tokio::{fs, sync::Mutex, task::JoinSet};
 use crate::project::fs::fs_index::FileSystemIndex;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ChangeType {
+pub enum ChangeType {
     Created,
     Modified,
     Deleted,
 }
 
-struct FileSystemTraversal;
+pub struct FileSystemTraversal;
 
 // we might be able to speed this up by caching directories in the index? unsure
 // this needs profiling to understand the perf impact. maybe it's fine.
 impl FileSystemTraversal {
     /// Recursively traverses directory and returns hashes
-    pub async fn get_all_files<P: AsRef<Path>>(
+    pub async fn get_all_files<P: AsRef<Path>, F: Fn(&Path) -> bool>(
         root: P,
-        index: FileSystemIndex,
+        index: &FileSystemIndex,
+        ignore: F
     ) -> HashMap<PathBuf, blake3::Hash> {
         let mut result = HashMap::new();
-        Self::walk_dir(root.as_ref().to_path_buf(), index, &mut result).await;
+        Self::walk_dir(root.as_ref().to_path_buf(), index, &mut result, ignore).await;
         result
     }
 
     // can we parallelize this?
-    async fn walk_dir(
+    async fn walk_dir<F: Fn(&Path) -> bool>(
         root: PathBuf,
-        index: FileSystemIndex,
+        index: &FileSystemIndex,
         out: &mut HashMap<PathBuf, blake3::Hash>,
+        ignore: F
     ) {
         let mut stack = vec![root];
 
         while let Some(path) = stack.pop() {
+            if ignore(&path) {
+                continue;
+            }
             let mut entries = match fs::read_dir(&path).await {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -58,10 +63,10 @@ impl FileSystemTraversal {
         }
     }
 
-    pub async fn get_file_changes(
-        before: HashMap<PathBuf, blake3::Hash>,
-        after: HashMap<PathBuf, blake3::Hash>,
-    ) -> HashMap<PathBuf, ChangeType> {
+    pub fn get_file_changes<K: AsRef<Path>>(
+        before: HashMap<K, blake3::Hash>,
+        after: HashMap<K, blake3::Hash>,
+    ) -> HashMap<K, ChangeType> where K: Eq + std::hash::Hash + Clone {
         let mut changes = HashMap::new();
 
         let before_keys: HashSet<_> = before.keys().cloned().collect();

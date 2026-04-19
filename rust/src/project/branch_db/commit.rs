@@ -38,13 +38,13 @@ impl BranchDb {
         }
 
         // TODO: we should have `FileSystemEvent` objects as parameters, and they should store a precomputed hash; then we can just pass them in here.
-        let mut binary_entries: Vec<(String, DocHandle, [u8; 16])> = Vec::new();
-        let mut text_entries: Vec<(String, String, [u8; 16])> = Vec::new();
-        let mut scene_entries: Vec<(String, GodotScene, [u8; 16])> = Vec::new();
+        let mut binary_entries: Vec<(String, DocHandle, blake3::Hash)> = Vec::new();
+        let mut text_entries: Vec<(String, String, blake3::Hash)> = Vec::new();
+        let mut scene_entries: Vec<(String, GodotScene, blake3::Hash)> = Vec::new();
         let mut deleted_entries: Vec<String> = Vec::new();
 
         for (path, content) in files {
-            let hash = content.to_hash().0;
+            let hash = content.to_hash();
             match content {
                 FileContent::Binary(content) => {
                     let handle = self.create_new_binary_doc(content).await;
@@ -114,7 +114,7 @@ impl BranchDb {
                     .unwrap(),
             };
             let _ = tx.update_text(&content_key, &content);
-            let _ = tx.put(&file_entry, "hash", hash.to_vec());
+            let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
         }
 
         // write scene entries to doc
@@ -133,7 +133,7 @@ impl BranchDb {
                     tracing::error!("error reconciling scene: {}", e);
                     panic!("error reconciling scene: {}", e);
                 });
-            let _ = tx.put(&scene_file, "hash", hash.to_vec());
+            let _ = tx.put(&scene_file, "hash", hash.as_bytes().to_vec());
             changes.push(ChangedFile { path, change_type });
         }
 
@@ -151,7 +151,7 @@ impl BranchDb {
                 "url",
                 format!("automerge:{}", &binary_doc_handle.document_id()),
             );
-            let _ = tx.put(&file_entry, "hash", hash.to_vec());
+            let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
 
             changes.push(ChangedFile { path, change_type });
         }

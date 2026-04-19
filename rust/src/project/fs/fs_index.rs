@@ -44,6 +44,12 @@ pub struct FileSystemIndex {
     db: fjall::Database,
 }
 
+impl std::fmt::Debug for FileSystemIndex {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Result::Ok(())
+    }
+}
+
 impl FileSystemIndex {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = Self::init_db(path).await?;

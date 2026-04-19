@@ -6,19 +6,20 @@ use tracing::instrument;
 use crate::{
     fs::file_utils::{FileContent, FileSystemEvent},
     helpers::history_ref::HistoryRef,
-    project::branch_db::BranchDb,
+    project::{branch_db::BranchDb, fs::fs_index::FileSystemIndex},
 };
 
 #[derive(Debug)]
 pub struct SyncAutomergeToFileSystem {
     branch_db: BranchDb,
+    fs_index: FileSystemIndex,
 }
 
 impl SyncAutomergeToFileSystem {
     /// Create a new instance of [SyncAutomergeToFileSystem]. Does not start any process.
     /// Call checkout_ref to do something.
-    pub fn new(branch_db: BranchDb) -> Self {
-        Self { branch_db }
+    pub fn new(branch_db: BranchDb, fs_index: FileSystemIndex) -> Self {
+        Self { branch_db, fs_index }
     }
 
     // TODO: We should consider running partial checkouts to the FS.
@@ -54,10 +55,6 @@ impl SyncAutomergeToFileSystem {
             return Vec::new();
         };
 
-        // TODO (Lilith): IMPORTANT: We need to test against known hashes of the files in the fs, to avoid writing things when they haven't actually changed.
-        // The old code does this by maintaining a list of file hashes that are kept up to date, but to be honest, I DON'T believe that it's that reliable.
-        // I think that would go out of sync constantly.
-        // Instead, I think we should read and hash the files before we write them. We can see how slow that is. So I must profile this.
         // Consider instead using a Tokio join set here...
         let futures = changes.into_iter().map(async |change| {
             let written = match &change {
@@ -85,27 +82,38 @@ impl SyncAutomergeToFileSystem {
         results
     }
 
+    async fn compare_hashes(&self, path: &PathBuf, content: &FileContent) -> bool {
+        match self.fs_index.get_hash(path).await {
+            Ok(existing_hash) => {
+                let hash = content.to_hash();
+                if hash == existing_hash {
+                    tracing::warn!(
+                        "Skipping creating file {:?} because it already exists, and the hash is the same.",
+                        path
+                    );
+                    return true;
+                }
+                tracing::warn!(
+                    "File {:?} already exists with a different hash; overwriting.",
+                    path
+                );
+                return false;
+            }
+            Err(e) => {
+                tracing::error!("Couldn't get existing hash for file {:?}, {e}", path);
+                return false;
+            },
+        }
+    }
+
     async fn handle_file_create(&self, path: &PathBuf, content: &FileContent) -> bool {
         // Skip if path matches any ignore pattern
         if self.branch_db.should_ignore(&path) {
             return false;
         }
 
-        let existing_hash = tokio::fs::read(path.clone()).await;
-
-        if let Ok(existing_hash) = existing_hash {
-            let hash = content.to_hash();
-            if md5::compute(existing_hash) == hash {
-                tracing::warn!(
-                    "Skipping creating file {:?} because it already exists, and the hash is the same.",
-                    path
-                );
-                return false;
-            }
-            tracing::warn!(
-                "File {:?} already exists with a different hash; overwriting.",
-                path
-            );
+        if self.compare_hashes(path, content).await {
+            return false;
         }
 
         // Write the file content to disk
@@ -125,34 +133,10 @@ impl SyncAutomergeToFileSystem {
             return false;
         }
 
-        let hash = content.to_hash();
-        let existing_hash = match tokio::fs::read(path.clone()).await {
-            Ok(existing_hash) => existing_hash,
-            Err(e) => {
-                tracing::error!(
-                    "Couldn't get existing hash for file {:?} during checkout: {}",
-                    path,
-                    e
-                );
-                return false;
-            }
-        };
-
-        // This is a little weird because in the old system, we'd check our stored file hash DB.
-        // Right now, we just check to see if the files are identical before merging.
-        // We could consider moving to that system again. It would involve creating a separate
-        // file_db module that fs syncing tasks can access and lock on.
-        // The disadvantage to that (as well as the old system): Maintaining a separate virtual
-        // representation of a file system is horrifying, because if the watcher ever fucks up,
-        // things go out of sync and there's no way to tell without re-reading the entire directory!
-        if md5::compute(existing_hash) == hash {
-            tracing::info!(
-                "Skipping writing file {:?} because the hash is the same.",
-                path
-            );
+        if self.compare_hashes(path, content).await {
             return false;
         }
-
+        
         // Write the file content to disk
         if let Err(e) = content.write(&path).await {
             tracing::error!("Failed to write file {:?} during checkout: {}", path, e);

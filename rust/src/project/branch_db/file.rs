@@ -4,17 +4,13 @@ use automerge::{ObjId, ObjType, ROOT, ReadDoc};
 use samod::DocumentId;
 
 use crate::{
-    fs::{file_utils::FileContent, file_utils::FileSystemEvent},
+    fs::file_utils::{FileContent, FileSystemEvent},
     helpers::{branch::BRANCH_DOC_VERSION, doc_utils::SimpleDocReader, utils::get_changed_files},
-    project::branch_db::{BranchDb, HistoryRef},
+    project::{
+        branch_db::{BranchDb, HistoryRef},
+        fs::fs_traversal::{ChangeType, FileSystemTraversal},
+    },
 };
-
-#[derive(Debug)]
-enum ReadPathHashMapError {
-    VersionTooOld,
-    FilesNotFound,
-    ShadowDocumentError,
-}
 
 /// Methods related to getting file changes and file contents out of documents.
 impl BranchDb {
@@ -22,7 +18,8 @@ impl BranchDb {
     async fn shares_history(&self, earlier_ref: HistoryRef, later_ref: HistoryRef) -> bool {
         let Ok(res) = self
             .with_shadow_document(later_ref.branch(), async |d| {
-                d.get_obj_id_at(ROOT, "files", earlier_ref.heads()).is_some()
+                d.get_obj_id_at(ROOT, "files", earlier_ref.heads())
+                    .is_some()
                     && d.get_obj_id_at(ROOT, "files", later_ref.heads()).is_some()
             })
             .await
@@ -52,106 +49,101 @@ impl BranchDb {
         }
         None
     }
-    /// Read the branch-doc schema version and the `path -> hash` map visible at `ref_`.
-    /// A `None` hash indicates a file entry that pre-dates the versioned hash field.
-    async fn read_path_hash_map(
-        &self,
-        ref_: &HistoryRef,
-    ) -> Result<HashMap<String, Option<Vec<u8>>>, ReadPathHashMapError> {
+
+    /// Get the hash index of the file system at a given ref.
+    /// This gets stored hashes from the doc. In most cases, slow hash retreival is unnecessary.
+    /// The following circumstances will cause a slow hash retrieval:
+    /// 1. The document predates hash insertion
+    /// 2. There was a merge conflict, causing multiple hashes (all incorrect) to be available
+    /// 3. The hash is otherwise unavailable or missing from the document
+    // TODO: It would be smart, here, to re-insert computed hashes if they were missing or invalid.
+    // We're not doing that right now because I don't know the side effects; they could be bad.
+    pub async fn get_hash_index(&self, ref_: &HistoryRef) -> Option<HashMap<String, blake3::Hash>> {
+        // TODO (Lilith): Should we not use the shadow document here? The canonical might be stable,
+        // but I haven't thought through the consequences of using either here.
+
+        enum PendingHash {
+            Hash(blake3::Hash),
+            Linked(DocumentId),
+        }
+
         let ref_clone = ref_.clone();
-        self.with_shadow_document(ref_.branch(), async move |d| {
-            let heads = ref_clone.heads();
-            let version = d.get_int_at(ROOT, "version", heads).unwrap_or(0) as u32;
-            if version < BRANCH_DOC_VERSION {
-                return Err(ReadPathHashMapError::VersionTooOld);
+        let hashes = self
+            .with_shadow_document(ref_.branch(), async move |d| {
+                let heads = ref_clone.heads();
+                let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
+                    tracing::error!("files not found at ref {ref_clone}!");
+                    return None;
+                };
+                let mut out = HashMap::new();
+                for path in d.keys_at(&files_id, heads) {
+                    let Some(entry_id) = d.get_obj_id_at(&files_id, &path, heads) else {
+                        continue;
+                    };
+
+                    // Try to retrieve the quick hash
+                    let hash = d.get_all_at(&entry_id, "hash", heads).ok()?;
+                    if hash.len() == 1 {
+                        let h = hash.first().unwrap().0.clone();
+                        let bytes = h.to_bytes();
+
+                        if let Some(bytes) = bytes {
+                            if let Ok(hash) = blake3::Hash::from_slice(bytes) {
+                                out.insert(path, PendingHash::Hash(hash));
+                                continue;
+                            }
+                        }
+                    }
+
+                    // If all of that failed, fall back to the slow hash
+                    match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
+                        Ok(content) => {
+                            out.insert(path, PendingHash::Hash(content.to_hash()));
+                        }
+                        Err(res) => match res {
+                            Ok(id) => {
+                                out.insert(path, PendingHash::Linked(id));
+                            }
+                            Err(error_msg) => {
+                                tracing::error!("error: {:?}", error_msg);
+                                continue;
+                            }
+                        },
+                    };
+                }
+                Some(out)
+            })
+            .await
+            .ok()??;
+
+        // Resolve binary files
+        let mut new_hashes = HashMap::new();
+        for (path, pending_hash) in hashes {
+            if self.should_ignore(&self.globalize_path(&path)) {
+                continue;
             }
-            let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
-                return Err(ReadPathHashMapError::FilesNotFound);
+            let hash = match pending_hash {
+                PendingHash::Hash(hash) => hash,
+                PendingHash::Linked(document_id) => {
+                    let Some(content) = self.get_linked_file(&document_id).await else {
+                        tracing::error!("Could not get linked file for hashing {path}");
+                        continue;
+                    };
+                    content.to_hash()
+                }
             };
-            let mut out = HashMap::new();
-            for path in d.keys_at(&files_id, heads) {
-                let Some(entry_id) = d.get_obj_id_at(&files_id, &path, heads) else {
-                    continue;
-                };
-                let hash = d.get_bytes_at(&entry_id, "hash", heads);
-                out.insert(path, hash);
-            }
-            Ok(out)
-        })
-        .await
-        .unwrap_or(Err(ReadPathHashMapError::ShadowDocumentError))
-    }
+            new_hashes.insert(path, hash);
+        }
 
-    async fn compare_file_hashes(&self, old_ref: &HistoryRef, new_ref: &HistoryRef) -> Result<Vec<FileSystemEvent>, ReadPathHashMapError> {
-            let old_map = self.read_path_hash_map(old_ref).await?;
-            let new_map = self.read_path_hash_map(new_ref).await?;
-
-
-            let mut deleted: HashSet<String> = HashSet::new();
-            let mut added: HashSet<String> = HashSet::new();
-            let mut modified: HashSet<String> = HashSet::new();
-
-            for (path, old_hash) in old_map.iter() {
-                match new_map.get(path) {
-                    None => {
-                        deleted.insert(path.clone());
-                    }
-                    Some(new_hash) => {
-                        // Treat a missing hash on either side as "changed" to be conservative.
-                        if old_hash.is_none() || new_hash.is_none() || old_hash != new_hash {
-                            modified.insert(path.clone());
-                        }
-                    }
-                }
-            }
-            for path in new_map.keys() {
-                if !old_map.contains_key(path) {
-                    added.insert(path.clone());
-                }
-            }
-
-            let to_hydrate: HashSet<String> =
-                added.iter().chain(modified.iter()).cloned().collect();
-
-            let mut events: Vec<FileSystemEvent> = Vec::new();
-            for path in &deleted {
-                events.push(FileSystemEvent::FileDeleted(self.globalize_path(path)));
-            }
-
-            if !to_hydrate.is_empty() {
-                let Some(hydrated) = self.get_files_at_ref(new_ref, &to_hydrate).await else {
-                    return Err(ReadPathHashMapError::FilesNotFound);
-                };
-                for (path, content) in hydrated {
-                    match content {
-                        FileContent::Deleted => {
-                            events.push(FileSystemEvent::FileDeleted(
-                                self.globalize_path(&path),
-                            ));
-                        }
-                        _ if added.contains(&path) => {
-                            events.push(FileSystemEvent::FileCreated(
-                                self.globalize_path(&path),
-                                content,
-                            ));
-                        }
-                        _ => {
-                            events.push(FileSystemEvent::FileModified(
-                                self.globalize_path(&path),
-                                content,
-                            ));
-                        }
-                    }
-                }
-            }
-
-            return Ok(events);
-
+        Some(new_hashes)
     }
 
     /// Get a list of file operations between two points in Backstitch history.
     /// If one ref exists in the history of another, we can do a fast automerge diff.
     /// If they have diverged, we must do a slow file-wise diff.
+    // TODO: There's inefficiency here -- I'd ideally to process files by the caller as needed,
+    // not return a giant heap of changes. In the future, change this to return a vec of change
+    // events and hashes now that we can do that, excluding file content.
     #[tracing::instrument(skip_all)]
     pub async fn get_changed_file_content_between_refs(
         &self,
@@ -165,6 +157,7 @@ impl BranchDb {
             return None;
         }
 
+        // If the old heads are empty, we always return all content
         if old_ref.is_none() || !old_ref.unwrap().is_valid() {
             tracing::info!("old heads empty, getting ALL files on branch");
 
@@ -184,62 +177,40 @@ impl BranchDb {
             );
         }
 
+        // If the refs are unrelated, we must do a slow hash-based diff.
+        // TODO: Is this actually slow? We could skip the automerge diff and JUST do the hash diff.
+        // I think that might be faster.
         let old_ref = old_ref.unwrap();
-
         let descendent_ref = self.get_descendent_ref(old_ref, new_ref).await;
-
         if descendent_ref.is_none() || force_slow_diff {
-            // Neither document is the descendent of the other, we can't do a fast diff.
+            // Neither document is the descendent of the other, we can't do a fast Automerge diff.
             // If both refs are on a branch-doc version with per-file hashes, we can use the cheap hash-based slow diff
-            // Otherwise, fall back to the legacy full-hydrate comparison.
-            match self.compare_file_hashes(old_ref, new_ref).await {
-                Ok(events) => {
-                    return Some(events);
-                }
-                Err(err) => {
-                    match err {
-                        ReadPathHashMapError::VersionTooOld => {
-                            tracing::warn!("Document is too old, can't do a fast diff");
-                        }
-                        ReadPathHashMapError::FilesNotFound => {
-                            tracing::warn!("Files not found, can't do a fast diff");
-                        }
-                        ReadPathHashMapError::ShadowDocumentError => {
-                            tracing::error!("Shadow document error, can't do a fast diff");
-                        }
-                    }
-                }   
-            }
-            // Legacy fallback: one or both refs pre-date the hash schema. Hydrate everything at both refs and compare FileContent directly.
-            let old_files = self.get_files_at_ref(old_ref, &HashSet::new()).await?;
-            let new_files = self.get_files_at_ref(new_ref, &HashSet::new()).await?;
 
-            let mut events = Vec::new();
-            for (path, _) in old_files.iter() {
-                if !new_files.contains_key(path) {
-                    events.push(FileSystemEvent::FileDeleted(self.globalize_path(path)));
-                }
-            }
-            for (path, content) in new_files {
-                match content {
-                    FileContent::Deleted => {
-                        events.push(FileSystemEvent::FileDeleted(self.globalize_path(&path)));
-                        continue;
+            let old_map = self.get_hash_index(old_ref).await?;
+            let new_map = self.get_hash_index(new_ref).await?;
+
+            let changes = FileSystemTraversal::get_file_changes(old_map, new_map);
+            let set = changes.keys().cloned().collect();
+
+            // get the file content for return
+            let mut new_files = self.get_files_at_ref(new_ref, &set).await?;
+
+            let events = changes
+                .into_iter()
+                .filter_map(|(path, change_type)| {
+                    let global_path = self.globalize_path(&path);
+                    let file = new_files.remove(&path); // consume the map
+                    match change_type {
+                        ChangeType::Created => {
+                            file.map(|file| FileSystemEvent::FileCreated(global_path, file))
+                        }
+                        ChangeType::Modified => {
+                            file.map(|file| FileSystemEvent::FileModified(global_path, file))
+                        }
+                        ChangeType::Deleted => Some(FileSystemEvent::FileDeleted(global_path)),
                     }
-                    _ => {}
-                }
-                if !old_files.contains_key(&path) {
-                    events.push(FileSystemEvent::FileCreated(
-                        self.globalize_path(&path),
-                        content,
-                    ));
-                } else if &content != old_files.get(&path).unwrap() {
-                    events.push(FileSystemEvent::FileModified(
-                        self.globalize_path(&path),
-                        content,
-                    ));
-                }
-            }
+                })
+                .collect();
             return Some(events);
         }
 
@@ -279,10 +250,10 @@ impl BranchDb {
             HashSet::new()
         } else {
             get_changed_files(&patches)
-            .into_iter()
-            .filter(|f| !deleted_files.contains(f))
-            .filter(|f| !added_files.contains(f))
-            .collect()
+                .into_iter()
+                .filter(|f| !deleted_files.contains(f))
+                .filter(|f| !added_files.contains(f))
+                .collect()
         };
         let all_files: HashSet<_> = deleted_files
             .iter()
@@ -367,16 +338,15 @@ impl BranchDb {
                     if !filters.is_empty() && !filters.contains(&path) {
                         continue;
                     }
-                    let file_entry =
-                        match doc.get_at(&files_obj_id, &path, desired_ref.heads()) {
-                            Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
-                                file_entry
-                            }
-                            _ => {
-                                tracing::error!("failed to get file entry for {:?}", path);
-                                continue;
-                            }
-                        };
+                    let file_entry = match doc.get_at(&files_obj_id, &path, desired_ref.heads()) {
+                        Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
+                            file_entry
+                        }
+                        _ => {
+                            tracing::error!("failed to get file entry for {:?}", path);
+                            continue;
+                        }
+                    };
 
                     match FileContent::hydrate_content_at(
                         file_entry,

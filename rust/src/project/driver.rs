@@ -7,10 +7,11 @@ use crate::project::branch_db::BranchDb;
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::RemoteConnection;
 use crate::project::document_watcher::DocumentWatcher;
+use crate::project::fs::fs_index::FileSystemIndex;
+use crate::project::fs::sync_automerge_to_fs::SyncAutomergeToFileSystem;
+use crate::project::fs::sync_fs_to_automerge::SyncFileSystemToAutomerge;
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::peer_watcher::PeerWatcher;
-use crate::project::sync_automerge_to_fs::SyncAutomergeToFileSystem;
-use crate::project::sync_fs_to_automerge::SyncFileSystemToAutomerge;
 use futures::StreamExt;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
@@ -49,6 +50,8 @@ pub struct DriverInner {
 
     // internal synchronization
     requested_checkout: Arc<Mutex<Option<DocumentId>>>,
+    #[allow(unused)]
+    fs_index: FileSystemIndex,
 
     // subtasks
     #[allow(unused)]
@@ -105,7 +108,7 @@ impl Driver {
         metadata_id: Option<DocumentId>,
         saved_branch_id: Option<DocumentId>,
     ) -> Option<Self> {
-        let storage = samod::storage::TokioFilesystemStorage::new(storage_directory);
+        let storage = samod::storage::TokioFilesystemStorage::new(&storage_directory);
         let repo = Repo::build_tokio()
             .with_concurrency(ConcurrencyConfig::Threadpool(
                 rayon::ThreadPoolBuilder::new().build().unwrap(),
@@ -113,6 +116,8 @@ impl Driver {
             .with_storage(storage)
             .load()
             .await;
+
+        let fs_index = FileSystemIndex::new(storage_directory.join("index.bin")).await.ok()?;
 
         // Start the connection
         // Terrible hack: If we're not provided a server URL, default to a garbage localhost URL.
@@ -135,8 +140,8 @@ impl Driver {
             })
             .await;
         let peer_watcher = Arc::new(PeerWatcher::new(repo.clone()));
-        let sync_automerge_to_fs = SyncAutomergeToFileSystem::new(branch_db.clone());
-        let sync_fs_to_automerge = SyncFileSystemToAutomerge::new(branch_db.clone());
+        let sync_automerge_to_fs = SyncAutomergeToFileSystem::new(branch_db.clone(), fs_index.clone());
+        let sync_fs_to_automerge = SyncFileSystemToAutomerge::new(branch_db.clone(), fs_index.clone());
 
         let metadata_handle = match &metadata_id {
             // If we're expecting an existing ID, try and fetch it.
@@ -188,6 +193,7 @@ impl Driver {
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
                 differ,
+                fs_index
             }),
             repo,
             token,
@@ -466,7 +472,7 @@ impl DriverInner {
         tracing::trace!("Attepmting to sync FS to automerge...");
         // Apply any watched FS updates to Automerge.
         // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-        if self.sync_fs_to_automerge.commit().await {
+        if self.sync_fs_to_automerge.commit(false).await {
             self.change_ingester.request_ingestion();
         }
 

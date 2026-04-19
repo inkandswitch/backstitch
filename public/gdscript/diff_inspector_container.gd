@@ -362,7 +362,8 @@ func create_node_diff_section(file_section: DiffInspectorSection, node_diff: Dic
 
 	var node_type: String = node_diff.get("type", "")
 	if (node_type == ""):
-		print(node_diff)
+		pass
+		# print(node_diff)
 	var color: Color = added_color
 	if change_type == "added":
 		color = added_color

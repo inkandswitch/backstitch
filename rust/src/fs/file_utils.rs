@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io;
 use std::io::{Write};
@@ -5,7 +6,6 @@ use std::path::{PathBuf};
 use std::str;
 use automerge::{Automerge, ChangeHash, ObjType, ReadDoc};
 use automerge::ObjId;
-use md5::Digest;
 use samod::{DocumentId};
 use crate::helpers::doc_utils::SimpleDocReader;
 use crate::helpers::utils::{parse_automerge_url};
@@ -28,26 +28,31 @@ pub enum FileSystemEvent {
 }
 
 impl FileContent {
-	// Write file content to disk
-	async fn write_file_content(path: &PathBuf, content: &FileContent) -> std::io::Result<Digest> {
-		let temp_text;
-		// Write the content based on its type
-		let buf: &[u8] = match content {
+	fn as_bytes(&self) -> Option<Cow<'_, [u8]>> {
+		match self {
 			FileContent::String(text) => {
-				text.as_bytes()
+				Some(Cow::Borrowed(text.as_bytes()))
 			}
 			FileContent::Binary(data) => {
-				data
+				Some(Cow::Borrowed(data))
 			}
 			FileContent::Scene(scene) => {
-				temp_text = Some(scene.serialize());
-				temp_text.as_ref().unwrap().as_bytes()
+				Some(Cow::Owned(scene.serialize().into_bytes()))
 			}
 			FileContent::Deleted => {
-				return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to write file"));
+				None
 			}
+		}
+	}
+
+	// Write file content to disk
+	async fn write_file_content(path: &PathBuf, content: &FileContent) -> std::io::Result<blake3::Hash> {
+		// Write the content based on its type
+		let Some(buf) = content.as_bytes() else {
+			return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to write file"));
 		};
-		let hash = md5::compute(buf);
+		let hash = content.to_hash();
+		
 		// ensure the directory exists
 		if let Some(dir) = path.parent() {
 			if !dir.exists() {
@@ -62,24 +67,16 @@ impl FileContent {
 			// If file doesn't exist, create it
 			File::create(path)?
 		};
-		let result = file.write_all(buf);
+		let result = file.write_all(&buf);
 		if result.is_err() {
 			return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to write file"));
 		}
 		Ok(hash)
 	}
 
-	pub async fn write(&self, path: &PathBuf) -> std::io::Result<Digest> {
+	pub async fn write(&self, path: &PathBuf) -> std::io::Result<blake3::Hash> {
 		FileContent::write_file_content(path, self).await
 	}
-
-	// pub fn from_path(path: &PathBuf) -> Option<FileContent> {
-	// 	let hash = calculate_file_hash(path);
-	// 	if hash.is_none() {
-	// 		return FileContent::Binary(std::fs::read(path).unwrap());
-	// 	}
-	// 	FileContent::String(hash.unwrap())
-	// }
 
 	pub fn from_string(string: impl ToString + AsRef<str>) -> FileContent {
 		// check if the file is a scene or a tres
@@ -108,13 +105,10 @@ impl FileContent {
 		FileContent::from_string(string)
 	}
 
-	pub fn to_hash(&self) -> Digest {
-		match self {
-			FileContent::String(s) => md5::compute(s.as_bytes()),
-			FileContent::Binary(bytes) => md5::compute(bytes.as_slice()),
-			FileContent::Scene(scene) => md5::compute(scene.serialize().as_bytes()),
-			FileContent::Deleted => md5::compute(""),
-		}
+	// TODO (Nikita): Make this stable on serialize from/to file.
+	// Also, make this stable between fs_index and here. (I think it already is? idk)
+	pub fn to_hash(&self) -> blake3::Hash {
+		blake3::hash(&self.as_bytes().unwrap_or(Cow::Borrowed(&[])))
 	}
 
 	// NOTE: Probably not appropriate to put here, should have this in BranchState
@@ -184,21 +178,8 @@ impl Default for &FileContent {
 	}
 }
 
-pub async fn calculate_file_hash(path: &PathBuf) -> Option<Digest> {
-	if !path.is_file() {
-		return None;
-	}
-
-	let mut file = match tokio::fs::read(path).await {
-		Ok(file) => file,
-		Err(_) => return None,
-	};
-
-	return Some(md5::compute(&mut file));
-}
-
 // get the buffer and hash of a file
-pub async fn get_buffer_and_hash(path: &PathBuf) -> Result<(Vec<u8>, Digest), tokio::io::Error> {
+pub async fn get_buffer_and_hash(path: &PathBuf) -> Result<(Vec<u8>, blake3::Hash), tokio::io::Error> {
 	if !path.is_file() {
 		return Err(io::Error::new(io::ErrorKind::Other, "Not a file"));
 	}
@@ -207,7 +188,7 @@ pub async fn get_buffer_and_hash(path: &PathBuf) -> Result<(Vec<u8>, Digest), to
 		return Err(io::Error::new(io::ErrorKind::Other, "Failed to read file"));
 	}
 	let buf = buf.unwrap();
-	let hash = md5::compute(&buf);
+	let hash = blake3::hash(&buf);
 	Ok((buf, hash))
 }
 

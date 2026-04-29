@@ -1,6 +1,6 @@
 # Backstitch
 
-![Backstitch logo](./backstitch_logo_banner.svg)
+<img src="./backstitch_logo_banner.svg" width="400" alt="Backstitch logo">
 
 Backstitch provides real-time version control for the Godot game engine.
 

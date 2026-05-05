@@ -36,6 +36,10 @@ jobs:
             repo: ${{ needs.load-env.outputs.MODDABLE_PLATFORMER_REPO }}
             ref: ${{ needs.load-env.outputs.MODDABLE_PLATFORMER_REF }}
             lfs: false
+          - name: moddable-pong
+            repo: ${{ needs.load-env.outputs.MODDABLE_PONG_REPO }}
+            ref: ${{ needs.load-env.outputs.MODDABLE_PONG_REF }}
+            lfs: false
     steps:
       - name: Checkout project
         uses: actions/checkout@v6

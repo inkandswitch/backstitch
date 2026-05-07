@@ -16,6 +16,7 @@ jobs:
           - backstitch
           - threadbare-with-backstitch
           - moddable-platformer-with-backstitch
+          - moddable-pong-with-backstitch
 
     steps:
       - name: Download artifact

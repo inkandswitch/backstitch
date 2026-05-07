@@ -43,7 +43,7 @@ If you want to get up and running as fast as possible, type `just launch`. It wi
 Otherwise, you can specify arguments for `just launch`:
 
 ```bash
-project=[moddable-platformer|threadbare] # launch threadbare or moddable-platformer projects
+project=[moddable-platformer|moddable-pong|threadbare] # launch the given project
 backstitch_profile=[release|debug] # whether we should build the rust code with release or debug configuration
 godot_profile=[release|debug|sani] # whether we should build Godot with release, debug, or sani configuration
 server_url=<url> # force embed a server URL into the project. By default, just keeps whatever server URL is already configured in the project.
@@ -54,7 +54,7 @@ tracing_support=[none|tokio-console] # allows a tokio-console to be connected at
 
 A variety of helpful launch configurations are specified when you open the project in Visual Studio Code. These run `just` commands to prepare projects, and then attach an in-editor debugger.
 
-When working with GDScript, you'll need to open `moddable-platformer` or `threadbare` directly in VSCode, and Godot must be running with `just launch`.
+When working with GDScript, you'll need to open `moddable-platformer`, `moddable-pong`, or `threadbare` directly in VSCode, and Godot must be running with `just launch`.
 
 
 ### Build structure
@@ -65,7 +65,7 @@ When you run `just launch`, the output generated files are copied to `build/`. T
   + The built plugin.
   + `bin`: Rust binaries
   + `public`: Symlinked from `public/` in the repo root. For GDScript and assets we must ship directly with the plugin.
-- `build/moddable-platformer`/`build/threadbare`:
+- `build/moddable-platformer`/`build/threadbare`/`build/moddable-pong`:
   + A clone of each project repository.
   + `addons/backstitch`: Symlinked from `build/backstitch`, so feel free to make GDScript or UI changes directly to `addons/backstitch/public`.
 - `build/godot`:

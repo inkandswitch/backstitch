@@ -5,9 +5,16 @@ use samod::DocumentId;
 
 use crate::{
     fs::{file_utils::FileContent, file_utils::FileSystemEvent},
-    helpers::{doc_utils::SimpleDocReader, utils::get_changed_files},
+    helpers::{branch::BRANCH_DOC_VERSION, doc_utils::SimpleDocReader, utils::get_changed_files},
     project::branch_db::{BranchDb, HistoryRef},
 };
+
+#[derive(Debug)]
+enum ReadPathHashMapError {
+    VersionTooOld,
+    FilesNotFound,
+    ShadowDocumentError,
+}
 
 /// Methods related to getting file changes and file contents out of documents.
 impl BranchDb {
@@ -45,17 +52,102 @@ impl BranchDb {
         }
         None
     }
-    // TODO (Lilith): During profiling, look at this method. It seems quite improvable.
-    // Here's my idea:
-    // In each branch doc, store an md5 hash of the file contents.
-    // Then, we can get a vector of changed files and their operations by comparing the two tracked_files
-    // using a single with_document call. With that, we can construct a filter to make the hydration lighter.
-    // That would significantly improve the slow diff. I'm not sure if that would be faster than the fast diff.
-    // (But if they're equivalent, not dealing with patches significantly simplifies code.)
+    /// Read the branch-doc schema version and the `path -> hash` map visible at `ref_`.
+    /// A `None` hash indicates a file entry that pre-dates the versioned hash field.
+    async fn read_path_hash_map(
+        &self,
+        ref_: &HistoryRef,
+    ) -> Result<HashMap<String, Option<Vec<u8>>>, ReadPathHashMapError> {
+        let ref_clone = ref_.clone();
+        self.with_shadow_document(ref_.branch(), async move |d| {
+            let heads = ref_clone.heads();
+            let version = d.get_int_at(ROOT, "version", heads).unwrap_or(0) as u32;
+            if version < BRANCH_DOC_VERSION {
+                return Err(ReadPathHashMapError::VersionTooOld);
+            }
+            let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
+                return Err(ReadPathHashMapError::FilesNotFound);
+            };
+            let mut out = HashMap::new();
+            for path in d.keys_at(&files_id, heads) {
+                let Some(entry_id) = d.get_obj_id_at(&files_id, &path, heads) else {
+                    continue;
+                };
+                let hash = d.get_bytes_at(&entry_id, "hash", heads);
+                out.insert(path, hash);
+            }
+            Ok(out)
+        })
+        .await
+        .unwrap_or(Err(ReadPathHashMapError::ShadowDocumentError))
+    }
 
-    // Afterwards, another possible improvement here:
-    // Instead of fetching the file content, we could just get the changed files.
-    // Then, later code could fetch the file content asynchronously.
+    async fn compare_file_hashes(&self, old_ref: &HistoryRef, new_ref: &HistoryRef) -> Result<Vec<FileSystemEvent>, ReadPathHashMapError> {
+            let old_map = self.read_path_hash_map(old_ref).await?;
+            let new_map = self.read_path_hash_map(new_ref).await?;
+
+
+            let mut deleted: HashSet<String> = HashSet::new();
+            let mut added: HashSet<String> = HashSet::new();
+            let mut modified: HashSet<String> = HashSet::new();
+
+            for (path, old_hash) in old_map.iter() {
+                match new_map.get(path) {
+                    None => {
+                        deleted.insert(path.clone());
+                    }
+                    Some(new_hash) => {
+                        // Treat a missing hash on either side as "changed" to be conservative.
+                        if old_hash.is_none() || new_hash.is_none() || old_hash != new_hash {
+                            modified.insert(path.clone());
+                        }
+                    }
+                }
+            }
+            for path in new_map.keys() {
+                if !old_map.contains_key(path) {
+                    added.insert(path.clone());
+                }
+            }
+
+            let to_hydrate: HashSet<String> =
+                added.iter().chain(modified.iter()).cloned().collect();
+
+            let mut events: Vec<FileSystemEvent> = Vec::new();
+            for path in &deleted {
+                events.push(FileSystemEvent::FileDeleted(self.globalize_path(path)));
+            }
+
+            if !to_hydrate.is_empty() {
+                let Some(hydrated) = self.get_files_at_ref(new_ref, &to_hydrate).await else {
+                    return Err(ReadPathHashMapError::FilesNotFound);
+                };
+                for (path, content) in hydrated {
+                    match content {
+                        FileContent::Deleted => {
+                            events.push(FileSystemEvent::FileDeleted(
+                                self.globalize_path(&path),
+                            ));
+                        }
+                        _ if added.contains(&path) => {
+                            events.push(FileSystemEvent::FileCreated(
+                                self.globalize_path(&path),
+                                content,
+                            ));
+                        }
+                        _ => {
+                            events.push(FileSystemEvent::FileModified(
+                                self.globalize_path(&path),
+                                content,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            return Ok(events);
+
+    }
 
     /// Get a list of file operations between two points in Backstitch history.
     /// If one ref exists in the history of another, we can do a fast automerge diff.
@@ -97,8 +189,28 @@ impl BranchDb {
         let descendent_ref = self.get_descendent_ref(old_ref, new_ref).await;
 
         if descendent_ref.is_none() || force_slow_diff {
-            // neither document is the descendent of the other, we can't do a fast diff,
-            // we need to do it the slow way; get the files from both docs
+            // Neither document is the descendent of the other, we can't do a fast diff.
+            // If both refs are on a branch-doc version with per-file hashes, we can use the cheap hash-based slow diff
+            // Otherwise, fall back to the legacy full-hydrate comparison.
+            match self.compare_file_hashes(old_ref, new_ref).await {
+                Ok(events) => {
+                    return Some(events);
+                }
+                Err(err) => {
+                    match err {
+                        ReadPathHashMapError::VersionTooOld => {
+                            tracing::warn!("Document is too old, can't do a fast diff");
+                        }
+                        ReadPathHashMapError::FilesNotFound => {
+                            tracing::warn!("Files not found, can't do a fast diff");
+                        }
+                        ReadPathHashMapError::ShadowDocumentError => {
+                            tracing::error!("Shadow document error, can't do a fast diff");
+                        }
+                    }
+                }   
+            }
+            // Legacy fallback: one or both refs pre-date the hash schema. Hydrate everything at both refs and compare FileContent directly.
             let old_files = self.get_files_at_ref(old_ref, &HashSet::new()).await?;
             let new_files = self.get_files_at_ref(new_ref, &HashSet::new()).await?;
 

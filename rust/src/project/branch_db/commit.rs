@@ -37,22 +37,24 @@ impl BranchDb {
             return None;
         }
 
-        let mut binary_entries: Vec<(String, DocHandle)> = Vec::new();
-        let mut text_entries: Vec<(String, String)> = Vec::new();
-        let mut scene_entries: Vec<(String, GodotScene)> = Vec::new();
+        // TODO: we should have `FileSystemEvent` objects as parameters, and they should store a precomputed hash; then we can just pass them in here.
+        let mut binary_entries: Vec<(String, DocHandle, [u8; 16])> = Vec::new();
+        let mut text_entries: Vec<(String, String, [u8; 16])> = Vec::new();
+        let mut scene_entries: Vec<(String, GodotScene, [u8; 16])> = Vec::new();
         let mut deleted_entries: Vec<String> = Vec::new();
 
         for (path, content) in files {
+            let hash = content.to_hash().0;
             match content {
                 FileContent::Binary(content) => {
                     let handle = self.create_new_binary_doc(content).await;
-                    binary_entries.push((path, handle));
+                    binary_entries.push((path, handle, hash));
                 }
                 FileContent::String(content) => {
-                    text_entries.push((path, content));
+                    text_entries.push((path, content, hash));
                 }
                 FileContent::Scene(godot_scene) => {
-                    scene_entries.push((path, godot_scene));
+                    scene_entries.push((path, godot_scene, hash));
                 }
                 FileContent::Deleted => {
                     deleted_entries.push(path);
@@ -80,7 +82,7 @@ impl BranchDb {
         let files = tx.get_obj_id(ROOT, "files").unwrap();
 
         // write text entries to doc
-        for (path, content) in text_entries {
+        for (path, content, hash) in text_entries {
             // get existing file url or create new one
             let (file_entry, change_type) = match tx.get(&files, &path) {
                 Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
@@ -112,10 +114,11 @@ impl BranchDb {
                     .unwrap(),
             };
             let _ = tx.update_text(&content_key, &content);
+            let _ = tx.put(&file_entry, "hash", hash.to_vec());
         }
 
         // write scene entries to doc
-        for (path, godot_scene) in scene_entries {
+        for (path, godot_scene, hash) in scene_entries {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
@@ -130,23 +133,25 @@ impl BranchDb {
                     tracing::error!("error reconciling scene: {}", e);
                     panic!("error reconciling scene: {}", e);
                 });
+            let _ = tx.put(&scene_file, "hash", hash.to_vec());
             changes.push(ChangedFile { path, change_type });
         }
 
         // write binary entries to doc
-        for (path, binary_doc_handle) in binary_entries {
+        for (path, binary_doc_handle, hash) in binary_entries {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
                 _ => ChangeType::Added,
             };
 
-            let file_entry = tx.put_object(&files, &path, ObjType::Map);
+            let file_entry = tx.put_object(&files, &path, ObjType::Map).unwrap();
             let _ = tx.put(
-                file_entry.unwrap(),
+                &file_entry,
                 "url",
                 format!("automerge:{}", &binary_doc_handle.document_id()),
             );
+            let _ = tx.put(&file_entry, "hash", hash.to_vec());
 
             changes.push(ChangedFile { path, change_type });
         }

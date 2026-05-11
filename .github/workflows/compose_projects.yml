@@ -12,6 +12,8 @@ jobs:
       THREADBARE_REF: ${{ steps.dotenv.outputs.THREADBARE_REF }}
       MODDABLE_PLATFORMER_REPO: ${{ steps.dotenv.outputs.MODDABLE_PLATFORMER_REPO }}
       MODDABLE_PLATFORMER_REF: ${{ steps.dotenv.outputs.MODDABLE_PLATFORMER_REF }}
+      MODDABLE_PONG_REPO: ${{ steps.dotenv.outputs.MODDABLE_PONG_REPO }}
+      MODDABLE_PONG_REF: ${{ steps.dotenv.outputs.MODDABLE_PONG_REF }}
     steps:
       - uses: actions/checkout@v4
       - id: dotenv
@@ -85,4 +87,3 @@ jobs:
           path: |
             ${{ matrix.project.name }}
           if-no-files-found: error
-

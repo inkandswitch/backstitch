@@ -135,6 +135,7 @@ impl SyncFileSystemToAutomerge {
 
         if diff.is_empty() {
             tracing::info!("Did not commit anything because there's no diff.");
+            pending_changes.clear();
             return false;
         }
 

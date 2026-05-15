@@ -41,9 +41,6 @@ impl FileSystemTraversal {
         let mut stack = vec![root];
 
         while let Some(path) = stack.pop() {
-            if ignore(&path) {
-                continue;
-            }
             let mut entries = match fs::read_dir(&path).await {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -55,6 +52,9 @@ impl FileSystemTraversal {
                 if path.is_dir() {
                     stack.push(path);
                 } else {
+                    if ignore(&path) {
+                        continue;
+                    }
                     if let Some(hash) = index.get_hash(&path).await.ok() {
                         out.insert(path, hash);
                     }

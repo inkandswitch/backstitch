@@ -20,8 +20,8 @@ default = []
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
-automerge = "0.7.2"
-autosurgeon = "0.10.1"
+automerge = "0.9.0"
+autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch = "upgrade-automerge" }
 futures = "0.3.31"
 godot = {version = "0.4.5", features = ["experimental-threads"]}
 tokio = { version = "1.49.0", features = ["full"] }
@@ -55,7 +55,7 @@ rlimit = "0.10.2"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
-samod = { git="https://github.com/LilithSilver/samod.git", branch="connection_handles", features = ["tokio", "threadpool", "tungstenite"] }
+samod = { version = "0.10.0", features = ["tokio", "threadpool", "tungstenite"] }
 rayon = "1.11.0"
 regex = "1.12.2"
 tokio-tungstenite = "0.27.0"

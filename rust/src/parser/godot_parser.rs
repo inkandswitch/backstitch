@@ -292,6 +292,10 @@ impl<'c> ReadDoc for AutomergeDocAtHeads<'c> {
 	fn parents<O: AsRef<automerge::ObjId>>(&self, obj: O) -> Result<Self::Parents<'_>, automerge::AutomergeError> {
 		self.doc.parents_at(obj, self.heads)
 	}
+    
+    fn is_empty(&self) -> bool {
+        self.doc.is_empty()
+    }
 }
 
 impl GodotScene {

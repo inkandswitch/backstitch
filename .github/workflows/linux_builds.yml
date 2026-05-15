@@ -45,6 +45,11 @@ jobs:
         with:
           arch: ${{ matrix.arch.id }}
 
+      - name: Remove macOS framework
+        shell: bash
+        run: |
+          rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

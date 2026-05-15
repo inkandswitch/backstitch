@@ -11,11 +11,15 @@ runs:
     - uses: robinraju/release-downloader@v1
       with:
         repository: 'inkandswitch/backstitch-launcher'
-        tag: 'v1.0.1'
+        tag: 'v1.0.2'
         fileName: 'backstitch-launcher-*.zip'
         out-file-path: 'backstitch-launcher'
         extract: true
-
+    - name: Set chmod
+      shell: bash
+      run: |
+        chmod a+x ./backstitch-launcher/backstitch-launcher-linux
+        chmod a+x ./backstitch-launcher/backstitch-launcher-macos.app/Contents/MacOS/backstitch-launcher
     - name: Copy exe files
       shell: bash
       run: |

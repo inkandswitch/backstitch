@@ -96,15 +96,21 @@ _clone repo_url directory checkout:
     fi
 
 # Clone our desired project and checkout the proper commit.
-[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 _acquire-project project: _make-build-dir
     #!/usr/bin/env sh
     # set -euxo pipefail
-    if [[ "{{project}}" = "moddable-platformer" ]]; then
-        just _clone "$MODDABLE_PLATFORMER_REPO" "build/{{project}}" "$MODDABLE_PLATFORMER_REF"
-    else
-        just _clone "$THREADBARE_REPO" "build/{{project}}" "$THREADBARE_REF"
-    fi
+    case "{{project}}" in
+        "moddable-platformer")
+            just _clone "$MODDABLE_PLATFORMER_REPO" "build/{{project}}" "$MODDABLE_PLATFORMER_REF"
+            ;;
+        "moddable-pong")
+            just _clone "$MODDABLE_PONG_REPO" "build/{{project}}" "$MODDABLE_PONG_REF"
+            ;;
+        "threadbare")
+            just _clone "$THREADBARE_REPO" "build/{{project}}" "$THREADBARE_REF"
+            ;;
+    esac
 
 # Clone the Godot repository and checkout the proper commit.
 _acquire-godot: _make-build-dir
@@ -352,16 +358,22 @@ clean-backstitch:
     rm -rf "build/backstitch"
 
 # Clean a single project, resetting the repository and unlinking Backstitch.
-[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 clean-project project:
     #!/usr/bin/env sh
     # set -euxo pipefail
-    if [[ "{{project}}" = "moddable-platformer" ]]; then
-        checkout="$MODDABLE_PLATFORMER_REF"
-    else
-        checkout="$THREADBARE_REF"
-    fi
-    
+    case "{{project}}" in
+        "moddable-platformer")
+            checkout="$MODDABLE_PLATFORMER_REF"
+            ;;
+        "moddable-pong")
+            checkout="$MODDABLE_PONG_REF"
+            ;;
+        "threadbare")
+            checkout="$THREADBARE_REF"
+            ;;
+    esac
+
     if [[ ! -d "build" ]]; then
         exit 0
     fi
@@ -375,10 +387,10 @@ clean-project project:
     git clean -xdf
 
 # Clean Backstitch, and the projects threadbare, moddable-platformer.
-clean: (clean-project "threadbare") (clean-project "moddable-platformer") clean-backstitch
+clean: (clean-project "threadbare") (clean-project "moddable-platformer") (clean-project "moddable-pong") clean-backstitch
 
 # Write to the project .cfg with a new server url
-[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 _write-url project url: (_link-project project)
     #!/usr/bin/env python3
     import os
@@ -386,7 +398,7 @@ _write-url project url: (_link-project project)
     from pathlib import Path
 
     # For now, if the URL is blank (default), don't touch the config.
-    # When we have an actual serve command, we can then expect the user to always specify. 
+    # When we have an actual serve command, we can then expect the user to always specify.
     if "{{url}}" == "":
         exit(0)
 
@@ -417,7 +429,7 @@ _write-url project url: (_link-project project)
     with open(path, "w") as file:
         file.writelines(new_lines)
 
-[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 [arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
@@ -431,9 +443,9 @@ echo-parms project="moddable-platformer" backstitch_profile="release" godot_prof
     echo "tracing_support:   {{tracing_support}}"
     echo "skip_godot_clone:  {{skip_godot_clone}}"
 
-# Prepare a project for launch with Godot. Available projects are threadbare, moddable-platformer.
+# Prepare a project for launch with Godot. Available projects are threadbare, moddable-platformer, moddable-pong.
 [parallel]
-[arg('project', pattern='moddable-platformer|threadbare')]
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 [arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]
@@ -442,8 +454,8 @@ prepare project="moddable-platformer" backstitch_profile="release" godot_profile
         (echo-parms project backstitch_profile godot_profile server_url tracing_support skip_godot_clone) (_link-project project) (build-godot godot_profile skip_godot_clone) (build-backstitch backstitch_profile default_arch tracing_support) (_write-url project server_url)
 
 
-# Launch a project with Godot. Available projects are threadbare, moddable-platformer.
-[arg('project', pattern='moddable-platformer|threadbare')]
+# Launch a project with Godot. Available projects are threadbare, moddable-platformer, moddable-pong.
+[arg('project', pattern='moddable-platformer|moddable-pong|threadbare')]
 [arg('backstitch_profile', pattern='release|debug')]
 [arg('godot_profile', pattern='release|debug|sani')]
 [arg('tracing_support', pattern='none|tokio-console')]

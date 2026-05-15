@@ -1,12 +1,21 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
-use futures::StreamExt;
-use tokio::{select, sync::Mutex, task::JoinSet};
+use futures::{StreamExt, stream};
+use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent}, helpers::spawn_utils::spawn_named, project::{branch_db::BranchDb, fs_watcher::FileSystemWatcher}
+    fs::file_utils::FileContent,
+    helpers::spawn_utils::spawn_named,
+    project::{
+        branch_db::BranchDb,
+        fs::{
+            fs_index::FileSystemIndex,
+            fs_traversal::FileSystemTraversal,
+            fs_watcher::{FileSystemWatcher, WatcherEvent},
+        },
+    },
 };
 
 /// Tracks changes using [FileSystemWatcher], handles the changes, and tracks them as pending.
@@ -18,8 +27,9 @@ pub struct SyncFileSystemToAutomerge {
     // Or maybe that's OK?
     // TODO (Lilith) Maybe do stream instead? This works for now though
     // Stream is good though because I ***think*** we can poll with now_or_never
-    pending_changes: Arc<Mutex<Vec<(String, FileContent)>>>,
+    pending_changes: Arc<Mutex<Vec<String>>>,
     branch_db: BranchDb,
+    fs_index: FileSystemIndex,
     token: CancellationToken,
 }
 
@@ -30,13 +40,17 @@ impl Drop for SyncFileSystemToAutomerge {
 }
 
 impl SyncFileSystemToAutomerge {
-    pub fn new(branch_db: BranchDb) -> Self {
+    pub fn new(branch_db: BranchDb, fs_index: FileSystemIndex) -> Self {
         let pending_changes = Arc::new(Mutex::new(Vec::new()));
         let token = CancellationToken::new();
 
         let pending_changes_clone = pending_changes.clone();
         let branch_db_clone = branch_db.clone();
         let token_clone = token.clone();
+
+        // TODO (Lilith): Now that we have hash-based indexing, we don't need to respond to watcher changes directly.
+        // I'm keeping this code for now for speed of implementation, but it's legacy.
+        // Soon, I want to just to do a naive filesystem diff when we detect ANY watched, unignored change.
 
         // TODO (Lilith): stick this on a method on an Inner struct like the rest
         spawn_named("Sync FS to Automerge", async move {
@@ -50,16 +64,11 @@ impl SyncFileSystemToAutomerge {
             loop {
                 select! {
                     event = changes.next() => {
-                        let Some(event) = event else { continue; };
-                        let (path, content) = match event {
-                            FileSystemEvent::FileCreated(path, content) => (path, content),
-                            FileSystemEvent::FileModified(path, content) => (path, content),
-                            FileSystemEvent::FileDeleted(path) => (path, FileContent::Deleted),
-                        };
+                        let Some(WatcherEvent::FileTouched(path)) = event else { continue; };
                         pending_changes_clone
                             .lock()
                             .await
-                            .push((branch_db_clone.localize_path(&path), content));
+                            .push(branch_db_clone.localize_path(&path));
                     },
                     _ = token_clone.cancelled() => { break; }
                 }
@@ -68,27 +77,28 @@ impl SyncFileSystemToAutomerge {
 
         Self {
             pending_changes,
+            fs_index,
             token,
             branch_db,
         }
     }
 
-    /// Make a commit of all watched, pending changes from the filesystem to automerge.
+    /// Make a commit of all changes from the filesystem to automerge.
     /// Returns true on success.
     #[instrument(skip_all)]
-    pub async fn commit(&self) -> bool {
+    pub async fn commit(&self, force: bool) -> bool {
         // Because we always change the checked out ref after committing, we need to lock this in write mode.
         let r = self.branch_db.get_checked_out_ref_mut();
         let mut checked_out_ref = r.write().await;
 
         let mut pending_changes = self.pending_changes.lock().await;
 
-        if pending_changes.is_empty() {
+        if !force && pending_changes.is_empty() {
             return false;
         }
 
         tracing::info!(
-            "There are {:?} pending changes, attempting to commit...",
+            "There are {:?} watched changes, attempting to commit...",
             pending_changes.len()
         );
 
@@ -101,23 +111,48 @@ impl SyncFileSystemToAutomerge {
             return false;
         }
 
+        // we can probably do better for larger trees? this traversal could be slow
+        let current_files = FileSystemTraversal::get_all_files(
+            self.branch_db.get_project_dir(),
+            &self.fs_index,
+            |path| self.branch_db.should_ignore(&path.to_path_buf()),
+        )
+        .await;
+        let Some(old_files) = self
+            .branch_db
+            .get_hash_index(&checked_out_ref.as_ref().unwrap())
+            .await
+        else {
+            tracing::error!("Failed to get current files!");
+            return false;
+        };
+
+        let old_files = old_files
+            .into_iter()
+            .map(|(k, v)| (self.branch_db.globalize_path(&k), v))
+            .collect();
+        let diff = FileSystemTraversal::get_file_changes(old_files, current_files);
+
+        if diff.is_empty() {
+            tracing::info!("Did not commit anything because there's no diff.");
+            return false;
+        }
+
+        tracing::debug!("Current changes: {:?}", diff);
+        let contents = self.get_file_contents(&diff.into_keys().collect()).await;
+
+        pending_changes.clear();
+
         let new_ref = self
             .branch_db
-            .commit_fs_changes(
-                pending_changes.clone(),
-                &checked_out_ref.as_ref().unwrap(),
-                None,
-                false,
-            )
+            .commit_fs_changes(contents, &checked_out_ref.as_ref().unwrap(), None, false)
             .await;
         if let Some(new_ref) = new_ref {
             tracing::info!("Successfully made a commit! {:?}", new_ref);
-            pending_changes.clear();
             *checked_out_ref = Some(new_ref);
             return true;
         } else {
             tracing::info!("Did not commit pending files!");
-            pending_changes.clear();
             return false;
         }
     }
@@ -131,21 +166,24 @@ impl SyncFileSystemToAutomerge {
 
         if checked_out_ref.is_none() {
             tracing::error!("Could not check in files; we don't have a branch checked out!");
-        }
-        else {
+        } else {
             tracing::info!("Checking in files at ref {:?}", checked_out_ref);
         }
 
-        let files = self.get_all_files().await;
+        let current_files = FileSystemTraversal::get_all_files(
+            self.branch_db.get_project_dir(),
+            &self.fs_index,
+            |path| self.branch_db.should_ignore(&path.to_path_buf()),
+        )
+        .await;
+
+        let contents = self
+            .get_file_contents(&current_files.into_keys().collect())
+            .await;
 
         let new_ref = self
             .branch_db
-            .commit_fs_changes(
-                files.clone(),
-                &checked_out_ref.as_ref().unwrap(),
-                None,
-                true,
-            )
+            .commit_fs_changes(contents, &checked_out_ref.as_ref().unwrap(), None, true)
             .await;
 
         if let Some(new_ref) = new_ref {
@@ -155,68 +193,18 @@ impl SyncFileSystemToAutomerge {
         }
     }
 
-    fn get_all_files_recur(
-        branch_db: BranchDb,
-        path: PathBuf,
-        content: Arc<Mutex<Option<Vec<(PathBuf, FileContent)>>>>,
-    ) -> impl Future<Output = Option<()>> + Send {
-        async move {
-            let mut dir = tokio::fs::read_dir(path).await.ok()?;
-            let mut set = JoinSet::new();
-            while let Some(entry) = dir.next_entry().await.ok()? {
-                let path = entry.path();
-
-                // Skip if path matches any ignore pattern
-                if branch_db.should_ignore(&path) {
-                    continue;
-                }
-
-                if path.is_file() {
-                    let path_clone = path.clone();
-                    let content = content.clone();
-                    set.spawn(async move {
-                        let data = tokio::fs::read(path).await;
-                        match data {
-                            Ok(data) => content
-                                .lock()
-                                .await
-                                .as_mut()
-                                .unwrap()
-                                .push((path_clone, FileContent::from_buf(data))),
-                            Err(e) => tracing::error!("Error while trying to read file: {}", e),
-                        }
-                        None
-                    });
-                } else if path.is_dir() {
-                    let path = path.clone();
-                    let branch_db = branch_db.clone();
-                    let content = content.clone();
-                    set.spawn(
-                        async move { Self::get_all_files_recur(branch_db, path, content).await },
-                    );
-                }
-            }
-            while let Some(_) = set.join_next().await {}
-            None
-        }
-    }
-
-    async fn get_all_files(&self) -> Vec<(String, FileContent)> {
-        let content = Arc::new(Mutex::new(Some(Vec::new())));
-        Self::get_all_files_recur(
-            self.branch_db.clone(),
-            self.branch_db.get_project_dir(),
-            content.clone(),
-        )
-        .await;
-        // steal the content from the mutex
-        content
-            .lock()
-            .await
-            .take()
-            .unwrap()
-            .into_iter()
-            .map(|(path, content)| (self.branch_db.localize_path(&path), content))
+    async fn get_file_contents(&self, files: &HashSet<PathBuf>) -> Vec<(String, FileContent)> {
+        stream::iter(files)
+            .then(|path| async move {
+                tokio::fs::read(path).await.map(|data| {
+                    (
+                        self.branch_db.localize_path(path),
+                        FileContent::from_buf(data),
+                    )
+                })
+            })
+            .filter_map(|x| async { x.ok() })
             .collect()
+            .await
     }
 }

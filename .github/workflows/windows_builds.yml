@@ -26,6 +26,10 @@ jobs:
         uses: ./.github/actions/build-plugin
         with:
           arch: ${{ matrix.arch }}
+      - name: Remove macOS framework
+        shell: bash
+        run: |
+          rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
       - name: Windows Sign
         uses: ./.github/actions/windows-sign
         with:

@@ -1,8 +1,11 @@
 # Backstitch
 
-![Backstitch logo](./backstitch_logo_banner.svg)
+<img src="./backstitch_logo_banner.svg" width="400" alt="Backstitch logo">
 
-[Backstitch](https://backstitch.dev/) provides real-time version control for the [Godot](https://godotengine.org/) game engine.
+Backstitch provides real-time version control for the Godot game engine.
+
+Join our [Discord](https://discord.gg/SkW9vem5Ez) to connect with the Backstitch community!
+
 
 ![A screenshot of Backstitch](backstitch-screenshot.png)
 

@@ -16,6 +16,7 @@ jobs:
           - backstitch
           - threadbare-with-backstitch
           - moddable-platformer-with-backstitch
+          - moddable-pong-with-backstitch
 
     steps:
       - name: Download artifact
@@ -35,7 +36,12 @@ jobs:
         shell: bash
         run: |
           chmod +x ${{ matrix.artifact }}/godot_macos_editor.app/Contents/MacOS/Godot
-
+      - name: Set chmod for launcher
+        if: endsWith(matrix.artifact, '-with-backstitch')
+        shell: bash
+        run: |
+          chmod a+x ${{ matrix.artifact }}/backstitch-launcher-linux
+          chmod a+x ${{ matrix.artifact }}/backstitch-launcher-macos.app/Contents/MacOS/backstitch-launcher
       - name: Remove Git LFS object cache
         shell: bash
         run: |

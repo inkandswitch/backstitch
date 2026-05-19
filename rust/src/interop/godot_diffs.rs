@@ -1,18 +1,28 @@
 use std::collections::HashMap;
 
-use godot::{
-    builtin::{Array, GString, VarDictionary, Variant, vdict, StringName}, classes::{ClassDb}, global::str_to_var, meta::{ByValue, GodotConvert, ToArg, ToGodot}
-};
 use godot::obj::Singleton;
+use godot::{
+    builtin::{Array, GString, StringName, VarDictionary, Variant, vdict},
+    classes::ClassDb,
+    global::str_to_var,
+    meta::{ByValue, GodotConvert, ToArg, ToGodot},
+};
 
+use crate::helpers::utils::ChangeType;
 use crate::{
     diff::{
-        differ::{ChangeType, Diff, ProjectDiff},
+        differ::{Diff, ProjectDiff},
         resource_differ::BinaryResourceDiff,
-        scene_differ::{NodeDiff, PropertyDiff, SceneDiff, SubResourceDiff, TextResourceDiff, VariantValue},
+        scene_differ::{
+            NodeDiff, PropertyDiff, SceneDiff, SubResourceDiff, TextResourceDiff, VariantValue,
+        },
         text_differ::{TextDiff, TextDiffHunk, TextDiffLine},
     },
-    interop::{godot_helpers::{GodotConvertExt, ToGodotExt}, lazy_load_token::LazyLoadToken}, parser::godot_parser::TypeOrInstance,
+    interop::{
+        godot_helpers::{GodotConvertExt, ToGodotExt},
+        lazy_load_token::LazyLoadToken,
+    },
+    parser::godot_parser::TypeOrInstance,
 };
 
 impl GodotConvert for TextDiffLine {
@@ -62,16 +72,16 @@ impl ToGodot for TextDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-			"path": self.path.to_godot(),
-			"diff_type": "text_changed",
-			"change_type": self.change_type.to_godot(),
-			"text_diff": vdict! {
-				// In the future, if we track renames, we should use the different paths here. Currently we don't, though.
-				"new_file": self.path.to_godot(),
-				"old_file": self.path.to_godot(),
-				"diff_hunks": self.diff_hunks.iter().map(|hunk| hunk.to_godot()).collect::<Array<VarDictionary>>(),
-			}
-		}
+            "path": self.path.to_godot(),
+            "diff_type": "text_changed",
+            "change_type": self.change_type.to_godot(),
+            "text_diff": vdict! {
+                // In the future, if we track renames, we should use the different paths here. Currently we don't, though.
+                "new_file": self.path.to_godot(),
+                "old_file": self.path.to_godot(),
+                "diff_hunks": self.diff_hunks.iter().map(|hunk| hunk.to_godot()).collect::<Array<VarDictionary>>(),
+            }
+        }
     }
     fn to_variant(&self) -> Variant {
         self.to_godot().to_variant()
@@ -86,9 +96,9 @@ impl ToGodot for ChangeType {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
-            ChangeType::Added => "added",
+            ChangeType::Created => "added",
             ChangeType::Modified => "modified",
-            ChangeType::Removed => "removed",
+            ChangeType::Deleted => "removed",
         }
         .into()
     }
@@ -144,7 +154,7 @@ impl ToGodot for SceneDiff {
         vdict! {
             "change_type": self.change_type.to_godot(),
             "changed_nodes": self.changed_nodes.to_godot(),
-			"diff_type": "scene_changed"
+            "diff_type": "scene_changed"
         }
     }
 }
@@ -259,11 +269,11 @@ impl GodotConvert for VariantValue {
 fn get_classdb_default_value(class_name: &str, prop: &str) -> String {
     if ClassDb::singleton().is_instance_valid() && ClassDb::singleton().class_exists(class_name) {
         ClassDb::singleton()
-        .class_get_property_default_value(
-            &StringName::from(class_name),
-            &StringName::from(prop),
-        )
-        .to_string()
+            .class_get_property_default_value(
+                &StringName::from(class_name),
+                &StringName::from(prop),
+            )
+            .to_string()
     } else {
         "".to_string()
     }
@@ -288,9 +298,9 @@ impl ToGodot for VariantValue {
                     str_to_var(&default_value)
                 }
             }
-            VariantValue::LazyLoadData(original_path, load_path) => 
-                LazyLoadToken::new(load_path.clone(), Some(original_path.clone()))
-                .to_variant(),
+            VariantValue::LazyLoadData(original_path, load_path) => {
+                LazyLoadToken::new(load_path.clone(), Some(original_path.clone())).to_variant()
+            }
         }
     }
 }
@@ -318,7 +328,7 @@ impl ToGodot for BinaryResourceDiff {
             "change_type": self.change_type.to_godot(),
             "new_resource": self.new_resource.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
             "old_resource": self.old_resource.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
-			"diff_type": "resource_changed"
+            "diff_type": "resource_changed"
         }
     }
 }

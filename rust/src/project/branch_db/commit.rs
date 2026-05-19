@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
 use automerge::{Automerge, ObjType, ROOT, ReadDoc};
 use autosurgeon::Doc;
 use samod::DocHandle;
+use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -26,16 +25,12 @@ impl BranchDb {
         is_checking_in: bool,
     ) -> Option<HistoryRef> {
         tracing::info!("Attempting to commit changes...");
-        // Only commit files that have actually changed
-        // TODO: We may be able to use notify's compare file hash system instead? Or in addition to this?
-        let files = self.filter_changed_files(ref_, files).await;
+
+        // TODO (Lilith): Once upon a time, we checked contentwise to make sure we're not committing empty changes.
+        // I don't think we need to do that anymore, but we need to test without it.
+
         let count = files.len();
         let username = self.username.lock().await.clone();
-
-        if count == 0 {
-            tracing::info!("No actual changes found; not committing.");
-            return None;
-        }
 
         // TODO: we should have `FileSystemEvent` objects as parameters, and they should store a precomputed hash; then we can just pass them in here.
         let mut binary_entries: Vec<(String, DocHandle, blake3::Hash)> = Vec::new();
@@ -44,6 +39,9 @@ impl BranchDb {
         let mut deleted_entries: Vec<String> = Vec::new();
 
         for (path, content) in files {
+            // This is fairly cheap from my estimation.
+            // If this becomes a bottleneck, we can reuse the previously computed hash by having callers provide file hashes.
+            // If we do this, though, we still have to compute scene hashes when putting things into Automerge.
             let hash = content.to_hash();
             match content {
                 FileContent::Binary(content) => {
@@ -90,21 +88,17 @@ impl BranchDb {
                 }
                 _ => (
                     tx.put_object(&files, &path, ObjType::Map).unwrap(),
-                    ChangeType::Added,
+                    ChangeType::Created,
                 ),
             };
 
             changes.push(ChangedFile { path, change_type });
 
             // delete url in file entry if it previously had one
-            if let Ok(Some((_, _))) = tx.get(&file_entry, "url") {
-                let _ = tx.delete(&file_entry, "url");
-            }
+            let _ = tx.delete(&file_entry, "url");
 
             // delete structured content in file entry if it previously had one
-            if let Ok(Some((_, _))) = tx.get(&file_entry, "structured_content") {
-                let _ = tx.delete(&file_entry, "structured_content");
-            }
+            let _ = tx.delete(&file_entry, "structured_content");
 
             // either get existing text or create new text
             let content_key = match tx.get(&file_entry, "content") {
@@ -122,12 +116,13 @@ impl BranchDb {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
-                _ => ChangeType::Added,
+                _ => ChangeType::Created,
             };
 
             let scene_file = tx
                 .get_obj_id(&files, &path)
                 .unwrap_or_else(|| tx.put_object(&files, &path, ObjType::Map).unwrap());
+
             autosurgeon::reconcile_prop(&mut tx, &scene_file, "structured_content", godot_scene)
                 .unwrap_or_else(|e| {
                     tracing::error!("error reconciling scene: {}", e);
@@ -142,7 +137,7 @@ impl BranchDb {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
-                _ => ChangeType::Added,
+                _ => ChangeType::Created,
             };
 
             let file_entry = tx.put_object(&files, &path, ObjType::Map).unwrap();
@@ -160,7 +155,7 @@ impl BranchDb {
             let _ = tx.delete(&files, &path);
             changes.push(ChangedFile {
                 path,
-                change_type: ChangeType::Removed,
+                change_type: ChangeType::Deleted,
             });
         }
 
@@ -183,7 +178,11 @@ impl BranchDb {
         let new_heads = d.get_heads();
 
         if new_heads.get(0) != res.as_ref() {
-            tracing::error!("Document heads {:?} different from commit result {:?}!", new_heads, res);
+            tracing::error!(
+                "Document heads {:?} different from commit result {:?}!",
+                new_heads,
+                res
+            );
         }
 
         // Unlock state, then attempt a reconcile.
@@ -191,49 +190,20 @@ impl BranchDb {
         // That's OK; once the binary doc sync finishes, it will trigger a reconcile to canonical.
         // In the mean time, we can continue committing to the shadow doc.
         drop(state);
-        self.try_reconcile_branch(state_arc.clone()).await;
+        self.try_reconcile_branch(state_arc.clone())
+            .instrument(tracing::info_span!("try_reconcile_branch"))
+            .await;
 
         tracing::info!("Committed {} files.", count);
 
         if new_heads == *ref_.heads() {
-            tracing::error!("Document heads {:?} didn't change after committing!", new_heads);
+            tracing::error!(
+                "Document heads {:?} didn't change after committing!",
+                new_heads
+            );
         }
 
         return Some(HistoryRef::new(ref_.branch().clone(), new_heads));
-    }
-
-    // Filter a list of files to those changed compared to a given ref.
-    async fn filter_changed_files(
-        &self,
-        ref_: &HistoryRef,
-        files: Vec<(String, FileContent)>,
-    ) -> Vec<(String, FileContent)> {
-        // Only load files matching those we've provided
-        let filter = files
-            .iter()
-            .map(|(path, _)| path.to_string())
-            .collect::<HashSet<String>>();
-
-        // Check our stored files
-        let stored_files = self
-            .get_files_at_ref(&ref_, &filter)
-            .await
-            .unwrap_or(HashMap::new());
-
-        // Filter out files that haven't actually changed
-        files
-            .into_iter()
-            .filter_map(|(path, content)| {
-                let path = path.to_string();
-                let stored_content = stored_files.get(&path);
-                if let Some(stored_content) = stored_content {
-                    if stored_content == &content {
-                        return None;
-                    }
-                }
-                Some((path, content))
-            })
-            .collect()
     }
 
     pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> DocHandle {

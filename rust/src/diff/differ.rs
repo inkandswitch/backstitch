@@ -1,26 +1,20 @@
-use std::
-    collections::HashSet
-;
-
 use godot::{
-    classes::ResourceLoader, global, obj::{EngineEnum, Singleton}
+    classes::ResourceLoader,
+    global,
+    obj::{EngineEnum, Singleton},
 };
 use tracing::instrument;
 
 use crate::{
-    diff::{resource_differ::BinaryResourceDiff, scene_differ::{SceneDiff, TextResourceDiff}, text_differ::TextDiff}, fs::file_utils::{FileContent, FileSystemEvent}, helpers::{history_path::HistoryRefPath, history_ref::HistoryRef}, project::branch_db::BranchDb
+    diff::{
+        resource_differ::BinaryResourceDiff,
+        scene_differ::{SceneDiff, TextResourceDiff},
+        text_differ::TextDiff,
+    },
+    fs::file_utils::FileContent,
+    helpers::{history_path::HistoryRefPath, history_ref::HistoryRef},
+    project::branch_db::BranchDb,
 };
-
-/// The type of change that occurred in a diff.
-#[derive(Clone, Debug)]
-pub enum ChangeType {
-    /// The element was added.
-    Added,
-    /// The element was modified.
-    Modified,
-    /// The element was removed.
-    Removed,
-}
 
 /// A diff for a single file.
 #[derive(Clone, Debug)]
@@ -52,75 +46,60 @@ pub struct Differ {
 impl Differ {
     /// Creates a new [Differ].
     pub fn new(branch_db: BranchDb) -> Self {
-        Self {
-            branch_db,
-        }
+        Self { branch_db }
     }
 
     /// Loads an ExtResource given a path.
     pub(super) async fn start_load_ext_resource(
         &self,
         path: &str,
-        ref_: &HistoryRef
+        ref_: &HistoryRef,
     ) -> Result<String, String> {
-        let history_ref_path = HistoryRefPath::make_path_string(ref_, path).map_err(|_| "Invalid history ref path".to_string())?;
+        let history_ref_path = HistoryRefPath::make_path_string(ref_, path)
+            .map_err(|_| "Invalid history ref path".to_string())?;
 
         return match ResourceLoader::singleton().load_threaded_request(&history_ref_path) {
             global::Error::OK => Ok(history_ref_path),
-            e => Err(format!("load_threaded_request failed ({})", e.as_str().to_string())),
+            e => Err(format!(
+                "load_threaded_request failed ({})",
+                e.as_str().to_string()
+            )),
         };
     }
 
     /// Computes the diff between the two sets of heads.
     #[instrument(skip_all, level = tracing::Level::DEBUG)]
-    pub async fn get_diff(&self, before: &HistoryRef, after: &HistoryRef) -> ProjectDiff {
+    pub async fn get_diff(&self, before: &HistoryRef, after: &HistoryRef) -> Option<ProjectDiff> {
         if before == after {
             tracing::debug!("no changes");
-            return ProjectDiff::default();
+            return None;
         }
 
-        // TODO: refactor `get_changed_file_content_between_refs` to not globalize the paths so we don't have to re-localize them here
-        // Get the set of new file content that has changed
-        let Some(new_file_contents) = self
+        let changed_files = self
             .branch_db
-            .get_changed_file_content_between_refs(Some(before), after, false)
-            .await
-            .and_then(|events| Some(events.into_iter().map(|event| {
-                match event {
-                    FileSystemEvent::FileCreated(path, content) => (self.branch_db.localize_path(&path), content, ChangeType::Added),
-                    FileSystemEvent::FileModified(path, content) => (self.branch_db.localize_path(&path), content, ChangeType::Modified),
-                    FileSystemEvent::FileDeleted(path) => (self.branch_db.localize_path(&path), FileContent::Deleted, ChangeType::Removed),
-                }
-            }).collect::<Vec<(String, FileContent, ChangeType)>>()))
-        else {
-            // Something went wrong
-            return ProjectDiff::default();
-        };
-        if new_file_contents.is_empty() {
-            return ProjectDiff::default();
+            .get_changed_files_between_refs(Some(before), after)
+            .await?;
+
+        if changed_files.is_empty() {
+            return None;
         }
 
-        let changed_filter: HashSet<String> = new_file_contents
-            .iter()
-            .map(|event| event.0.clone())
-            .collect::<HashSet<String>>();
+        let changed_filter = changed_files.keys().cloned().collect();
 
-        // We do need to compare the new files to the old files, so grab the old contents with a filter
-        let Some(old_file_contents) = self
+        let new_file_contents = self
+            .branch_db
+            .get_files_at_ref(after, &changed_filter)
+            .await?;
+        let old_file_contents = self
             .branch_db
             .get_files_at_ref(before, &changed_filter)
-            .await
-        else {
-            // Something went wrong
-            return ProjectDiff::default();
-        };
+            .await?;
 
         let mut diffs: Vec<Diff> = vec![];
 
-        for (path, new_file_content, change_type) in &new_file_contents {
-            let old_file_content = old_file_contents
-                .get(path)
-                .unwrap_or(&FileContent::Deleted);
+        for (path, new_file_content) in &new_file_contents {
+            let change_type = changed_files.get(path)?;
+            let old_file_content = old_file_contents.get(path).unwrap_or(&FileContent::Deleted);
 
             if matches!(old_file_content, FileContent::Scene(_))
                 || matches!(new_file_content, FileContent::Scene(_))
@@ -134,7 +113,6 @@ impl Differ {
                     _ => None,
                 };
 
-
                 let resource_type = match (old_scene, new_scene) {
                     (None, Some(scene)) => scene.resource_type.clone(),
                     (Some(scene), None) => scene.resource_type.clone(),
@@ -144,12 +122,12 @@ impl Differ {
                 if resource_type == "PackedScene" {
                     diffs.push(Diff::Scene(
                         self.get_scene_diff(&path, old_scene, new_scene, before, after)
-                        .await,
+                            .await,
                     ));
                 } else {
                     diffs.push(Diff::TextResourceDiff(
                         self.get_text_resource_diff(&path, old_scene, new_scene, before, after)
-                        .await,
+                            .await,
                     ));
                 }
             } else if matches!(old_file_content, FileContent::Binary(_))
@@ -183,6 +161,6 @@ impl Differ {
             }
         }
 
-        ProjectDiff { file_diffs: diffs }
+        Some(ProjectDiff { file_diffs: diffs })
     }
 }

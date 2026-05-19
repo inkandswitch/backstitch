@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt, path::Path, str::FromStr, time::SystemTime};
+use std::{fmt, path::Path, str::FromStr, time::SystemTime};
 
 use crate::{diff::differ::ProjectDiff, helpers::branch::Branch};
 use automerge::{
@@ -8,38 +8,6 @@ use automerge::{
 use chrono::{DateTime, Datelike, Local, Locale, TimeZone};
 use samod::DocumentId;
 use serde::{Deserialize, Serialize};
-
-pub(crate) fn get_changed_files(patches: &Vec<automerge::Patch>) -> HashSet<String> {
-    let mut changed_files = HashSet::new();
-
-    // log all patches
-    for patch in patches.iter() {
-        let first_key = match patch.path.get(0) {
-            Some((_, prop)) => match prop {
-                automerge::Prop::Map(string) => string,
-                _ => continue,
-            },
-            _ => continue,
-        };
-
-        // get second key
-        let second_key = match patch.path.get(1) {
-            Some((_, prop)) => match prop {
-                automerge::Prop::Map(string) => string,
-                _ => continue,
-            },
-            _ => continue,
-        };
-
-        if first_key == "files" {
-            changed_files.insert(second_key.to_string());
-        }
-
-        // tracing::debug!("changed files: {:?}", changed_files);
-    }
-
-    return changed_files;
-}
 
 pub(crate) fn parse_automerge_url(url: &str) -> Option<DocumentId> {
     const PREFIX: &str = "automerge:";
@@ -59,16 +27,16 @@ pub struct MergeMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
-    Added,
-    Removed,
+    Created,
+    Deleted,
     Modified,
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ChangeType::Added => write!(f, "added"),
-            ChangeType::Removed => write!(f, "removed"),
+            ChangeType::Created => write!(f, "created"),
+            ChangeType::Deleted => write!(f, "deleted"),
             ChangeType::Modified => write!(f, "modified"),
         }
     }
@@ -133,8 +101,8 @@ pub struct DiffWrapper {
 }
 
 pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
-    let added = get_summary_text(&changes, ChangeType::Added, None);
-    let removed = get_summary_text(&changes, ChangeType::Removed, None);
+    let added = get_summary_text(&changes, ChangeType::Created, None);
+    let removed = get_summary_text(&changes, ChangeType::Deleted, None);
     let modified = get_summary_text(&changes, ChangeType::Modified, Some("edited"));
 
     let strings: Vec<String> = [added, removed, modified]
@@ -156,8 +124,8 @@ fn get_summary_text(
     display_operation: Option<&str>,
 ) -> String {
     let display = display_operation.unwrap_or(match operation {
-        ChangeType::Added => "added",
-        ChangeType::Removed => "removed",
+        ChangeType::Created => "added",
+        ChangeType::Deleted => "removed",
         ChangeType::Modified => "modified",
     });
 

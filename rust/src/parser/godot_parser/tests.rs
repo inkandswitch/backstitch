@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use super::*;
-use autosurgeon::Doc;
-use tokio::fs::{self, File};
+use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 const INDEX_TEST: &str = r#"[gd_scene format=4 uid="uid://g64l65moc1sx"]
@@ -267,9 +266,9 @@ tile_set = ExtResource("1_8drhf")
 [editable path="Player"]
 "#;
 
-use crate::diff::differ::ChangeType;
 use crate::diff::text_differ::TextDiff;
 use crate::fs::file_utils::FileContent;
+use crate::helpers::utils::ChangeType;
 
 #[test]
 fn test_complete_scene() {
@@ -779,7 +778,7 @@ async fn test_hash_stable() {
     }
 }
 
-async fn write_file(path: &Path, string: &str)  {
+async fn write_file(path: &Path, string: &str) {
     let mut file = File::create(path).await.unwrap();
     file.write_all(string.as_bytes()).await.unwrap();
 }

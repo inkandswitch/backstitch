@@ -1,7 +1,8 @@
 use crate::{
-    diff::{differ::{ChangeType, Differ}, scene_differ::VariantValue}, fs::file_utils::FileContent, helpers::history_ref::HistoryRef
+    diff::{differ::Differ, scene_differ::VariantValue},
+    fs::file_utils::FileContent,
+    helpers::{history_ref::HistoryRef, utils::ChangeType},
 };
-
 
 #[derive(Clone, Debug)]
 pub struct BinaryResourceDiff {
@@ -35,7 +36,7 @@ impl Differ {
         old_content: &FileContent,
         new_content: &FileContent,
         before: &HistoryRef,
-        after: &HistoryRef
+        after: &HistoryRef,
     ) -> BinaryResourceDiff {
         BinaryResourceDiff::new(
             path.to_string(),
@@ -55,10 +56,12 @@ impl Differ {
             return None;
         }
 
-        match self.start_load_ext_resource(&path, ref_).await{
+        match self.start_load_ext_resource(&path, ref_).await {
             Ok(load_path) => Some(VariantValue::LazyLoadData(path.to_string(), load_path)),
-            Err(e) => Some(VariantValue::Variant(format!("\"<ExtResource {} load failed ({})>\"", path, e))),
+            Err(e) => Some(VariantValue::Variant(format!(
+                "\"<ExtResource {} load failed ({})>\"",
+                path, e
+            ))),
         }
-
     }
 }

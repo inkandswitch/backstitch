@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use crate::{
-    diff::differ::{ChangeType, Differ},
-    fs::file_utils::FileContent,
-};
+use crate::{diff::differ::Differ, fs::file_utils::FileContent, helpers::utils::ChangeType};
 
 #[derive(Clone, Debug)]
 pub struct TextDiffLine {
@@ -52,12 +49,7 @@ impl Display for AnsiColor {
 }
 
 impl TextDiff {
-    pub fn create(
-        path: &str,
-        old_text: &str,
-        new_text: &str,
-        change_type: ChangeType,
-    ) -> TextDiff {
+    pub fn create(path: &str, old_text: &str, new_text: &str, change_type: ChangeType) -> TextDiff {
         let diff = similar::TextDiff::from_lines(old_text, new_text);
         let mut unified = diff.unified_diff();
         unified.header(path, path);
@@ -156,7 +148,6 @@ impl TextDiff {
         }
         out
     }
-             
 }
 
 impl Differ {

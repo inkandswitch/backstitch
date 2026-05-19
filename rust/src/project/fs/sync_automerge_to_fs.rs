@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use futures::future::join_all;
-use tracing::{Instrument, instrument};
+use tracing::Instrument;
 
 use crate::{
     fs::file_utils::{FileContent, FileSystemEvent},
-    helpers::history_ref::HistoryRef,
+    helpers::{history_ref::HistoryRef, utils::ChangeType},
     project::{branch_db::BranchDb, fs::fs_index::FileSystemIndex},
 };
 
@@ -48,7 +48,7 @@ impl SyncAutomergeToFileSystem {
 
         let Some(changes) = self
             .branch_db
-            .get_changed_file_content_between_refs(checked_out_ref.as_ref(), &goal_ref, false)
+            .get_changed_files_between_refs(checked_out_ref.as_ref(), &goal_ref)
             .instrument(tracing::info_span!("get_changed_file_content_between_refs"))
             .await
         else {
@@ -59,30 +59,55 @@ impl SyncAutomergeToFileSystem {
             return Vec::new();
         };
 
+        let Some(mut contents) = self
+            .branch_db
+            .get_files_at_ref(&goal_ref, &changes.keys().cloned().collect())
+            .await
+        else {
+            tracing::error!(
+                "Couldn't get file content between refs; canceling ref checkout of {:?}",
+                goal_ref
+            );
+            return Vec::new();
+        };
+
+        let joined: HashMap<String, (ChangeType, FileContent)> = changes
+            .into_iter()
+            .filter_map(|(path, change_type)| {
+                contents
+                    .remove(&path)
+                    .map(|content| (path, (change_type, content)))
+            })
+            .collect();
+
         // Consider instead using a Tokio join set here...
-        let futures = changes.into_iter().map(async |change| {
-            let written = match &change {
-                FileSystemEvent::FileCreated(path, content) => {
-                    self.handle_file_create(path, content).await
-                }
-                FileSystemEvent::FileModified(path, content) => {
-                    self.handle_file_update(path, content).await
-                }
-                FileSystemEvent::FileDeleted(path) => self.handle_file_delete(path).await,
-            };
-            (change, written)
-        });
+        let futures = joined
+            .into_iter()
+            .map(async |(path, (change_type, content))| {
+                let global_path = self.branch_db.globalize_path(&path);
+                match change_type {
+                    ChangeType::Created | ChangeType::Modified => {
+                        self.handle_file_update(&global_path, &content).await?
+                    }
+                    ChangeType::Deleted => self.handle_file_delete(&global_path).await?,
+                };
+                Some((global_path, change_type, content))
+            });
 
         let results: Vec<FileSystemEvent> = join_all(futures)
             .await
             .into_iter()
-            .filter_map(|(event, written)| written.then_some(event))
+            .filter_map(|r| r)
+            .map(|(path, change_type, content)| match change_type {
+                ChangeType::Created => FileSystemEvent::FileCreated(path, content),
+                ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
+                ChangeType::Modified => FileSystemEvent::FileModified(path, content),
+            })
             .collect();
 
         tracing::info!("Wrote {:?} files!", results.len());
 
         *checked_out_ref = Some(goal_ref);
-
         results
     }
 
@@ -110,51 +135,32 @@ impl SyncAutomergeToFileSystem {
         }
     }
 
-    async fn handle_file_create(&self, path: &PathBuf, content: &FileContent) -> bool {
-        // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path) {
-            return false;
-        }
-
-        if self.compare_hashes(path, content).await {
-            return false;
-        }
-
-        // Write the file content to disk
-        if let Err(e) = content.write(&path).await {
-            tracing::error!("Failed to write file {:?} during checkout: {}", path, e);
-            return false;
-        };
-        tracing::info!("Successfully wrote {:?}", path);
-        true
-    }
-
     /// Update a file on disk if it exists and hasn't been ignored, and if the hash has changed.
     /// Returns true if we successfully wrote the file.
-    async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> bool {
+    async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> Option<()> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path) {
-            return false;
+        if self.branch_db.should_ignore(&path, false) {
+            return None;
         }
 
         if self.compare_hashes(path, content).await {
-            return false;
+            return None;
         }
 
         // Write the file content to disk
         if let Err(e) = content.write(&path).await {
             tracing::error!("Failed to write file {:?} during checkout: {}", path, e);
-            return false;
+            return None;
         };
         tracing::info!("Successfully modified {:?}", path);
-        true
+        Some(())
     }
 
     /// Delete a file on disk, if it exists and isn't ignored. Returns true if we successfully deleted the file.
-    async fn handle_file_delete(&self, path: &PathBuf) -> bool {
+    async fn handle_file_delete(&self, path: &PathBuf) -> Option<()> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path) {
-            return false;
+        if self.branch_db.should_ignore(&path, false) {
+            return None;
         }
 
         let Ok(canon) = path.canonicalize() else {
@@ -162,18 +168,18 @@ impl SyncAutomergeToFileSystem {
                 "Failed to delete file {:?} during checkout because it's already gone.",
                 path
             );
-            return false;
+            return None;
         };
 
         // Delete the file from disk
         match tokio::fs::remove_file(&canon).await {
             Err(e) => {
                 tracing::error!("Failed to delete file {:?} during checkout: {}", path, e);
-                return false;
+                return None;
             }
             Ok(_) => (),
         };
         tracing::info!("Successfully deleted {:?}", path);
-        return true;
+        Some(())
     }
 }

@@ -1,50 +1,33 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use futures::Stream;
-use md5::Digest;
 use notify::RecursiveMode;
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
-use tokio::{
-    sync::{
-        Mutex,
-        mpsc::{self},
-    },
-    task::JoinSet,
-    time::sleep,
+use tokio::sync::{
+    Mutex,
+    mpsc::{self},
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent, get_buffer_and_hash},
-    project::{branch_db::BranchDb, fs::fs_index::FileSystemIndex},
-};
+use crate::project::branch_db::BranchDb;
 
 /// Watches a directory for filesystem changes, and emits them as a stream.
 #[derive(Debug, Clone)]
 pub struct FileSystemWatcher {
-    watch_path: PathBuf,
     branch_db: BranchDb,
     found_ignored_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 pub enum WatcherEvent {
-    FileTouched(PathBuf)
+    FileTouched(PathBuf),
 }
 
 impl FileSystemWatcher {
     // Handle file creation and modification events
-    async fn handle_file_event(
-        &self,
-        path: &PathBuf,
-    ) -> Option<WatcherEvent> {
+    async fn handle_file_event(&self, path: &PathBuf) -> Option<WatcherEvent> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path) {
+        if self.branch_db.should_ignore(&path, path.is_dir()) {
             return None;
         }
 
@@ -85,7 +68,6 @@ impl FileSystemWatcher {
         debouncer.watch(&path, RecursiveMode::Recursive).unwrap();
 
         let this = FileSystemWatcher {
-            watch_path: path,
             branch_db,
             found_ignored_paths: Arc::new(Mutex::new(HashSet::new())),
         };

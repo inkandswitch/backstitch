@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use automerge::{Automerge, ROOT, transaction::Transactable};
 use autosurgeon::{hydrate, reconcile};
 use samod::{DocHandle, DocumentId};
-use tracing::instrument;
 
 use crate::{
     helpers::{
@@ -106,7 +105,7 @@ impl BranchDb {
         .unwrap();
         metadata_handle_clone
     }
-    
+
     #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn add_branch_to_meta(&self, branch: Branch) {
         let meta_handle = {

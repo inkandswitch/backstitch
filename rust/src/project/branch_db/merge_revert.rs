@@ -2,15 +2,14 @@ use std::collections::HashSet;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
 use samod::DocumentId;
-use tracing::instrument;
 
 use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent},
+    fs::file_utils::FileContent,
     helpers::{
         branch::Branch,
         doc_utils::SimpleDocReader,
         history_ref::HistoryRef,
-        utils::{CommitMetadata, MergeMetadata, commit_with_metadata},
+        utils::{ChangeType, CommitMetadata, MergeMetadata, commit_with_metadata},
     },
     project::branch_db::BranchDb,
 };
@@ -144,9 +143,6 @@ impl BranchDb {
             return None;
         };
 
-        let changed_files = self
-            .get_changed_file_content_between_refs(Some(&current_ref), ref_, true)
-            .await?;
         let handle = self.repo.create(Automerge::new()).await.ok()?;
         let handle_clone = handle.clone();
 
@@ -169,16 +165,20 @@ impl BranchDb {
         })
         .await;
 
+        let changed_files = self
+            .get_changed_files_between_refs(Some(&current_ref), ref_)
+            .await?;
+        let mut changed_contents = self
+            .get_files_at_ref(ref_, &changed_files.keys().cloned().collect())
+            .await?;
         let changed_files = changed_files
             .into_iter()
-            .map(|event| match event {
-                FileSystemEvent::FileCreated(path, content) => (self.localize_path(&path), content),
-                FileSystemEvent::FileModified(path, content) => {
-                    (self.localize_path(&path), content)
-                }
-                FileSystemEvent::FileDeleted(path) => {
-                    (self.localize_path(&path), FileContent::Deleted)
-                }
+            .filter_map(|(path, change)| {
+                let content = changed_contents.remove(&path)?;
+                Some(match change {
+                    ChangeType::Created | ChangeType::Modified => (path, content),
+                    ChangeType::Deleted => (path, FileContent::Deleted),
+                })
             })
             .collect::<Vec<(String, FileContent)>>();
 

@@ -6,17 +6,9 @@ use std::{
 
 use futures::{StreamExt, stream};
 use jwalk::WalkDir;
-use tokio::{fs, sync::Mutex, task::JoinSet};
-use tracing::instrument;
+use tracing::Instrument;
 
-use crate::project::fs::fs_index::FileSystemIndex;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ChangeType {
-    Created,
-    Modified,
-    Deleted,
-}
+use crate::{helpers::utils::ChangeType, project::fs::fs_index::FileSystemIndex};
 
 pub struct FileSystemTraversal;
 
@@ -28,7 +20,7 @@ impl FileSystemTraversal {
     ) -> HashMap<PathBuf, blake3::Hash>
     where
         P: AsRef<Path> + Send + 'static,
-        F: Fn(&Path) -> bool + Sync + Send + 'static,
+        F: Fn(&Path, bool) -> bool + Sync + Send + 'static,
     {
         let ignore = Arc::new(ignore);
         let ignore2 = ignore.clone();
@@ -38,7 +30,7 @@ impl FileSystemTraversal {
                 .process_read_dir(move |_, _, _, children| {
                     children.retain(|dir_entry_result| {
                         if let Ok(entry) = dir_entry_result {
-                            !ignore2(entry.path().as_path())
+                            !ignore2(entry.path().as_path(), entry.file_type.is_dir())
                         } else {
                             false
                         }
@@ -48,30 +40,31 @@ impl FileSystemTraversal {
                 .filter_map(Result::ok)
                 .filter(|entry| entry.file_type().is_file())
                 .map(|entry| entry.path())
-                .filter(|path| !ignore(path))
                 .collect::<Vec<PathBuf>>()
-        }).await.unwrap();
+        })
+        .instrument(tracing::info_span!("Walking tree"))
+        .await
+        .unwrap();
 
         stream::iter(files)
             .map(|file| {
                 let index = index.clone();
-                async move {
-                    index
-                        .get_hash(&file)
-                        .await
-                        .map(|hash| (file, hash))
-                }
+                async move { index.get_hash(&file).await.map(|hash| (file, hash)) }
             })
             .buffer_unordered(64)
             .filter_map(|r| async move { r.ok() })
             .collect()
+            .instrument(tracing::info_span!("Hashing files"))
             .await
     }
-    
+
     pub fn get_file_changes<K: AsRef<Path>>(
         before: HashMap<K, blake3::Hash>,
         after: HashMap<K, blake3::Hash>,
-    ) -> HashMap<K, ChangeType> where K: Eq + std::hash::Hash + Clone {
+    ) -> HashMap<K, ChangeType>
+    where
+        K: Eq + std::hash::Hash + Clone,
+    {
         let mut changes = HashMap::new();
 
         let before_keys: HashSet<_> = before.keys().cloned().collect();

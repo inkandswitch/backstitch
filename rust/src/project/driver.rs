@@ -22,7 +22,6 @@ use std::time::Duration;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, instrument};
 
 #[cfg(test)]
 mod tests;
@@ -116,7 +115,9 @@ impl Driver {
             .load()
             .await;
 
-        let fs_index = FileSystemIndex::new(storage_directory.join("index.bin")).await.ok()?;
+        let fs_index = FileSystemIndex::new(storage_directory.join("index.bin"))
+            .await
+            .ok()?;
 
         // Start the connection
         // Terrible hack: If we're not provided a server URL, default to a garbage localhost URL.
@@ -139,8 +140,10 @@ impl Driver {
             })
             .await;
         let peer_watcher = Arc::new(PeerWatcher::new(repo.clone()));
-        let sync_automerge_to_fs = SyncAutomergeToFileSystem::new(branch_db.clone(), fs_index.clone());
-        let sync_fs_to_automerge = SyncFileSystemToAutomerge::new(branch_db.clone(), fs_index.clone());
+        let sync_automerge_to_fs =
+            SyncAutomergeToFileSystem::new(branch_db.clone(), fs_index.clone());
+        let sync_fs_to_automerge =
+            SyncFileSystemToAutomerge::new(branch_db.clone(), fs_index.clone());
 
         let metadata_handle = match &metadata_id {
             // If we're expecting an existing ID, try and fetch it.
@@ -192,7 +195,7 @@ impl Driver {
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
                 differ,
-                fs_index
+                fs_index,
             }),
             repo,
             token,
@@ -370,7 +373,11 @@ impl Driver {
     }
 
     pub async fn get_diff(&self, before: &HistoryRef, after: &HistoryRef) -> ProjectDiff {
-        self.inner.differ.get_diff(before, after).await
+        self.inner
+            .differ
+            .get_diff(before, after)
+            .await
+            .unwrap_or(ProjectDiff::default())
         // ProjectDiff::default()
     }
 

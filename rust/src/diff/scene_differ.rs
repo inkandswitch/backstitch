@@ -1,9 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    diff::differ::{ChangeType, Differ}, helpers::history_ref::HistoryRef, parser::{godot_parser::{
-        ExternalResourceNode, GodotNode, GodotScene, SubResourceNode, TypeOrInstance, NodeId
-    }, parser_defs::OrderedProperty}
+    diff::differ::Differ,
+    helpers::{history_ref::HistoryRef, utils::ChangeType},
+    parser::{
+        godot_parser::{
+            ExternalResourceNode, GodotNode, GodotScene, NodeId, SubResourceNode, TypeOrInstance,
+        },
+        parser_defs::OrderedProperty,
+    },
 };
 
 /// Represents a diff of a scene, with a scene path and a list of changed nodes.
@@ -41,7 +46,13 @@ pub struct TextResourceDiff {
 }
 
 impl TextResourceDiff {
-    fn new(path: String, resource_type: String, change_type: ChangeType, changed_sub_resources: Vec<SubResourceDiff>, changed_main_resource: Option<SubResourceDiff>) -> TextResourceDiff {
+    fn new(
+        path: String,
+        resource_type: String,
+        change_type: ChangeType,
+        changed_sub_resources: Vec<SubResourceDiff>,
+        changed_main_resource: Option<SubResourceDiff>,
+    ) -> TextResourceDiff {
         TextResourceDiff {
             path,
             resource_type,
@@ -80,8 +91,6 @@ impl NodeDiff {
         }
     }
 }
-
-
 
 #[derive(Clone, Debug)]
 pub struct SubResourceDiff {
@@ -150,7 +159,6 @@ enum VariantStrValue {
     DefaultValue(Option<TypeOrInstance>, String),
 }
 
-
 #[derive(Clone, Debug)]
 pub enum VariantValue {
     /// A normal variant string
@@ -169,7 +177,7 @@ impl std::fmt::Display for VariantStrValue {
             VariantStrValue::ResourcePath(s) => write!(f, "Resource({})", s),
             VariantStrValue::SubResourceID(s) => write!(f, "SubResource({})", s),
             VariantStrValue::ExtResourceID(s) => write!(f, "ExtResource({})", s),
-            VariantStrValue::DefaultValue(_,_) => write!(f, "<default_value>"),
+            VariantStrValue::DefaultValue(_, _) => write!(f, "<default_value>"),
         }
     }
 }
@@ -258,7 +266,11 @@ impl Differ {
             let old_node = old_scene.as_ref().and_then(|s| s.get_node(node_id));
             let new_node = new_scene.as_ref().and_then(|s| s.get_node(node_id));
 
-            let Some(diff) = self.get_node_diff(node_id, old_node, new_node, old_scene, new_scene, before, after).await
+            let Some(diff) = self
+                .get_node_diff(
+                    node_id, old_node, new_node, old_scene, new_scene, before, after,
+                )
+                .await
             else {
                 // If the node has no changes or is otherwise invalid, just skip this one.
                 continue;
@@ -270,8 +282,8 @@ impl Differ {
         SceneDiff::new(
             path.clone(),
             match (old_scene, new_scene) {
-                (None, Some(_)) => ChangeType::Added,
-                (Some(_), None) => ChangeType::Removed,
+                (None, Some(_)) => ChangeType::Created,
+                (Some(_), None) => ChangeType::Deleted,
                 (_, _) => ChangeType::Modified,
             },
             node_diffs,
@@ -314,10 +326,24 @@ impl Differ {
         let mut changed_sub_resources = Vec::new();
         // Diff each node
         for sub_resource_id in &sub_resource_ids {
-            let old_sub_resource = old_scene.as_ref().and_then(|s| s.sub_resources.get(sub_resource_id));
-            let new_sub_resource = new_scene.as_ref().and_then(|s| s.sub_resources.get(sub_resource_id));
+            let old_sub_resource = old_scene
+                .as_ref()
+                .and_then(|s| s.sub_resources.get(sub_resource_id));
+            let new_sub_resource = new_scene
+                .as_ref()
+                .and_then(|s| s.sub_resources.get(sub_resource_id));
 
-            let Some(diff) = self.get_sub_resource_diff(sub_resource_id, old_sub_resource, new_sub_resource, old_scene, new_scene, before, after).await
+            let Some(diff) = self
+                .get_sub_resource_diff(
+                    sub_resource_id,
+                    old_sub_resource,
+                    new_sub_resource,
+                    old_scene,
+                    new_scene,
+                    before,
+                    after,
+                )
+                .await
             else {
                 // If the node has no changes or is otherwise invalid, just skip this one.
                 continue;
@@ -325,20 +351,29 @@ impl Differ {
 
             changed_sub_resources.push(diff);
         }
-        let changed_main_resource = self.get_sub_resource_diff("", old_scene.and_then(|s| s.main_resource.as_ref()), new_scene.and_then(|s| s.main_resource.as_ref()), old_scene, new_scene, before, after).await;
+        let changed_main_resource = self
+            .get_sub_resource_diff(
+                "",
+                old_scene.and_then(|s| s.main_resource.as_ref()),
+                new_scene.and_then(|s| s.main_resource.as_ref()),
+                old_scene,
+                new_scene,
+                before,
+                after,
+            )
+            .await;
 
         TextResourceDiff::new(
             path.clone(),
             resource_type,
             match (old_scene, new_scene) {
-                (None, Some(_)) => ChangeType::Added,
-                (Some(_), None) => ChangeType::Removed,
+                (None, Some(_)) => ChangeType::Created,
+                (Some(_), None) => ChangeType::Deleted,
                 (_, _) => ChangeType::Modified,
             },
             changed_sub_resources,
             changed_main_resource,
         )
-
     }
 
     async fn get_sub_resource_diff(
@@ -372,16 +407,19 @@ impl Differ {
             }
         }
         for prop in &props {
-            if let Some(prop_diff) =
-                self.get_property_diff(prop, old_node, new_node, old_scene, new_scene, before, after).await
+            if let Some(prop_diff) = self
+                .get_property_diff(
+                    prop, old_node, new_node, old_scene, new_scene, before, after,
+                )
+                .await
             {
                 changed_properties.insert(prop.clone(), prop_diff);
             }
         }
         Some(SubResourceDiff::new(
             match (old_node, new_node) {
-                (None, Some(_)) => ChangeType::Added,
-                (Some(_), None) => ChangeType::Removed,
+                (None, Some(_)) => ChangeType::Created,
+                (Some(_), None) => ChangeType::Deleted,
                 (_, _) => ChangeType::Modified,
             },
             sub_resource_id.to_string(),
@@ -435,8 +473,11 @@ impl Differ {
 
         // Iterate through the props
         for prop in &props {
-            if let Some(prop_diff) =
-                self.get_property_diff(prop, old_node, new_node, old_scene, new_scene, before, after).await
+            if let Some(prop_diff) = self
+                .get_property_diff(
+                    prop, old_node, new_node, old_scene, new_scene, before, after,
+                )
+                .await
             {
                 changed_properties.insert(prop.clone(), prop_diff);
             }
@@ -453,8 +494,8 @@ impl Differ {
 
         Some(NodeDiff::new(
             match (old_node, new_node) {
-                (None, Some(_)) => ChangeType::Added,
-                (Some(_), None) => ChangeType::Removed,
+                (None, Some(_)) => ChangeType::Created,
+                (Some(_), None) => ChangeType::Deleted,
                 (_, _) => ChangeType::Modified,
             },
             // have to do something like this, because get_node_path panics if the node doesn't exist in the scene
@@ -487,11 +528,13 @@ impl Differ {
         }
     }
 
-
     /// Returns the [VariantStrValue] of a property on a node, or the default value if the property doesn't
     /// exist on the node.
     /// If the node itself doesn't exist, returns [None].
-    fn get_varstr_or_default(prop: &str, node: Option<&impl PropertyGetter>) -> Option<VariantStrValue> {
+    fn get_varstr_or_default(
+        prop: &str,
+        node: Option<&impl PropertyGetter>,
+    ) -> Option<VariantStrValue> {
         // If this node never existed, don't provide a value.
         let Some(node) = node else {
             return None;
@@ -533,11 +576,17 @@ impl Differ {
 
         // Expensive: Load any ext resources and turn them into Variants
         let old = match &old_value {
-            Some(v) => Some(self.get_prop_value(v, old_scene, true, prop == "script", before, after).await),
+            Some(v) => Some(
+                self.get_prop_value(v, old_scene, true, prop == "script", before, after)
+                    .await,
+            ),
             None => None,
         };
         let new = match &new_value {
-            Some(v) => Some(self.get_prop_value(v, new_scene, false, prop == "script", before, after).await),
+            Some(v) => Some(
+                self.get_prop_value(v, new_scene, false, prop == "script", before, after)
+                    .await,
+            ),
             None => None,
         };
 
@@ -546,8 +595,8 @@ impl Differ {
             // We check for node add or remove intentionally, here, because otherwise we're just diffing a Modified prop against
             // the default value retrieved earlier.
             match (old_node, new_node) {
-                (None, Some(_)) => ChangeType::Added,
-                (Some(_), None) => ChangeType::Removed,
+                (None, Some(_)) => ChangeType::Created,
+                (Some(_), None) => ChangeType::Deleted,
                 (_, _) => ChangeType::Modified,
             },
             old,
@@ -701,7 +750,10 @@ impl Differ {
             VariantStrValue::SubResourceID(sub_resource_id) => {
                 // TODO: add this for scene diffs; for scene diffs we want to display the subresource diffs as child nodes of the parent node.
                 // We currently don't support displaying deep subresource diffs, so just inform of a change.
-                return VariantValue::Variant(format!("\"<SubResource {} changed>\"", sub_resource_id));
+                return VariantValue::Variant(format!(
+                    "\"<SubResource {} changed>\"",
+                    sub_resource_id
+                ));
             }
             VariantStrValue::ResourcePath(resource_path) => {
                 path = resource_path;
@@ -723,9 +775,14 @@ impl Differ {
             }
         }
 
-        match self.start_load_ext_resource(&path, if is_old { before } else { after }).await{
+        match self
+            .start_load_ext_resource(&path, if is_old { before } else { after })
+            .await
+        {
             Ok(load_path) => VariantValue::LazyLoadData(path.clone(), load_path),
-            Err(e) => VariantValue::Variant(format!("\"<ExtResource {} load failed ({})>\"", path, e)),
+            Err(e) => {
+                VariantValue::Variant(format!("\"<ExtResource {} load failed ({})>\"", path, e))
+            }
         }
     }
 

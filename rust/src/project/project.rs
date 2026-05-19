@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OwnedMutexGuard, watch};
-use tracing::instrument;
 
 /// Manages the state and operations of a Backstitch project within Godot.
 /// Its API is exposed to GDScript via the GodotProject struct.

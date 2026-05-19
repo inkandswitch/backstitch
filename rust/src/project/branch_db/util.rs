@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use automerge::{Automerge, ChangeMetadata};
 use samod::DocumentId;
-use tracing::instrument;
 
 use crate::{
     helpers::branch::Branch,
@@ -61,27 +60,18 @@ impl BranchDb {
     }
 
     /// Check if a path should be ignored based on the provided glob patterns
-    pub fn should_ignore(&self, path: &PathBuf) -> bool {
-        // TODO: We should check if it's a symlink or not, but right now it's sufficient to just check if it's outside of the watch path
-        // check if it's outside of the watch path
-        if path.is_symlink() {
-            return true;
-        }
+    pub fn should_ignore(&self, path: &PathBuf, is_dir: bool) -> bool {
+        // TODO: We should check if it's a symlink or not. This is a syscall, so don't do it here!!!!
+        // if path.is_symlink() {
+        //     return true;
+        // }
         if !path.starts_with(&self.project_dir) {
             return true;
         }
         // TODO: upstream fix to ignore::gitignore::Gitignore to handle this case.
         // if the path is equal to the project dir minus a trailing slash, gitignore will fail to strip the root and will assert
-        let is_dir = path.is_dir();
-        if is_dir {
-            let string_path = path.to_string_lossy();
-            let project_dir = self.project_dir.to_string_lossy();
-            if string_path == project_dir
-                || (string_path.len() + 1 == project_dir.len()
-                    && (project_dir.ends_with("/") || project_dir.ends_with("\\")))
-            {
-                return false;
-            }
+        if is_dir && path.components().eq(self.project_dir.components()) {
+            return false;
         };
 
         self.gitignore
@@ -161,7 +151,9 @@ impl BranchDb {
     pub async fn get_canonical_changes(&self, id: &DocumentId) -> Option<Vec<ChangeMetadata<'_>>> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(id).cloned() else {
-            tracing::error!("Branch not found in sync states! Unable to run get_canonical_changes.");
+            tracing::error!(
+                "Branch not found in sync states! Unable to run get_canonical_changes."
+            );
             return None;
         };
         let handle = state.lock().await.canonical_doc.clone();
@@ -173,7 +165,9 @@ impl BranchDb {
                     .map(|i| i.clone().into_owned())
                     .collect()
             })
-        }).await.ok()
+        })
+        .await
+        .ok()
     }
 
     /// Dumps a branch document to disk, at ./.backstitch/DUMP_{id}.bin

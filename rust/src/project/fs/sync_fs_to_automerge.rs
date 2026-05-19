@@ -1,9 +1,9 @@
-use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use futures::{StreamExt, stream};
 use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, instrument};
+use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -116,7 +116,7 @@ impl SyncFileSystemToAutomerge {
         let current_files = FileSystemTraversal::get_all_files(
             self.branch_db.get_project_dir(),
             &self.fs_index,
-            move |path| db_clone.should_ignore(&path.to_path_buf()),
+            move |path, is_dir| db_clone.should_ignore(&path.to_path_buf(), is_dir),
         )
         .instrument(tracing::info_span!("get_all_files"))
         .await;
@@ -182,7 +182,7 @@ impl SyncFileSystemToAutomerge {
         let current_files = FileSystemTraversal::get_all_files(
             self.branch_db.get_project_dir(),
             &self.fs_index,
-            move |path: &Path| db_clone.should_ignore(&path.to_path_buf()),
+            move |path, is_dir| db_clone.should_ignore(&path.to_path_buf(), is_dir),
         )
         .await;
 

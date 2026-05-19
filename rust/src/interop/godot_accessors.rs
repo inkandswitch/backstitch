@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use godot::classes::ConfigFile;
 use godot::classes::class_macros::private::virtuals::Os::{VarDictionary, vdict};
 use godot::obj::{NewGd, Singleton};
-use godot::prelude::Var;
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{ClassDb, EditorInterface, Object},
@@ -65,7 +64,7 @@ impl BackstitchEditorAccessor {
             return godot::global::Error::ERR_INVALID_PARAMETER;
         }
         let importer_name = cf.get_value("remap", "importer");
-        let mut params: VarDictionary = vdict!{};
+        let mut params: VarDictionary = vdict! {};
         for key in cf.get_section_keys("params").as_slice().iter() {
             params.set(key.to_variant(), cf.get_value("params", key));
         }

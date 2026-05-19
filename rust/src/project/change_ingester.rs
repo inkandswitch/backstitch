@@ -154,7 +154,7 @@ impl ChangeIngesterInner {
     }
 
     /// Gets the changes from the current branch and returns it.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn get_changes(&self) -> Vec<CommitInfo> {
         let checked_out = self.branch_db.get_checked_out_ref_mut();
         let checked_out = checked_out.read().await;

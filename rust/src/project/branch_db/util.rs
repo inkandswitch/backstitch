@@ -41,7 +41,6 @@ impl BranchDb {
     }
 
     /// Get the most recent ref on a given branch (on the shadow doc).
-    #[instrument(skip_all)]
     pub async fn get_latest_ref_on_branch(&self, branch: &DocumentId) -> Option<HistoryRef> {
         let Ok(heads) = self
             .with_shadow_document(branch, async |d| d.get_heads())

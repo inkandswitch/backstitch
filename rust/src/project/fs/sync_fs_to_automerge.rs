@@ -1,9 +1,9 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
 
 use futures::{StreamExt, stream};
 use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
+use tracing::{Instrument, instrument};
 
 use crate::{
     fs::file_utils::FileContent,
@@ -85,8 +85,8 @@ impl SyncFileSystemToAutomerge {
 
     /// Make a commit of all changes from the filesystem to automerge.
     /// Returns true on success.
-    #[instrument(skip_all)]
-    pub async fn commit(&self, force: bool) -> bool {
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub async fn commit(&self, force: bool) -> HashSet<PathBuf> {
         // Because we always change the checked out ref after committing, we need to lock this in write mode.
         let r = self.branch_db.get_checked_out_ref_mut();
         let mut checked_out_ref = r.write().await;
@@ -94,7 +94,7 @@ impl SyncFileSystemToAutomerge {
         let mut pending_changes = self.pending_changes.lock().await;
 
         if !force && pending_changes.is_empty() {
-            return false;
+            return HashSet::new();
         }
 
         tracing::info!(
@@ -108,23 +108,27 @@ impl SyncFileSystemToAutomerge {
                 "Can't commit to the current ref {:?}, because it isn't valid.",
                 checked_out_ref
             );
-            return false;
+            return HashSet::new();
         }
 
+        let db_clone = self.branch_db.clone();
         // we can probably do better for larger trees? this traversal could be slow
         let current_files = FileSystemTraversal::get_all_files(
             self.branch_db.get_project_dir(),
             &self.fs_index,
-            |path| self.branch_db.should_ignore(&path.to_path_buf()),
+            move |path| db_clone.should_ignore(&path.to_path_buf()),
         )
+        .instrument(tracing::info_span!("get_all_files"))
         .await;
+
         let Some(old_files) = self
             .branch_db
             .get_hash_index(&checked_out_ref.as_ref().unwrap())
+            .instrument(tracing::info_span!("get_hash_index"))
             .await
         else {
             tracing::error!("Failed to get current files!");
-            return false;
+            return HashSet::new();
         };
 
         let old_files = old_files
@@ -136,25 +140,28 @@ impl SyncFileSystemToAutomerge {
         if diff.is_empty() {
             tracing::info!("Did not commit anything because there's no diff.");
             pending_changes.clear();
-            return false;
+            return HashSet::new();
         }
 
         tracing::debug!("Current changes: {:?}", diff);
-        let contents = self.get_file_contents(&diff.into_keys().collect()).await;
+        let keys = diff.into_keys().collect();
+        let contents = self.get_file_contents(&keys).await;
 
         pending_changes.clear();
 
         let new_ref = self
             .branch_db
             .commit_fs_changes(contents, &checked_out_ref.as_ref().unwrap(), None, false)
+            .instrument(tracing::info_span!("commit_fs_changes"))
             .await;
         if let Some(new_ref) = new_ref {
             tracing::info!("Successfully made a commit! {:?}", new_ref);
-            *checked_out_ref = Some(new_ref);
-            return true;
+            // TODO (Lilith): Does simply commenting this out works? This forces a ref checkout...
+            // *checked_out_ref = Some(new_ref);
+            return keys;
         } else {
             tracing::info!("Did not commit pending files!");
-            return false;
+            return HashSet::new();
         }
     }
 
@@ -171,10 +178,11 @@ impl SyncFileSystemToAutomerge {
             tracing::info!("Checking in files at ref {:?}", checked_out_ref);
         }
 
+        let db_clone = self.branch_db.clone();
         let current_files = FileSystemTraversal::get_all_files(
             self.branch_db.get_project_dir(),
             &self.fs_index,
-            |path| self.branch_db.should_ignore(&path.to_path_buf()),
+            move |path: &Path| db_clone.should_ignore(&path.to_path_buf()),
         )
         .await;
 
@@ -197,11 +205,24 @@ impl SyncFileSystemToAutomerge {
     async fn get_file_contents(&self, files: &HashSet<PathBuf>) -> Vec<(String, FileContent)> {
         stream::iter(files)
             .then(|path| async move {
+                tracing::debug!("Getting contents of {:?}", path);
                 tokio::fs::read(path).await.map(|data| {
-                    (
-                        self.branch_db.localize_path(path),
-                        FileContent::from_buf(data),
-                    )
+                    let debug = path.to_str().unwrap().contains("filling_barrel.tscn");
+
+                    if debug {
+                        tracing::debug!("Data: {:?}", String::from_utf8(data.clone()));
+                    }
+                    let content = FileContent::from_buf(data);
+
+                    if debug {
+                        tracing::debug!("Parsed content: {:?}", content);
+                        let FileContent::Scene(scene) = content.clone() else {
+                            panic!("aaa");
+                        };
+                        tracing::debug!("Reserialized content: {:?}", scene.serialize());
+                    }
+
+                    (self.branch_db.localize_path(path), content)
                 })
             })
             .filter_map(|x| async { x.ok() })

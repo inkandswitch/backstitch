@@ -101,6 +101,12 @@ impl Project {
         self.diff_cache.borrow_mut().clear();
     }
 
+    pub fn clear_fs_cache(&self) {
+        self.with_driver_blocking("Clear FS Cache", |driver| async move {
+            let _ = driver.as_ref().unwrap().get_fs_index().clear_cache();
+        })
+    }
+
     // Do not run this on anything except the main thread!
     pub fn safe_to_update_godot() -> bool {
         return !(EditorFilesystemAccessor::is_scanning()
@@ -280,7 +286,7 @@ impl Project {
             .unwrap()
     }
 
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub fn process(&mut self, _delta: f64) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
         let fs_changes = {

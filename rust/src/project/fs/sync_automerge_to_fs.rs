@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use futures::future::join_all;
-use tracing::instrument;
+use tracing::{Instrument, instrument};
 
 use crate::{
     fs::file_utils::{FileContent, FileSystemEvent},
@@ -19,7 +19,10 @@ impl SyncAutomergeToFileSystem {
     /// Create a new instance of [SyncAutomergeToFileSystem]. Does not start any process.
     /// Call checkout_ref to do something.
     pub fn new(branch_db: BranchDb, fs_index: FileSystemIndex) -> Self {
-        Self { branch_db, fs_index }
+        Self {
+            branch_db,
+            fs_index,
+        }
     }
 
     // TODO: We should consider running partial checkouts to the FS.
@@ -28,7 +31,7 @@ impl SyncAutomergeToFileSystem {
 
     /// Check out a [HistoryRef] from the Backstitch history, changing the filesystem as necessary.
     /// Returns a vector of file changes.
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn checkout_ref(&self, goal_ref: HistoryRef) -> Vec<FileSystemEvent> {
         // Ensure that there's no way anything can grab the ref while we're trying to write it
         let r = self.branch_db.get_checked_out_ref_mut();
@@ -46,6 +49,7 @@ impl SyncAutomergeToFileSystem {
         let Some(changes) = self
             .branch_db
             .get_changed_file_content_between_refs(checked_out_ref.as_ref(), &goal_ref, false)
+            .instrument(tracing::info_span!("get_changed_file_content_between_refs"))
             .await
         else {
             tracing::error!(
@@ -102,7 +106,7 @@ impl SyncAutomergeToFileSystem {
             Err(e) => {
                 tracing::error!("Couldn't get existing hash for file {:?}, {e}", path);
                 return false;
-            },
+            }
         }
     }
 
@@ -136,7 +140,7 @@ impl SyncAutomergeToFileSystem {
         if self.compare_hashes(path, content).await {
             return false;
         }
-        
+
         // Write the file content to disk
         if let Err(e) = content.write(&path).await {
             tracing::error!("Failed to write file {:?} during checkout: {}", path, e);

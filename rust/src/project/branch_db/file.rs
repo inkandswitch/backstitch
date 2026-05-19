@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use automerge::{ObjId, ObjType, ROOT, ReadDoc};
 use samod::DocumentId;
+use tracing::instrument;
 
 use crate::{
     fs::file_utils::{FileContent, FileSystemEvent},
@@ -58,6 +59,7 @@ impl BranchDb {
     /// 3. The hash is otherwise unavailable or missing from the document
     // TODO: It would be smart, here, to re-insert computed hashes if they were missing or invalid.
     // We're not doing that right now because I don't know the side effects; they could be bad.
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn get_hash_index(&self, ref_: &HistoryRef) -> Option<HashMap<String, blake3::Hash>> {
         // TODO (Lilith): Should we not use the shadow document here? The canonical might be stable,
         // but I haven't thought through the consequences of using either here.
@@ -96,6 +98,7 @@ impl BranchDb {
                     }
 
                     // If all of that failed, fall back to the slow hash
+                    tracing::trace!("Using slow hash for {path}");
                     match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
                         Ok(content) => {
                             out.insert(path, PendingHash::Hash(content.to_hash()));
@@ -144,7 +147,7 @@ impl BranchDb {
     // TODO: There's inefficiency here -- I'd ideally to process files by the caller as needed,
     // not return a giant heap of changes. In the future, change this to return a vec of change
     // events and hashes now that we can do that, excluding file content.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn get_changed_file_content_between_refs(
         &self,
         old_ref: Option<&HistoryRef>,
@@ -319,7 +322,7 @@ impl BranchDb {
         .unwrap()
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn get_files_at_ref(
         &self,
         desired_ref: &HistoryRef,

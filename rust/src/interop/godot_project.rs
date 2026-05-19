@@ -395,6 +395,11 @@ impl GodotProject {
             .cast::<Self>()
     }
 
+	#[func]
+	pub fn clear_fs_cache(&self) {
+		self.project.clear_fs_cache();
+	}
+
 	fn process_godot_updates(&self, events: Vec<FileSystemEvent>) -> PendingEditorUpdate {
 		let mut pending_editor_update = PendingEditorUpdate::default();
 		let mut files_changed = Vec::new();
@@ -525,7 +530,7 @@ impl INode for GodotProject {
         // Perform typical plugin operations here.
     }
 
-	#[instrument(target = "backstitch_rust_core::godot_project::outer_process", level = tracing::Level::DEBUG, skip_all)]
+	#[instrument(target = "backstitch_rust_core::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
     fn process(&mut self, _delta: f64) {
 		if self.deferred_start > 0 {
 			self.deferred_start -= 1;

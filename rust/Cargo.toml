@@ -67,6 +67,7 @@ blake3 = { version = "1.8.4", features = ["serde"] }
 wincode = { version = "0.5.3", features = ["derive"] }
 fjall = "3.1.4"
 anyhow = "1.0.102"
+jwalk = "0.8.1"
 
 [build-dependencies]
 cbindgen = "^0.27"

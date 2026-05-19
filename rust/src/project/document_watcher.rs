@@ -133,7 +133,7 @@ impl DocumentWatcherInner {
         });
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ingest_branch_document(&self, handle: DocHandle) {
         let h = handle.clone();
         let (heads, linked_docs) = tokio::task::spawn_blocking(move || {
@@ -184,8 +184,8 @@ impl DocumentWatcherInner {
             .update_branch_sync_state(handle, heads, linked_docs.values().cloned().collect())
             .await;
     }
-
-    #[tracing::instrument(skip_all)]
+    
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ingest_metadata_document(&self, handle: DocHandle) {
         // TODO: Stop tracking removed branches
         // Find added branches, and begin tracking them

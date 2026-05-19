@@ -470,15 +470,16 @@ impl GodotScene {
         let mut connections: Vec<(&String, &GodotConnection)> =
             self.connections.iter().collect::<Vec<_>>();
 
+        // Because of https://github.com/godotengine/godot/issues/119532, we can't rely on connection ordering to be stable.
+        // So, use a default of from path and signal comparison, since that gets it 90% correct... then just use whatever for the rest because
+        // I don't even care anymore. Let them thrash!! LET THEM THRASH!!!!!!
+        // When we fix this, use the MRP scene from issue #119532 as a test case, to make sure our ordering matches the fix.
         connections.sort_by(|(_, conn_a), (_, conn_b)| {
-			let sort_a = node_paths_visited.get(&conn_a.from_node_id).unwrap_or(&-1);
-			let sort_b = node_paths_visited.get(&conn_b.from_node_id).unwrap_or(&-1);
-			if sort_a == sort_b {
-				// compare the signal
-				conn_a.signal.cmp(&conn_b.signal)
-			} else {
-				sort_a.cmp(sort_b)
-			}
+			let from_a = node_paths_visited.get(&conn_a.from_node_id).unwrap_or(&-1);
+			let from_b = node_paths_visited.get(&conn_b.from_node_id).unwrap_or(&-1);
+			let to_a = node_paths_visited.get(&conn_a.to_node_id).unwrap_or(&-1);
+			let to_b = node_paths_visited.get(&conn_b.to_node_id).unwrap_or(&-1);
+			(from_a, &conn_a.signal, to_a, &conn_a.method).cmp(&(from_b, &conn_b.signal, to_b, &conn_b.method))
 		});
 
         for (_, connection) in connections {
@@ -502,7 +503,10 @@ impl GodotScene {
                 output.push_str(&format!(" unbinds={}", unbinds));
             }
             if let Some(binds) = &connection.binds {
-                output.push_str(&format!(" binds={}", binds));
+                // bug in godot: binds look like "binds= [...]"
+                // https://github.com/godotengine/godot/issues/119530
+                // ugh, they don't wanna fix this -- we'd better handle it ourselves or just let it be.
+                output.push_str(&format!(" binds= {}", binds));
             }
             output.push_str("]\n");
         }

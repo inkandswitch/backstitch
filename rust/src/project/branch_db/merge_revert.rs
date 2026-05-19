@@ -16,7 +16,7 @@ use crate::{
 };
 
 impl BranchDb {
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn create_merge_preview_branch(
         &self,
         source: &DocumentId,

@@ -4,7 +4,10 @@ use std::{
     sync::Arc,
 };
 
+use futures::{StreamExt, stream};
+use jwalk::WalkDir;
 use tokio::{fs, sync::Mutex, task::JoinSet};
+use tracing::instrument;
 
 use crate::project::fs::fs_index::FileSystemIndex;
 
@@ -17,52 +20,54 @@ pub enum ChangeType {
 
 pub struct FileSystemTraversal;
 
-// we might be able to speed this up by caching directories in the index? unsure
-// this needs profiling to understand the perf impact. maybe it's fine.
 impl FileSystemTraversal {
-    /// Recursively traverses directory and returns hashes
-    pub async fn get_all_files<P: AsRef<Path>, F: Fn(&Path) -> bool>(
+    pub async fn get_all_files<P, F>(
         root: P,
         index: &FileSystemIndex,
-        ignore: F
-    ) -> HashMap<PathBuf, blake3::Hash> {
-        let mut result = HashMap::new();
-        Self::walk_dir(root.as_ref().to_path_buf(), index, &mut result, ignore).await;
-        result
-    }
+        ignore: F,
+    ) -> HashMap<PathBuf, blake3::Hash>
+    where
+        P: AsRef<Path> + Send + 'static,
+        F: Fn(&Path) -> bool + Sync + Send + 'static,
+    {
+        let ignore = Arc::new(ignore);
+        let ignore2 = ignore.clone();
 
-    // can we parallelize this?
-    async fn walk_dir<F: Fn(&Path) -> bool>(
-        root: PathBuf,
-        index: &FileSystemIndex,
-        out: &mut HashMap<PathBuf, blake3::Hash>,
-        ignore: F
-    ) {
-        let mut stack = vec![root];
+        let files = tokio::task::spawn_blocking(move || {
+            WalkDir::new(root)
+                .process_read_dir(move |_, _, _, children| {
+                    children.retain(|dir_entry_result| {
+                        if let Ok(entry) = dir_entry_result {
+                            !ignore2(entry.path().as_path())
+                        } else {
+                            false
+                        }
+                    });
+                })
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_file())
+                .map(|entry| entry.path())
+                .filter(|path| !ignore(path))
+                .collect::<Vec<PathBuf>>()
+        }).await.unwrap();
 
-        while let Some(path) = stack.pop() {
-            let mut entries = match fs::read_dir(&path).await {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let path = entry.path();
-
-                if path.is_dir() {
-                    stack.push(path);
-                } else {
-                    if ignore(&path) {
-                        continue;
-                    }
-                    if let Some(hash) = index.get_hash(&path).await.ok() {
-                        out.insert(path, hash);
-                    }
+        stream::iter(files)
+            .map(|file| {
+                let index = index.clone();
+                async move {
+                    index
+                        .get_hash(&file)
+                        .await
+                        .map(|hash| (file, hash))
                 }
-            }
-        }
+            })
+            .buffer_unordered(64)
+            .filter_map(|r| async move { r.ok() })
+            .collect()
+            .await
     }
-
+    
     pub fn get_file_changes<K: AsRef<Path>>(
         before: HashMap<K, blake3::Hash>,
         after: HashMap<K, blake3::Hash>,

@@ -22,7 +22,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
+use tracing::{Instrument, instrument};
 
 #[cfg(test)]
 mod tests;
@@ -50,7 +50,6 @@ pub struct DriverInner {
 
     // internal synchronization
     requested_checkout: Arc<Mutex<Option<DocumentId>>>,
-    #[allow(unused)]
     fs_index: FileSystemIndex,
 
     // subtasks
@@ -405,6 +404,10 @@ impl Driver {
         self.inner.branch_db.clone()
     }
 
+    pub fn get_fs_index(&self) -> FileSystemIndex {
+        self.inner.fs_index.clone()
+    }
+
     // awkward
     pub fn get_filesystem_changes(&mut self) -> Vec<FileSystemEvent> {
         let mut fs_changes = Vec::new();
@@ -439,7 +442,7 @@ impl DriverInner {
         }
     }
 
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn sync(&self) {
         tracing::trace!("Syncing...");
         let old_checked_out_ref = self
@@ -472,7 +475,8 @@ impl DriverInner {
         tracing::trace!("Attepmting to sync FS to automerge...");
         // Apply any watched FS updates to Automerge.
         // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-        if self.sync_fs_to_automerge.commit(false).await {
+        let committed_changes = self.sync_fs_to_automerge.commit(false).await;
+        if !committed_changes.is_empty() {
             self.change_ingester.request_ingestion();
         }
 
@@ -547,7 +551,7 @@ impl DriverInner {
     }
 
     /// If our current ref is out-of-date, try and check out a new ref.
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn sync_correct_ref(&self) -> Vec<FileSystemEvent> {
         // TODO (Lilith): There are inefficiencies with this strategy.
         // Basically, every time we save a file, it'll do a bunch of extra work.

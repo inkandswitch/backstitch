@@ -80,6 +80,7 @@ class ActionMenuItems:
 	const DUMP_BRANCH = 1
 	const CLEAR_PROJECT = 2
 	const DEV_MODE = 3
+	const CLEAR_FS_CACHE = 4
 
 var task_modal: TaskModal = TaskModal.new()
 var item_context_menu_icon: Texture2D = preload("../icons/GuiTabMenuHlHorizontal.svg")
@@ -182,7 +183,8 @@ func update_init_panel():
 	copy_project_id_button.disabled = !has_project
 	share_button.disabled = !(has_project && _share_available())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
-	_set_action_disabled(!has_project, ActionMenuItems.DUMP_BRANCH)
+	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
+	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
 
 
 func _share_available() -> bool:
@@ -990,18 +992,26 @@ func _on_action_menu_item_selected(id: int) -> void:
 			_on_reload_ui_button_pressed()
 			toaster.push_toast("Reloaded UI.")
 		ActionMenuItems.DEV_MODE:
-			var idx = action_menu_button.get_popup().get_item_index(id)
-			action_menu_button.get_popup().toggle_item_checked(idx)
-			var checked = action_menu_button.get_popup().is_item_checked(idx)
+			var popup := action_menu_button.get_popup()
+			var idx := popup.get_item_index(id)
+			popup.toggle_item_checked(idx)
+			var checked := action_menu_button.get_popup().is_item_checked(idx)
 			if monkey_tester.enabled && not checked:
 				print("MonkeyTester: disabling because developer mode is disabled")
 				monkey_tester.stop()
 			%MonkeyButton.visible = checked
+
+			_set_action_disabled(ActionMenuItems.DUMP_BRANCH, !GodotProject.has_project() || !checked)
+			_set_action_disabled(ActionMenuItems.CLEAR_FS_CACHE, !GodotProject.has_project() || !checked)
+			
 			toaster.push_toast("Developer mode enabled." if checked else "Developer mode disabled.")
 			update_ui()
 		ActionMenuItems.DUMP_BRANCH:
 			GodotProject.dump_current_branch()
 			toaster.push_toast("Dumped current branch state to res://.backstitch/.")
+		ActionMenuItems.CLEAR_FS_CACHE:
+			GodotProject.clear_fs_cache()
+			toaster.push_toast("Cleared File System Cache.")
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):

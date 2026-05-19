@@ -17,6 +17,7 @@
 [ext_resource type="Texture2D" uid="uid://dsxbsom8wxynk" path="res://addons/backstitch/public/icons/Remove.svg" id="8_s0dyv"]
 [ext_resource type="Texture2D" uid="uid://bwl516giuyq0n" path="res://addons/backstitch/public/icons/StatusWarning32.svg" id="9_p7w5p"]
 [ext_resource type="Texture2D" uid="uid://br8vekrg7up5j" path="res://addons/backstitch/public/icons/Tools.svg" id="9_s0dyv"]
+[ext_resource type="Texture2D" uid="uid://db3334c0n5m7d" path="res://addons/backstitch/public/icons/Clear.svg" id="10_g5r1k"]
 [ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/backstitch/public/gdscript/branch_picker.gd" id="10_k46dq"]
 [ext_resource type="Texture2D" uid="uid://coaycd1enf24v" path="res://addons/backstitch/public/icons/Monkey.svg" id="10_yycpk"]
 [ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/backstitch/public/icons/PullRequest.svg" id="11_pt2pe"]
@@ -154,20 +155,23 @@ layout_mode = 2
 tooltip_text = "Additional options."
 icon = ExtResource("5_bp6q4")
 flat = false
-item_count = 4
+item_count = 5
 popup/item_0/text = "Clear Project"
 popup/item_0/icon = ExtResource("8_s0dyv")
 popup/item_0/id = 2
 popup/item_1/text = "Reload UI"
 popup/item_1/icon = ExtResource("6_7ngww")
 popup/item_1/id = 0
-popup/item_2/text = "Dump Branch to Disk"
-popup/item_2/icon = ExtResource("7_frpga")
-popup/item_2/id = 1
-popup/item_3/text = "Developer Mode"
-popup/item_3/icon = ExtResource("9_s0dyv")
-popup/item_3/checkable = 1
-popup/item_3/id = 3
+popup/item_2/text = "Developer Mode"
+popup/item_2/icon = ExtResource("9_s0dyv")
+popup/item_2/checkable = 1
+popup/item_2/id = 3
+popup/item_3/text = "Dump Branch to Disk"
+popup/item_3/icon = ExtResource("7_frpga")
+popup/item_3/id = 1
+popup/item_4/text = "Clear FS Cache"
+popup/item_4/icon = ExtResource("10_g5r1k")
+popup/item_4/id = 4
 
 [node name="MonkeyButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=665235736]
 unique_name_in_owner = true
@@ -438,10 +442,11 @@ layout_mode = 2
 [node name="UserButton" type="Button" parent="VBoxContainer/HBoxContainer" unique_id=1059480308]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 10
+size_flags_horizontal = 3
 tooltip_text = "Change username."
 text = "Text sdf sdf sdfsdf"
 icon = ExtResource("3_m2w8q")
+text_overrun_behavior = 3
 script = ExtResource("20_lnig1")
 
 [node name="ConfirmationDialog" type="ConfirmationDialog" parent="." unique_id=302808494]

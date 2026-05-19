@@ -205,24 +205,11 @@ impl SyncFileSystemToAutomerge {
     async fn get_file_contents(&self, files: &HashSet<PathBuf>) -> Vec<(String, FileContent)> {
         stream::iter(files)
             .then(|path| async move {
-                tracing::debug!("Getting contents of {:?}", path);
                 tokio::fs::read(path).await.map(|data| {
-                    let debug = path.to_str().unwrap().contains("filling_barrel.tscn");
-
-                    if debug {
-                        tracing::debug!("Data: {:?}", String::from_utf8(data.clone()));
-                    }
-                    let content = FileContent::from_buf(data);
-
-                    if debug {
-                        tracing::debug!("Parsed content: {:?}", content);
-                        let FileContent::Scene(scene) = content.clone() else {
-                            panic!("aaa");
-                        };
-                        tracing::debug!("Reserialized content: {:?}", scene.serialize());
-                    }
-
-                    (self.branch_db.localize_path(path), content)
+                    (
+                        self.branch_db.localize_path(path),
+                        FileContent::from_buf(data),
+                    )
                 })
             })
             .filter_map(|x| async { x.ok() })

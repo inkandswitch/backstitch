@@ -2,7 +2,7 @@ use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named;
-use crate::helpers::utils::CommitInfo;
+use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::BranchDb;
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::RemoteConnection;
@@ -13,6 +13,7 @@ use crate::project::fs::sync_fs_to_automerge::SyncFileSystemToAutomerge;
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::peer_watcher::PeerWatcher;
 use futures::StreamExt;
+use futures::future::join_all;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
 use std::path::PathBuf;
@@ -459,26 +460,8 @@ impl DriverInner {
             .await
             .clone();
 
-        // Ensure we block the main thread inside of Rust while checking out a ref.
-        // Very important to not allow Godot to explode while we're writing files!
-        {
-            tracing::trace!("Sync guarding...");
-            let _guard;
-            // rather awkward; we don't want to get stuck on the guard if we've canceled!
-            select! {
-                _ = self.token.cancelled() => { return; }
-                _g = self.main_thread_block.wait() => {
-                    _guard = _g;
-                }
-            }
-            tracing::trace!("Passed guard.");
-            if self.safe_to_update_editor.load(Ordering::Relaxed) {
-                let changes = self.sync_correct_ref().await;
-                for change in changes {
-                    self.file_changes_tx.send(change).unwrap();
-                }
-            }
-        }
+        self.sync_correct_ref().await;
+
         tracing::trace!("Attepmting to sync FS to automerge...");
         // Apply any watched FS updates to Automerge.
         // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
@@ -510,6 +493,91 @@ impl DriverInner {
             self.ref_tx.send(new_checked_out_ref).unwrap();
         }
         tracing::trace!("Done with sync.");
+    }
+
+    async fn sync_correct_ref(&self) {
+        let Some(goal_ref) = self.get_ref_for_sync().await else {
+            return;
+        };
+
+        // The checked out ref may change, here -- that's why we double check to make sure it's correct before committing.
+        let checked_out_ref = self
+            .branch_db
+            .get_checked_out_ref_mut()
+            .read()
+            .await
+            .clone();
+
+        let proposed_changes = self
+            .sync_automerge_to_fs
+            .checkout_ref(checked_out_ref.as_ref(), &goal_ref)
+            .await;
+
+        if proposed_changes.len() == 0 {
+            return;
+        }
+
+        // Consider instead using a Tokio join set here...
+        let futures = proposed_changes
+            .into_iter()
+            .map(async |(path, (change_type, content))| {
+                match change_type {
+                    ChangeType::Created | ChangeType::Modified => {
+                        self.sync_automerge_to_fs
+                            .handle_file_update(&path, &content)
+                            .await?
+                    }
+                    ChangeType::Deleted => {
+                        self.sync_automerge_to_fs.handle_file_delete(&path).await?
+                    }
+                };
+                Some((path, change_type, content))
+            });
+
+        {
+            tracing::trace!("Sync guarding...");
+            let _guard;
+            // rather awkward; we don't want to get stuck on the guard if we've canceled!
+            select! {
+                _ = self.token.cancelled() => { return; }
+                _g = self.main_thread_block.wait() => {
+                    _guard = _g;
+                }
+            }
+            tracing::trace!("Passed guard.");
+
+            // This lock CANNOT go above the guard; it'll contend with the UI.
+            let r = self.branch_db.get_checked_out_ref_mut();
+            let mut now_checked_out_ref = r.write().await;
+
+            // Give up if our ref somehow changed; try again next sync.
+            if now_checked_out_ref.as_ref() != checked_out_ref.as_ref() {
+                return;
+            }
+
+            // Ensure we block the main thread inside of Rust while checking out a ref.
+            // Very important to not allow Godot to explode while we're writing files!
+            let results: Vec<FileSystemEvent> = join_all(futures)
+                .await
+                .into_iter()
+                .filter_map(|r| r)
+                .map(|(path, change_type, content)| match change_type {
+                    ChangeType::Created => FileSystemEvent::FileCreated(path, content),
+                    ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
+                    ChangeType::Modified => FileSystemEvent::FileModified(path, content),
+                })
+                .collect();
+
+            tracing::info!("Wrote {:?} files!", results.len());
+
+            *now_checked_out_ref = Some(goal_ref);
+
+            if self.safe_to_update_editor.load(Ordering::Relaxed) {
+                for change in results {
+                    self.file_changes_tx.send(change).unwrap();
+                }
+            }
+        }
     }
 
     async fn get_ref_for_sync(&self) -> Option<HistoryRef> {
@@ -555,23 +623,5 @@ impl DriverInner {
             "No metadata doc checked out, or otherwise couldn't get main branch. Skipping checkout!"
         );
         return None;
-    }
-
-    /// If our current ref is out-of-date, try and check out a new ref.
-    #[tracing::instrument(skip_all, level = "trace")]
-    async fn sync_correct_ref(&self) -> Vec<FileSystemEvent> {
-        // TODO (Lilith): There are inefficiencies with this strategy.
-        // Basically, every time we save a file, it'll do a bunch of extra work.
-        // It will first commit the changes, then it will check out the changes we just committed.
-        // No files will be written of course, but it will still walk the tree of changes.
-        // The same happens in reverse: when we check out a ref, it will attempt to commit and not
-        // find any actual changes.
-        // Maybe that's OK, we need to profile to see if it's a problem.
-
-        if let Some(goal_ref) = self.get_ref_for_sync().await {
-            self.sync_automerge_to_fs.checkout_ref(goal_ref).await
-        } else {
-            Vec::new()
-        }
     }
 }

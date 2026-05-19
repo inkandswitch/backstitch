@@ -29,16 +29,16 @@ impl SyncAutomergeToFileSystem {
     // Currently, if we get a remote change, and a single file is unsaved in Godot, we can't call this method at all.
     // Ideally, we'd check out the synced ref, and just exclude the edited files.
 
-    /// Check out a [HistoryRef] from the Backstitch history, changing the filesystem as necessary.
-    /// Returns a vector of file changes.
+    /// Check out a [HistoryRef] from the Backstitch history. Does NOT modify the filesystem yet.
+    /// Returns a vector of file changes that should be applied.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub async fn checkout_ref(&self, goal_ref: HistoryRef) -> Vec<FileSystemEvent> {
-        // Ensure that there's no way anything can grab the ref while we're trying to write it
-        let r = self.branch_db.get_checked_out_ref_mut();
-        let mut checked_out_ref = r.write().await;
-
-        if checked_out_ref.as_ref().is_some_and(|r| r == &goal_ref) {
-            return Vec::new();
+    pub async fn checkout_ref(
+        &self,
+        current_ref: Option<&HistoryRef>,
+        goal_ref: &HistoryRef,
+    ) -> HashMap<PathBuf, (ChangeType, FileContent)> {
+        if current_ref.is_some_and(|r| r == goal_ref) {
+            return Default::default();
         }
 
         tracing::info!(
@@ -48,7 +48,7 @@ impl SyncAutomergeToFileSystem {
 
         let Some(changes) = self
             .branch_db
-            .get_changed_files_between_refs(checked_out_ref.as_ref(), &goal_ref)
+            .get_changed_files_between_refs(current_ref, goal_ref)
             .instrument(tracing::info_span!("get_changed_file_content_between_refs"))
             .await
         else {
@@ -56,7 +56,7 @@ impl SyncAutomergeToFileSystem {
                 "Couldn't get changed file content between refs; canceling ref checkout of {:?}",
                 goal_ref
             );
-            return Vec::new();
+            return Default::default();
         };
 
         let Some(mut contents) = self
@@ -68,47 +68,19 @@ impl SyncAutomergeToFileSystem {
                 "Couldn't get file content between refs; canceling ref checkout of {:?}",
                 goal_ref
             );
-            return Vec::new();
+            return Default::default();
         };
 
-        let joined: HashMap<String, (ChangeType, FileContent)> = changes
+        let joined: HashMap<PathBuf, (ChangeType, FileContent)> = changes
             .into_iter()
             .filter_map(|(path, change_type)| {
                 contents
                     .remove(&path)
-                    .map(|content| (path, (change_type, content)))
+                    .map(|content| (self.branch_db.globalize_path(&path), (change_type, content)))
             })
             .collect();
 
-        // Consider instead using a Tokio join set here...
-        let futures = joined
-            .into_iter()
-            .map(async |(path, (change_type, content))| {
-                let global_path = self.branch_db.globalize_path(&path);
-                match change_type {
-                    ChangeType::Created | ChangeType::Modified => {
-                        self.handle_file_update(&global_path, &content).await?
-                    }
-                    ChangeType::Deleted => self.handle_file_delete(&global_path).await?,
-                };
-                Some((global_path, change_type, content))
-            });
-
-        let results: Vec<FileSystemEvent> = join_all(futures)
-            .await
-            .into_iter()
-            .filter_map(|r| r)
-            .map(|(path, change_type, content)| match change_type {
-                ChangeType::Created => FileSystemEvent::FileCreated(path, content),
-                ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
-                ChangeType::Modified => FileSystemEvent::FileModified(path, content),
-            })
-            .collect();
-
-        tracing::info!("Wrote {:?} files!", results.len());
-
-        *checked_out_ref = Some(goal_ref);
-        results
+        joined
     }
 
     async fn compare_hashes(&self, path: &PathBuf, content: &FileContent) -> bool {
@@ -136,8 +108,8 @@ impl SyncAutomergeToFileSystem {
     }
 
     /// Update a file on disk if it exists and hasn't been ignored, and if the hash has changed.
-    /// Returns true if we successfully wrote the file.
-    async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> Option<()> {
+    /// Returns Some(()) if we successfully wrote the file.
+    pub async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> Option<()> {
         // Skip if path matches any ignore pattern
         if self.branch_db.should_ignore(&path, false) {
             return None;
@@ -156,8 +128,8 @@ impl SyncAutomergeToFileSystem {
         Some(())
     }
 
-    /// Delete a file on disk, if it exists and isn't ignored. Returns true if we successfully deleted the file.
-    async fn handle_file_delete(&self, path: &PathBuf) -> Option<()> {
+    /// Delete a file on disk, if it exists and isn't ignored. Returns Some(()) if we successfully deleted the file.
+    pub async fn handle_file_delete(&self, path: &PathBuf) -> Option<()> {
         // Skip if path matches any ignore pattern
         if self.branch_db.should_ignore(&path, false) {
             return None;

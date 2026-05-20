@@ -168,20 +168,29 @@ impl BranchDb {
         let changed_files = self
             .get_changed_files_between_refs(Some(&current_ref), ref_)
             .await?;
-        let mut changed_contents = self
+
+        tracing::debug!("Revert preview changed_files: {:?}", changed_files);
+
+        let mut changed_contents: std::collections::HashMap<String, FileContent> = self
             .get_files_at_ref(ref_, &changed_files.keys().cloned().collect())
             .await?;
         let changed_files = changed_files
             .into_iter()
             .filter_map(|(path, change)| {
-                let content = changed_contents.remove(&path)?;
                 Some(match change {
-                    ChangeType::Created | ChangeType::Modified => (path, content),
+                    ChangeType::Created | ChangeType::Modified => {
+                        let content = changed_contents.remove(&path)?;
+                        (path, content)
+                    }
                     ChangeType::Deleted => (path, FileContent::Deleted),
                 })
             })
             .collect::<Vec<(String, FileContent)>>();
 
+        tracing::debug!(
+            "Revert preview changed_files: {:?}",
+            changed_files.iter().map(|(f, _)| f).collect::<Vec<_>>()
+        );
         // This is a weird hack -- we need the branch sync state to exist NOW to commit our revert...
         // ... not whenever document_watcher decides it's time.
         // We pretend there's 0 linked docs, because we're forking off a shadow doc for the preview, which had BETTER

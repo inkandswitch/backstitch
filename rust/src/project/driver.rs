@@ -508,14 +508,13 @@ impl DriverInner {
             .await
             .clone();
 
-        let proposed_changes = self
+        let Some(proposed_changes) = self
             .sync_automerge_to_fs
             .checkout_ref(checked_out_ref.as_ref(), &goal_ref)
-            .await;
-
-        if proposed_changes.len() == 0 {
+            .await
+        else {
             return;
-        }
+        };
 
         // Consider instead using a Tokio join set here...
         let futures = proposed_changes

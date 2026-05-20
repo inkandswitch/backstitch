@@ -97,9 +97,9 @@ impl Differ {
 
         let mut diffs: Vec<Diff> = vec![];
 
-        for (path, new_file_content) in &new_file_contents {
-            let change_type = changed_files.get(path)?;
+        for (path, change_type) in &changed_files {
             let old_file_content = old_file_contents.get(path).unwrap_or(&FileContent::Deleted);
+            let new_file_content = new_file_contents.get(path).unwrap_or(&FileContent::Deleted);
 
             if matches!(old_file_content, FileContent::Scene(_))
                 || matches!(new_file_content, FileContent::Scene(_))

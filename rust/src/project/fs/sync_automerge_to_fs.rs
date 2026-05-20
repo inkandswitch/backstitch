@@ -6,7 +6,10 @@ use tracing::Instrument;
 use crate::{
     fs::file_utils::{FileContent, FileSystemEvent},
     helpers::{history_ref::HistoryRef, utils::ChangeType},
-    project::{branch_db::BranchDb, fs::fs_index::FileSystemIndex},
+    project::{
+        branch_db::BranchDb,
+        fs::{fs_index::FileSystemIndex, fs_traversal::FileSystemTraversal},
+    },
 };
 
 #[derive(Debug)]
@@ -36,7 +39,7 @@ impl SyncAutomergeToFileSystem {
         &self,
         current_ref: Option<&HistoryRef>,
         goal_ref: &HistoryRef,
-    ) -> HashMap<PathBuf, (ChangeType, FileContent)> {
+    ) -> Option<HashMap<PathBuf, (ChangeType, FileContent)>> {
         if current_ref.is_some_and(|r| r == goal_ref) {
             return Default::default();
         }
@@ -46,18 +49,32 @@ impl SyncAutomergeToFileSystem {
             goal_ref
         );
 
-        let Some(changes) = self
-            .branch_db
-            .get_changed_files_between_refs(current_ref, goal_ref)
-            .instrument(tracing::info_span!("get_changed_file_content_between_refs"))
-            .await
-        else {
+        let db_clone = self.branch_db.clone();
+        let current_files = FileSystemTraversal::get_all_files(
+            self.branch_db.get_project_dir(),
+            &self.fs_index,
+            move |path, is_dir| db_clone.should_ignore(&path.to_path_buf(), is_dir),
+        )
+        .await
+        .into_iter()
+        .map(|(k, v)| (self.branch_db.localize_path(&k), v))
+        .collect();
+
+        let Some(goal_files) = self.branch_db.get_hash_index(goal_ref).await else {
             tracing::error!(
                 "Couldn't get changed file content between refs; canceling ref checkout of {:?}",
                 goal_ref
             );
-            return Default::default();
+            return None;
         };
+
+        let changes = FileSystemTraversal::get_file_changes(current_files, goal_files);
+
+        if changes.is_empty() {
+            return Some(Default::default());
+        }
+
+        tracing::debug!("Changes to be applied: {:?}", changes);
 
         let Some(mut contents) = self
             .branch_db
@@ -68,19 +85,23 @@ impl SyncAutomergeToFileSystem {
                 "Couldn't get file content between refs; canceling ref checkout of {:?}",
                 goal_ref
             );
-            return Default::default();
+            return None;
         };
 
         let joined: HashMap<PathBuf, (ChangeType, FileContent)> = changes
             .into_iter()
             .filter_map(|(path, change_type)| {
-                contents
-                    .remove(&path)
-                    .map(|content| (self.branch_db.globalize_path(&path), (change_type, content)))
+                let gpath = self.branch_db.globalize_path(&path);
+                match change_type {
+                    ChangeType::Created | ChangeType::Modified => {
+                        Some((gpath, (change_type, contents.remove(&path)?)))
+                    }
+                    ChangeType::Deleted => Some((gpath, (change_type, FileContent::Deleted))),
+                }
             })
             .collect();
 
-        joined
+        Some(joined)
     }
 
     async fn compare_hashes(&self, path: &PathBuf, content: &FileContent) -> bool {

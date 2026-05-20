@@ -53,7 +53,7 @@ pub fn initialize_tracing() {
         .with_writer(non_blocking_file_writer.clone())
         .with_filter(
             EnvFilter::new("info")
-                .add_directive("backstitch_rust_core=trace".parse().unwrap())
+                .add_directive("backstitch_rust_core=debug".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
                 .add_directive("samod_core=info".parse().unwrap()),
         );

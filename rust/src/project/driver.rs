@@ -496,6 +496,10 @@ impl DriverInner {
     }
 
     async fn sync_correct_ref(&self) {
+        // Check this early and early-out to avoid scanning the filesystem if unsaved files are open
+        if !self.safe_to_update_editor.load(Ordering::Relaxed) {
+            return;
+        }
         let Some(goal_ref) = self.get_ref_for_sync().await else {
             return;
         };
@@ -533,6 +537,8 @@ impl DriverInner {
                 Some((path, change_type, content))
             });
 
+        // Ensure we block the main thread inside of Rust while checking out a ref.
+        // Very important to not allow Godot to explode while we're writing files!
         {
             tracing::trace!("Sync guarding...");
             let _guard;
@@ -554,8 +560,10 @@ impl DriverInner {
                 return;
             }
 
-            // Ensure we block the main thread inside of Rust while checking out a ref.
-            // Very important to not allow Godot to explode while we're writing files!
+            // Now that we've blocked the main thread, we gotta double check the editor is *actually* safe to update.
+            if !self.safe_to_update_editor.load(Ordering::Relaxed) {
+                return;
+            }
             let results: Vec<FileSystemEvent> = join_all(futures)
                 .await
                 .into_iter()
@@ -570,11 +578,8 @@ impl DriverInner {
             tracing::info!("Wrote {:?} files!", results.len());
 
             *now_checked_out_ref = Some(goal_ref);
-
-            if self.safe_to_update_editor.load(Ordering::Relaxed) {
-                for change in results {
-                    self.file_changes_tx.send(change).unwrap();
-                }
+            for change in results {
+                self.file_changes_tx.send(change).unwrap();
             }
         }
     }

@@ -165,7 +165,7 @@ impl FileContent {
                 }
             },
         }
-        // ... otherwise, check the rul
+        // ... otherwise, check the url
         let linked_file_content = doc
             .get_string_at(&file_entry, "url", &heads)
             .map(|url| parse_automerge_url(&url))

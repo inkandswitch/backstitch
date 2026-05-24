@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use automerge::{ObjId, ObjType, ROOT, ReadDoc};
+use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use samod::DocumentId;
 use tracing::Instrument;
 
@@ -42,43 +43,60 @@ impl BranchDb {
                         tracing::error!("files not found at ref {ref_clone}!");
                         return None;
                     };
-                    let mut out = HashMap::new();
-                    for path in d.keys_at(&files_id, heads) {
-                        let Some(entry_id) = d.get_obj_id_at(&files_id, &path, heads) else {
-                            continue;
-                        };
 
-                        // Try to retrieve the quick hash
-                        let hash = d.get_all_at(&entry_id, "hash", heads).ok()?;
-                        if hash.len() == 1 {
-                            let h = hash.first().unwrap().0.clone();
-                            let bytes = h.to_bytes();
+                    let entries: Vec<(String, ObjId)> = d
+                        .map_range_at(&files_id, .., heads)
+                        .filter_map(|item| {
+                            let id = item.id();
+                            // if it's a scalar for some reason, ignore this entry
+                            match item.value {
+                                ValueRef::Object(_) => Some((item.key.into_owned(), id)),
+                                _ => None,
+                            }
+                        })
+                        .collect();
 
-                            if let Some(bytes) = bytes {
-                                if let Ok(hash) = blake3::Hash::from_slice(bytes) {
-                                    out.insert(path, PendingHash::Hash(hash));
-                                    continue;
+                    tracing::info!("COLLECTED");
+
+                    // Using rayon for this, to parallelize the key retrieval from the document (not just hashing!!)
+                    let out: HashMap<String, PendingHash> = entries
+                        .into_par_iter()
+                        .filter_map(|(path, entry_id)| {
+                            // First, try and access the quick hash from the doc.
+                            if let Ok(hashes) = d.get_all_at(&entry_id, "hash", heads) {
+                                // If there are multiple hashes here, it means there are conflicts!
+                                // i.e. the hash might be totally invalid; we need to calculate it manually.
+                                if hashes.len() == 1 {
+                                    let hash = &hashes.get(0).unwrap().0;
+                                    if let Some(bytes) = hash.to_bytes() {
+                                        if let Ok(hash) = blake3::Hash::from_slice(bytes) {
+                                            return Some((path, PendingHash::Hash(hash)));
+                                        }
+                                    }
                                 }
                             }
-                        }
 
-                        // If all of that failed, fall back to the slow hash
-                        tracing::debug!("Using slow hash for {path}");
-                        match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
-                            Ok(content) => {
-                                out.insert(path, PendingHash::Hash(content.to_hash()));
-                            }
-                            Err(res) => match res {
-                                Ok(id) => {
-                                    out.insert(path, PendingHash::Linked(id));
+                            // If there were any issues, fallback to the slow hash.
+                            tracing::debug!("Using slow hash for {path}");
+                            match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
+                                Ok(content) => {
+                                    tracing::debug!("Done logging {path}");
+                                    return Some((path, PendingHash::Hash(content.to_hash())));
                                 }
-                                Err(error_msg) => {
-                                    tracing::error!("error: {:?}", error_msg);
-                                    continue;
-                                }
-                            },
-                        };
-                    }
+                                Err(res) => match res {
+                                    Ok(id) => {
+                                        tracing::debug!("Done logging {path}");
+                                        return Some((path, PendingHash::Linked(id)));
+                                    }
+                                    Err(error_msg) => {
+                                        tracing::error!("error: {:?}", error_msg);
+                                        return None;
+                                    }
+                                },
+                            };
+                        })
+                        .collect();
+
                     Some(out)
                 }
                 .instrument(tracing::info_span!("Inner get_hash_index"))
@@ -113,6 +131,8 @@ impl BranchDb {
         }
         .instrument(tracing::info_span!("Second get_hash_index"))
         .await;
+
+        tracing::debug!("Finished get hash index");
 
         Some(new_hashes)
     }

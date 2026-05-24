@@ -180,12 +180,12 @@ impl BranchDb {
                 Some(match change {
                     ChangeType::Created | ChangeType::Modified => {
                         let content = changed_contents.remove(&path)?;
-                        (path, content)
+                        (path, Some(content))
                     }
-                    ChangeType::Deleted => (path, FileContent::Deleted),
+                    ChangeType::Deleted => (path, None),
                 })
             })
-            .collect::<Vec<(String, FileContent)>>();
+            .collect::<Vec<(String, Option<FileContent>)>>();
 
         tracing::debug!(
             "Revert preview changed_files: {:?}",

@@ -6,7 +6,10 @@ use godot::obj::Singleton;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     EnvFilter, Layer,
-    fmt::{format::Writer, time::FormatTime},
+    fmt::{
+        format::{FmtSpan, Writer},
+        time::FormatTime,
+    },
     layer::SubscriberExt,
     util::SubscriberInitExt,
 };
@@ -37,15 +40,15 @@ pub fn initialize_tracing() {
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_timer(CompactTime)
         .compact()
-        // .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+        .with_span_events(FmtSpan::CLOSE)
         .with_writer(CustomStdoutWriter::custom_stdout)
         .with_filter(
-            EnvFilter::new("info")
+            EnvFilter::new("off")
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
-                .add_directive("backstitch_rust_core=debug".parse().unwrap())
-                .add_directive("samod=info".parse().unwrap())
-                .add_directive("samod_core=info".parse().unwrap()),
+                .add_directive("backstitch_rust_core=debug".parse().unwrap()),
+            // .add_directive("samod=info".parse().unwrap())
+            // .add_directive("samod_core=info".parse().unwrap()),
         );
     let file_layer = tracing_subscriber::fmt::layer()
         .with_line_number(true)

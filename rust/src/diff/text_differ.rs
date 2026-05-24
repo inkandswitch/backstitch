@@ -155,16 +155,16 @@ impl Differ {
         &self,
         path: &str,
         change_type: ChangeType,
-        old_content: &FileContent,
-        new_content: &FileContent,
+        old_content: Option<&FileContent>,
+        new_content: Option<&FileContent>,
     ) -> TextDiff {
         let empty_string = String::from("");
-        let old_text = if let FileContent::String(s) = old_content {
+        let old_text = if let Some(FileContent::String(s)) = old_content {
             &s
         } else {
             &empty_string
         };
-        let new_text = if let FileContent::String(s) = new_content {
+        let new_text = if let Some(FileContent::String(s)) = new_content {
             &s
         } else {
             &empty_string

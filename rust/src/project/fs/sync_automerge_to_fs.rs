@@ -39,7 +39,7 @@ impl SyncAutomergeToFileSystem {
         &self,
         current_ref: Option<&HistoryRef>,
         goal_ref: &HistoryRef,
-    ) -> Option<HashMap<PathBuf, (ChangeType, FileContent)>> {
+    ) -> Option<HashMap<PathBuf, (ChangeType, Option<FileContent>)>> {
         if current_ref.is_some_and(|r| r == goal_ref) {
             return Default::default();
         }
@@ -88,15 +88,15 @@ impl SyncAutomergeToFileSystem {
             return None;
         };
 
-        let joined: HashMap<PathBuf, (ChangeType, FileContent)> = changes
+        let joined: HashMap<PathBuf, (ChangeType, Option<FileContent>)> = changes
             .into_iter()
             .filter_map(|(path, change_type)| {
                 let gpath = self.branch_db.globalize_path(&path);
                 match change_type {
                     ChangeType::Created | ChangeType::Modified => {
-                        Some((gpath, (change_type, contents.remove(&path)?)))
+                        Some((gpath, (change_type, Some(contents.remove(&path)?))))
                     }
-                    ChangeType::Deleted => Some((gpath, (change_type, FileContent::Deleted))),
+                    ChangeType::Deleted => Some((gpath, (change_type, None))),
                 }
             })
             .collect();

@@ -527,7 +527,7 @@ impl DriverInner {
                 match change_type {
                     ChangeType::Created | ChangeType::Modified => {
                         self.sync_automerge_to_fs
-                            .handle_file_update(&path, &content)
+                            .handle_file_update(&path, &content.as_ref().unwrap())
                             .await?
                     }
                     ChangeType::Deleted => {
@@ -569,9 +569,9 @@ impl DriverInner {
                 .into_iter()
                 .filter_map(|r| r)
                 .map(|(path, change_type, content)| match change_type {
-                    ChangeType::Created => FileSystemEvent::FileCreated(path, content),
+                    ChangeType::Created => FileSystemEvent::FileCreated(path, content.unwrap()),
                     ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
-                    ChangeType::Modified => FileSystemEvent::FileModified(path, content),
+                    ChangeType::Modified => FileSystemEvent::FileModified(path, content.unwrap()),
                 })
                 .collect();
 

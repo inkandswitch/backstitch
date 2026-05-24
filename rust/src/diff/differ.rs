@@ -98,18 +98,18 @@ impl Differ {
         let mut diffs: Vec<Diff> = vec![];
 
         for (path, change_type) in &changed_files {
-            let old_file_content = old_file_contents.get(path).unwrap_or(&FileContent::Deleted);
-            let new_file_content = new_file_contents.get(path).unwrap_or(&FileContent::Deleted);
+            let old_file_content = old_file_contents.get(path);
+            let new_file_content = new_file_contents.get(path);
 
-            if matches!(old_file_content, FileContent::Scene(_))
-                || matches!(new_file_content, FileContent::Scene(_))
+            if matches!(old_file_content, Some(FileContent::Scene(_)))
+                || matches!(new_file_content, Some(FileContent::Scene(_)))
             {
                 let old_scene = match old_file_content {
-                    FileContent::Scene(s) => Some(s),
+                    Some(FileContent::Scene(s)) => Some(s),
                     _ => None,
                 };
                 let new_scene = match new_file_content {
-                    FileContent::Scene(s) => Some(s),
+                    Some(FileContent::Scene(s)) => Some(s),
                     _ => None,
                 };
 
@@ -130,8 +130,8 @@ impl Differ {
                             .await,
                     ));
                 }
-            } else if matches!(old_file_content, FileContent::Binary(_))
-                || matches!(new_file_content, FileContent::Binary(_))
+            } else if matches!(old_file_content, Some(FileContent::Binary(_)))
+                || matches!(new_file_content, Some(FileContent::Binary(_)))
             {
                 // This is a binary file, so use a resource diff
                 diffs.push(Diff::BinaryResource(
@@ -145,8 +145,8 @@ impl Differ {
                     )
                     .await,
                 ));
-            } else if matches!(old_file_content, FileContent::String(_))
-                || matches!(new_file_content, FileContent::String(_))
+            } else if matches!(old_file_content, Some(FileContent::String(_)))
+                || matches!(new_file_content, Some(FileContent::String(_)))
             {
                 // This is a text file, so do a text diff.
                 diffs.push(Diff::Text(self.get_text_diff(

@@ -19,7 +19,7 @@ impl BranchDb {
     /// Returns a HistoryRef referring to the new heads. We may or may not have reconciled to the canonical doc at this point.
     pub async fn commit_fs_changes(
         &self,
-        files: Vec<(String, FileContent)>,
+        files: Vec<(String, Option<FileContent>)>,
         ref_: &HistoryRef,
         revert: Option<&HistoryRef>,
         is_checking_in: bool,
@@ -42,19 +42,19 @@ impl BranchDb {
             // This is fairly cheap from my estimation.
             // If this becomes a bottleneck, we can reuse the previously computed hash by having callers provide file hashes.
             // If we do this, though, we still have to compute scene hashes when putting things into Automerge.
-            let hash = content.to_hash();
+            let hash = content.as_ref().map(|c| c.to_hash());
             match content {
-                FileContent::Binary(content) => {
+                Some(FileContent::Binary(content)) => {
                     let handle = self.create_new_binary_doc(content).await;
-                    binary_entries.push((path, handle, hash));
+                    binary_entries.push((path, handle, hash.unwrap()));
                 }
-                FileContent::String(content) => {
-                    text_entries.push((path, content, hash));
+                Some(FileContent::String(content)) => {
+                    text_entries.push((path, content, hash.unwrap()));
                 }
-                FileContent::Scene(godot_scene) => {
-                    scene_entries.push((path, godot_scene, hash));
+                Some(FileContent::Scene(godot_scene)) => {
+                    scene_entries.push((path, godot_scene, hash.unwrap()));
                 }
-                FileContent::Deleted => {
+                None => {
                     deleted_entries.push(path);
                 }
             }

@@ -33,8 +33,8 @@ impl Differ {
         &self,
         path: &str,
         change_type: ChangeType,
-        old_content: &FileContent,
-        new_content: &FileContent,
+        old_content: Option<&FileContent>,
+        new_content: Option<&FileContent>,
         before: &HistoryRef,
         after: &HistoryRef,
     ) -> BinaryResourceDiff {
@@ -49,13 +49,12 @@ impl Differ {
     async fn get_resource(
         &self,
         path: &str,
-        _content: &FileContent,
+        _content: Option<&FileContent>,
         ref_: &HistoryRef,
     ) -> Option<VariantValue> {
-        if matches!(_content, FileContent::Deleted) {
+        if _content.is_none() {
             return None;
         }
-
         match self.start_load_ext_resource(&path, ref_).await {
             Ok(load_path) => Some(VariantValue::LazyLoadData(path.to_string(), load_path)),
             Err(e) => Some(VariantValue::Variant(format!(

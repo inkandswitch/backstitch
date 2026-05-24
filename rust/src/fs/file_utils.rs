@@ -17,7 +17,6 @@ pub enum FileContent {
     String(String),
     Binary(Vec<u8>),
     Scene(GodotScene),
-    Deleted,
 }
 
 // TODO: remove this; very little code actually uses this. It's only actually used in godot_project;
@@ -35,7 +34,6 @@ impl FileContent {
             FileContent::String(text) => Some(Cow::Borrowed(text.as_bytes())),
             FileContent::Binary(data) => Some(Cow::Borrowed(data)),
             FileContent::Scene(scene) => Some(Cow::Owned(scene.serialize().into_bytes())),
-            FileContent::Deleted => None,
         }
     }
 
@@ -135,10 +133,6 @@ impl FileContent {
             return Ok(FileContent::Scene(scene));
         }
 
-        if let Ok(Some((_, _))) = doc.get_at(&file_entry, "deleted", &heads) {
-            return Ok(FileContent::Deleted);
-        }
-
         // try to read file as text
         let content = doc.get_at(&file_entry, "content", &heads);
 
@@ -174,18 +168,6 @@ impl FileContent {
             return Err(Ok(linked_file_content.unwrap()));
         }
         Err(Err(io::Error::new(io::ErrorKind::Other, "Failed to url!")))
-    }
-}
-
-impl Default for FileContent {
-    fn default() -> Self {
-        FileContent::Deleted
-    }
-}
-
-impl Default for &FileContent {
-    fn default() -> Self {
-        &FileContent::Deleted
     }
 }
 

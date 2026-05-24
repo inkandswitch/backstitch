@@ -112,7 +112,6 @@ impl SyncFileSystemToAutomerge {
         }
 
         let db_clone = self.branch_db.clone();
-        // we can probably do better for larger trees? this traversal could be slow
         let current_files = FileSystemTraversal::get_all_files(
             self.branch_db.get_project_dir(),
             &self.fs_index,
@@ -202,13 +201,21 @@ impl SyncFileSystemToAutomerge {
         }
     }
 
-    async fn get_file_contents(&self, files: &HashSet<PathBuf>) -> Vec<(String, FileContent)> {
+    async fn get_file_contents(
+        &self,
+        files: &HashSet<PathBuf>,
+    ) -> Vec<(String, Option<FileContent>)> {
         stream::iter(files)
             .then(|path| async move {
+                let exists = tokio::fs::try_exists(path).await?;
+                // If it doesn't exist, the file is removed.
+                if !exists {
+                    return Ok((self.branch_db.localize_path(path), None));
+                }
                 tokio::fs::read(path).await.map(|data| {
                     (
                         self.branch_db.localize_path(path),
-                        FileContent::from_buf(data),
+                        Some(FileContent::from_buf(data)),
                     )
                 })
             })

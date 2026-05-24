@@ -100,7 +100,6 @@ impl BackstitchResourceLoader {
                 .into_bytes()),
             FileContent::String(s) => Ok(s.as_bytes().to_vec()),
             FileContent::Binary(b) => Ok(b.clone()),
-            FileContent::Deleted => Err(Error::ERR_FILE_NOT_FOUND),
         }
     }
 
@@ -345,7 +344,12 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
             let ext = import_base_path.get_extension().to_string().to_lowercase();
             let temp_imported_path = Self::get_temp_path(&history_ref_path, Some(&ext));
             // temp_imported_path minus the extension
-            let temp_base_name = temp_imported_path.to_string_lossy().to_string().strip_suffix(&format!(".{}", ext)).unwrap_or(&temp_imported_path.to_string_lossy().to_string()).to_string();
+            let temp_base_name = temp_imported_path
+                .to_string_lossy()
+                .to_string()
+                .strip_suffix(&format!(".{}", ext))
+                .unwrap_or(&temp_imported_path.to_string_lossy().to_string())
+                .to_string();
             let err = BackstitchEditorAccessor::import_and_save_resource(
                 &temp_path.to_string_lossy().to_string(),
                 &import_file_content,

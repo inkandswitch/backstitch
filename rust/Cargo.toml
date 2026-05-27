@@ -68,6 +68,7 @@ wincode = { version = "0.5.3", features = ["derive"] }
 fjall = "3.1.4"
 anyhow = "1.0.102"
 jwalk = "0.8.1"
+thiserror = "2.0.18"
 
 [build-dependencies]
 cbindgen = "^0.27"

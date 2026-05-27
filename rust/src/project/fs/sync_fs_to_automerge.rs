@@ -7,7 +7,7 @@ use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
-    helpers::spawn_utils::spawn_named,
+    helpers::{history_ref::HistoryRef, spawn_utils::spawn_named},
     project::{
         branch_db::BranchDb,
         fs::{
@@ -83,14 +83,12 @@ impl SyncFileSystemToAutomerge {
         }
     }
 
-    /// Make a commit of all changes from the filesystem to automerge.
+    /// Make a commit of all changes from the filesystem to the given automerge ref.
     /// Returns true on success.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub async fn commit(&self, force: bool) -> HashSet<PathBuf> {
+    pub async fn commit(&self, ref_: &HistoryRef, force: bool) -> HashSet<PathBuf> {
         // Because we always change the checked out ref after committing, we need to lock this in write mode.
         let r = self.branch_db.get_checked_out_ref_mut();
-        let mut checked_out_ref = r.write().await;
-
         let mut pending_changes = self.pending_changes.lock().await;
 
         if !force && pending_changes.is_empty() {
@@ -101,15 +99,6 @@ impl SyncFileSystemToAutomerge {
             "There are {:?} watched changes, attempting to commit...",
             pending_changes.len()
         );
-
-        // If the checked-out ref is invalid, we can't commit to the current branch.
-        if checked_out_ref.as_ref().is_none_or(|r| !r.is_valid()) {
-            tracing::warn!(
-                "Can't commit to the current ref {:?}, because it isn't valid.",
-                checked_out_ref
-            );
-            return HashSet::new();
-        }
 
         let db_clone = self.branch_db.clone();
         let current_files = FileSystemTraversal::get_all_files(
@@ -122,7 +111,7 @@ impl SyncFileSystemToAutomerge {
 
         let Some(old_files) = self
             .branch_db
-            .get_hash_index(&checked_out_ref.as_ref().unwrap())
+            .get_hash_index(ref_)
             .instrument(tracing::info_span!("get_hash_index"))
             .await
         else {
@@ -150,13 +139,11 @@ impl SyncFileSystemToAutomerge {
 
         let new_ref = self
             .branch_db
-            .commit_fs_changes(contents, &checked_out_ref.as_ref().unwrap(), None, false)
+            .commit_fs_changes(contents, &ref_, None, false)
             .instrument(tracing::info_span!("commit_fs_changes"))
             .await;
         if let Some(new_ref) = new_ref {
             tracing::info!("Successfully made a commit! {:?}", new_ref);
-            // TODO (Lilith): Does simply commenting this out works? This forces a ref checkout...
-            // *checked_out_ref = Some(new_ref);
             return keys;
         } else {
             tracing::info!("Did not commit pending files!");

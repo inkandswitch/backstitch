@@ -3,12 +3,13 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
-use crate::helpers::utils::CommitInfo;
+use crate::helpers::utils::{ChangeType, ChangedFile, CommitInfo};
 use crate::interop::godot_accessors::{
     BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
 };
-use crate::project::driver::Driver;
+use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
+use crate::project::project_api::{ProjectStartError, ProjectViewModel};
 use automerge::ChangeHash;
 use samod::{DocumentId, Url};
 use std::cell::RefCell;
@@ -17,6 +18,13 @@ use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OwnedMutexGuard, watch};
+
+#[derive(Debug, PartialEq, Clone)]
+pub(super) enum CreateMode {
+    NewProject,
+    ManuallyLoadedProject,
+    AutoLoadedProject,
+}
 
 /// Manages the state and operations of a Backstitch project within Godot.
 /// Its API is exposed to GDScript via the GodotProject struct.
@@ -32,6 +40,9 @@ pub struct Project {
     // I'd prefer this not be a mutex, but we need to move it into temporary threads in order to dispatch async code from sync code.
     // What's annoying is that we never actually block on this mutex!
     pub(super) driver: Arc<Mutex<Option<Driver>>>,
+    pub(super) local_changes: Vec<ChangedFile>,
+    pub(super) server_url: Option<Url>,
+    pub(super) initial_branch: Option<DocumentId>, // the initial branch to checkout, only valid before finalize_start is called
     project_dir: PathBuf,
     pub(super) runtime: Runtime,
 
@@ -70,6 +81,9 @@ impl Project {
             history: None,
             changes: HashMap::new(),
             diff_cache: RefCell::new(HashMap::new()),
+            local_changes: Default::default(),
+            server_url: None,
+            initial_branch: None,
         }
     }
 
@@ -120,75 +134,132 @@ impl Project {
         })
     }
 
-    pub fn start(&mut self) -> Result<(), String> {
+    fn acquire_server_url(&self) -> Result<Option<Url>, ProjectStartError> {
+        let server_url = BackstitchConfigAccessor::get_project_value("server_url", "");
+
+        if server_url.is_empty() {
+            return Ok(None);
+        }
+
+        tracing::info!("Using project override for server url: {:?}", server_url);
+        let url = if server_url.contains("://") {
+            server_url
+        } else {
+            format!("tcp://{}", server_url)
+        };
+
+        let url = Url::parse(&url)
+            .ok()
+            .filter(|url| url.scheme() == "tcp" || url.scheme() == "ws" || url.scheme() == "wss")
+            .ok_or(ProjectStartError::ServerUrlInvalid(url))?;
+
+        Ok(Some(url))
+    }
+
+    /// Returns whether we found the document locally.
+    async fn try_and_retry_load(
+        driver: &mut Driver,
+        server_url: Option<&Url>,
+        metadata_id: &DocumentId,
+    ) -> Result<bool, ProjectStartError> {
+        match driver.load_project(metadata_id).await {
+            // success? Then just return!
+            Ok(_) => {
+                tracing::info!("Successfully found project locally!");
+                return Ok(true);
+            }
+            Err(e) => {
+                match e {
+                    // If it wasn't found locally, that's OK, we try to connect first
+                    ProjectLoadError::DocumentIdNotFoundLocally => (),
+                    _ => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                }
+            }
+        }
+
+        let server_url = server_url.ok_or(ProjectStartError::DocumentIdNotFoundLocally)?;
+
+        // try and start the connection
+        driver
+            .start_connection(server_url)
+            .await
+            .map_err(|_| ProjectStartError::Unknown)?;
+
+        // try again to load
+        driver.load_project(metadata_id).await.map_err(|e| {
+            match e {
+                ProjectLoadError::Unknown => ProjectStartError::Unknown,
+                ProjectLoadError::DocumentIdNotFoundLocally => {
+                    ProjectStartError::DocumentIdNotFoundLocally
+                } // this shouldn't happen at this stage
+                ProjectLoadError::DocumentIdNotFoundLocallyOrRemotely => {
+                    ProjectStartError::DocumentIdNotFoundLocallyOrRemotely
+                }
+                ProjectLoadError::DocumentIdNotFoundLocallyAndServerDidNotConnect => {
+                    ProjectStartError::DocumentIdNotFoundLocallyAndServerDidNotConnect
+                }
+            }
+        })?;
+        tracing::info!("Successfully found project remotely!");
+        Ok(false)
+    }
+
+    /// Starting a project is a multi-step process. It looks like:
+    /// - Parse the document ID
+    /// - Attempt to load a repo by ID from the local filesystem.
+    /// - If failed, attempt to load a repo by ID from the server.
+    /// - If failed, give up.
+    /// - If we successfully connected locally OR remotely, scan the filesystem for changes.
+    /// - If there were changes, check to see if we can make an automatic decision to check-in the changes.
+    ///     + We auto-check-in if we're connected locally AND we're restarting from a previous session (project
+    ///       ID stored in the config file).
+    /// - If we can't make an automatic decision, so we pause, and the `confirm` or `discard` API continues the load.
+    /// - Once we've made a decision to handle the local changes, we can finish the checkin: connect if we're not
+    ///   connected, and start the sync loop.
+    ///
+    /// If we're creating a new project, instead of loading, we can skip most of this!
+    pub(super) fn start(&mut self, mode: CreateMode) -> Result<(), ProjectStartError> {
+        tracing::info!("Creating with mode: {:?}", mode);
         if self.driver.blocking_lock().is_some() {
             tracing::error!("Driver is already started!");
             return Ok(());
         }
 
         let storage_dir = self.project_dir.join(".backstitch");
-        let server_url = {
-            let project = BackstitchConfigAccessor::get_project_value("server_url", "");
-            if !project.is_empty() {
-                tracing::info!("Using project override for server url: {:?}", project);
-                project
-            } else {
-                "".to_string()
-            }
-        };
-
-        // if the URL doesn't have a scheme, add tcp://
-        let server_url = {
-            if server_url == "" {
-                None
-            } else {
-                let server_url = if server_url.contains("://") {
-                    server_url
-                } else {
-                    format!("tcp://{}", server_url)
-                };
-
-                let Ok(url) = Url::parse(&server_url) else {
-                    tracing::error!("Could not start project! Invalid server URL {server_url}");
-                    return Err("Invalid server URL!".to_string());
-                };
-                Some(url)
-            }
-        };
+        let server_url = self.acquire_server_url()?;
 
         // If the metadata ID is not a valid document ID, give up.
-        // If it's an empty string, returns None so we can make a new doc.
-        let metadata_id = match Some(BackstitchConfigAccessor::get_project_value(
-            "project_doc_id",
-            "",
-        ))
-        .filter(|s| !s.is_empty())
-        {
-            Some(s) => match DocumentId::from_str(&s) {
-                Ok(id) => Some(id),
-                Err(_) => {
-                    tracing::error!("Invalid metadata document ID! Not starting driver.");
-                    return Err("Invalid metadata document ID!".to_string());
-                }
-            },
-            None => None,
+        // Not relevant for new projects.
+        let metadata_id = if mode == CreateMode::NewProject {
+            None
+        } else {
+            let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
+            Some(DocumentId::from_str(&id).map_err(|_| {
+                tracing::error!("Invalid metadata document ID! Not starting driver.");
+                return ProjectStartError::DocumentIdInvalid(id);
+            })?)
         };
 
-        let saved_branch_id = match Some(BackstitchConfigAccessor::get_project_value(
-            "checked_out_branch_doc_id",
-            "",
-        ))
-        .filter(|s| !s.is_empty())
-        {
-            Some(s) => match DocumentId::from_str(&s) {
-                Ok(id) => Some(id),
-                Err(_) => {
-                    tracing::error!("Invalid saved branch ID! Not using.");
-                    None
-                }
-            },
-            None => None,
+        let saved_branch_id = if mode == CreateMode::NewProject {
+            None
+        } else {
+            match Some(BackstitchConfigAccessor::get_project_value(
+                "checked_out_branch_doc_id",
+                "",
+            ))
+            .filter(|s| !s.is_empty())
+            {
+                Some(s) => match DocumentId::from_str(&s) {
+                    Ok(id) => Some(id),
+                    Err(_) => {
+                        tracing::error!("Invalid saved branch ID! Not using.");
+                        None
+                    }
+                },
+                None => None,
+            }
         };
+        let initial_branch = saved_branch_id.clone();
 
         tracing::info!(
             "Starting GodotProject with metadata doc id: {:?}",
@@ -200,51 +271,106 @@ impl Project {
         let block = self.main_thread_block.clone();
 
         // TODO: Don't block on main thread for checkin
-        let (driver, metadata) = self
+        let mode_clone = mode.clone();
+        let server_url_clone = server_url.clone();
+        let (driver, local_changes, found_locally) = self
             .runtime
             .block_on(
                 // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
                 spawn_named_on("Create driver", self.runtime.handle(), async move {
-                    let driver = Driver::new(
-                        block,
-                        server_url,
-                        project_dir,
-                        username,
-                        storage_dir,
-                        metadata_id,
-                        saved_branch_id,
-                    )
-                    .await;
-                    let metadata = if let Some(driver) = &driver {
-                        driver.get_metadata_doc().await
-                    } else {
-                        None
+                    let Some(mut driver) =
+                        Driver::new(block, project_dir, username, storage_dir).await
+                    else {
+                        tracing::error!("Could not create driver!");
+                        return Err(ProjectStartError::Unknown);
                     };
-                    (driver, metadata)
+
+                    // We've created the driver. Before connecting, we need to load the doc and handle local changes.
+                    // If we're making a new project, we don't have to worry about that.
+                    if mode_clone == CreateMode::NewProject {
+                        driver
+                            .create_project()
+                            .await
+                            .map_err(|_| ProjectStartError::Unknown)?;
+                        return Ok((driver, Default::default(), true));
+                    } else {
+                        let found_locally = Self::try_and_retry_load(
+                            &mut driver,
+                            server_url.as_ref(),
+                            &metadata_id.unwrap(), // we know this is valid, from earlier
+                        )
+                        .await?;
+
+                        let local_changes = driver
+                            .get_local_changes(saved_branch_id.as_ref())
+                            .await
+                            .map_err(|_| {
+                                tracing::error!("Couldn't get local changes!");
+                                ProjectStartError::Unknown
+                            })?;
+                        return Ok((driver, local_changes, found_locally));
+                    }
                 }),
             )
-            .unwrap();
+            .unwrap()?;
 
-        let Some(driver) = driver else {
-            tracing::error!("Could not start the driver!");
-            return Err("Could not start driver!".to_string());
-        };
-
-        BackstitchConfigAccessor::set_project_value(
-            "project_doc_id",
-            &metadata
-                .expect("Driver started, but metadata null!")
-                .to_string(),
-        );
         self.changes_rx = Some(driver.get_changes_rx());
         self.checked_out_ref_rx = Some(driver.get_ref_rx());
+        self.server_url = server_url_clone;
+        self.initial_branch = initial_branch;
+        self.local_changes = local_changes
+            .iter()
+            .cloned()
+            .map(|(path, change_type)| ChangedFile { change_type, path })
+            .collect();
 
         *self.driver.blocking_lock() = Some(driver);
+
+        if local_changes.len() > 0 {
+            // we can't start the sync until we confirm or reject the local changes
+            // the one exception: if we found the project locally AND it was automatically loaded, we can automatically checkin the changes.
+            if mode == CreateMode::AutoLoadedProject && found_locally {
+                self.checkin_local_changes();
+            }
+            return Ok(());
+        }
+
+        self.finalize_start()?;
+        Ok(())
+    }
+
+    pub(super) fn finalize_start(&mut self) -> Result<(), ProjectStartError> {
+        tracing::info!("Finalizing start...");
+        let server_url = self.server_url.clone();
+        let initial_branch = self.initial_branch.take();
+        let metadata = self.with_driver_blocking("Finalize start", |mut driver| async move {
+            let driver = driver.as_mut().ok_or(ProjectStartError::Unknown)?;
+            // start the connection, if we didn't before.
+            if let Some(server_url) = server_url {
+                match driver.start_connection(&server_url).await {
+                    Ok(_) => {}
+                    Err(e) => tracing::error!("Remote connection error: {:?}", e),
+                }
+            }
+            let metadata = driver
+                .get_metadata_doc()
+                .await
+                .ok_or(ProjectStartError::Unknown)?;
+
+            driver.start_sync(initial_branch.as_ref()).await;
+            Ok(metadata)
+        })?;
+        self.local_changes = Default::default();
+        BackstitchConfigAccessor::set_project_value("project_doc_id", &metadata.to_string());
         Ok(())
     }
 
     pub fn stop(&mut self) {
         self.driver.blocking_lock().take();
+        self.server_url = None;
+        self.local_changes = Default::default();
+        self.changes_rx = None;
+        self.checked_out_ref_rx = None;
         self.history = None;
     }
 

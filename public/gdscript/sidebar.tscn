@@ -442,11 +442,10 @@ layout_mode = 2
 [node name="UserButton" type="Button" parent="VBoxContainer/HBoxContainer" unique_id=1059480308]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_horizontal = 10
 tooltip_text = "Change username."
 text = "Text sdf sdf sdfsdf"
 icon = ExtResource("3_m2w8q")
-text_overrun_behavior = 3
 script = ExtResource("20_lnig1")
 
 [node name="ConfirmationDialog" type="ConfirmationDialog" parent="." unique_id=302808494]
@@ -714,6 +713,44 @@ max_rotation_delta = 0.5
 max_scale_delta = 0.5
 max_changes_per_action = 20
 enabled_actions = Array[int]([0, 3])
+
+[node name="LocalChangesDialog" type="AcceptDialog" parent="." unique_id=1634509350]
+unique_name_in_owner = true
+oversampling_override = 1.0
+title = "Unsaved Local Changes"
+position = Vector2i(0, 36)
+size = Vector2i(555, 500)
+ok_button_text = "Save Changes to Backstitch"
+
+[node name="VBoxContainer" type="VBoxContainer" parent="LocalChangesDialog" unique_id=578130447]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 547.0
+offset_bottom = 451.0
+
+[node name="Label" type="Label" parent="LocalChangesDialog/VBoxContainer" unique_id=729450496]
+custom_minimum_size = Vector2(200, 20)
+layout_mode = 2
+text = "You have local changes that haven't been checked into Backstitch yet."
+autowrap_mode = 3
+
+[node name="LocalChanges" type="Tree" parent="LocalChangesDialog/VBoxContainer" unique_id=1493410761]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+columns = 2
+column_titles_visible = true
+hide_folding = true
+enable_recursive_folding = false
+enable_drag_unfolding = false
+hide_root = true
+select_mode = 1
+
+[node name="Label2" type="Label" parent="LocalChangesDialog/VBoxContainer" unique_id=1076599464]
+custom_minimum_size = Vector2(100, 20)
+layout_mode = 2
+text = "Would you like to discard these changes? Or check them into Backstitch for everyone? "
+autowrap_mode = 3
 
 [connection signal="toggled" from="VBoxContainer/StatusBar/MonkeyButton" to="." method="_on_monkey_button_toggled"]
 [connection signal="disabled_self" from="MonkeyTester" to="." method="_on_monkey_tester_disabled_self"]

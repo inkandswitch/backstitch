@@ -2,9 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
 use samod::DocumentId;
+use thiserror::Error;
 
 use crate::{
-    diff::differ::ProjectDiff, fs::file_utils::FileContent, helpers::history_ref::HistoryRef,
+    diff::differ::ProjectDiff,
+    fs::file_utils::FileContent,
+    helpers::{
+        history_ref::HistoryRef,
+        utils::{ChangeType, ChangedFile},
+    },
 };
 
 /// Represents synchronization status for a project.
@@ -17,6 +23,34 @@ pub enum SyncStatus {
     Syncing,
     /// The server is up to date with our changes, or the project is not started.
     UpToDate,
+}
+
+#[derive(Error, Debug)]
+pub enum ProjectStartError {
+    #[error("unknown error")]
+    Unknown,
+    #[error(
+        "we couldn't find a document of the given ID on your computer. We couldn't check online, since there wasn't a valid server URL provided."
+    )]
+    DocumentIdNotFoundLocally,
+    #[error(
+        "we couldn't find a document of the given ID on your computer, or at the provided server URL."
+    )]
+    DocumentIdNotFoundLocallyOrRemotely,
+
+    #[error(
+        "we couldn't find a document of the given ID on your computer. We tried the provided server URL, but it didn't connect."
+    )]
+    DocumentIdNotFoundLocallyAndServerDidNotConnect,
+
+    #[error(
+        "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \
+        The only supported schemes are tcp://, ws://, and wss://."
+    )]
+    ServerUrlInvalid(String),
+
+    #[error("the document ID {0} is invalid!")]
+    DocumentIdInvalid(String),
 }
 
 /// Defines the surface for the UI layer interacting with the GodotProject core logic.
@@ -46,9 +80,20 @@ pub trait ProjectViewModel {
     /// Get the current project [DocumentId], if it exists. Otherwise, return [None]
     fn get_project_id(&self) -> Option<DocumentId>;
     /// Creates a new project.
-    fn new_project(&mut self) -> Result<(), String>;
-    /// Loads a project, given a [DocumentId].
-    fn load_project(&mut self, id: &DocumentId) -> Result<(), String>;
+    fn new_project(&mut self) -> Result<(), ProjectStartError>;
+    /// Loads a project, given a [DocumentId]. If `autostart` is true, this is treated as automatically restarting a loaded project.
+    /// Otherwise, it behaves as if the user is loading into a project.
+    /// If this returns an error, it contains a helpful [ProjectStartError] error message that should be propagated to the user.
+    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError>;
+
+    /// Get the current unresolved local changes from the project.
+    /// We'll need to ask the user if they want to check these in.
+    fn local_changes(&self) -> Vec<ChangedFile>;
+
+    /// Check in the unresolved local changes to the project.
+    fn checkin_local_changes(&mut self);
+    /// Discard the local changes, reverting the project to its canonical state.
+    fn discard_local_changes(&mut self);
 
     /// Gets the current project [SyncStatus].
     fn get_sync_status(&self) -> SyncStatus;

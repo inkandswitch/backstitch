@@ -5,9 +5,10 @@ use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::BranchDb;
 use crate::project::change_ingester::ChangeIngester;
-use crate::project::connection::RemoteConnection;
+use crate::project::connection::{RemoteConnection, RemoteConnectionError};
 use crate::project::document_watcher::DocumentWatcher;
 use crate::project::fs::fs_index::FileSystemIndex;
+use crate::project::fs::fs_traversal::FileSystemTraversal;
 use crate::project::fs::sync_automerge_to_fs::SyncAutomergeToFileSystem;
 use crate::project::fs::sync_fs_to_automerge::SyncFileSystemToAutomerge;
 use crate::project::main_thread_block::MainThreadBlock;
@@ -53,16 +54,21 @@ pub struct DriverInner {
     fs_index: FileSystemIndex,
 
     // subtasks
-    #[allow(unused)]
-    connection: RemoteConnection,
+    connection: Arc<Mutex<Option<RemoteConnection>>>,
     branch_db: BranchDb,
     peer_watcher: Arc<PeerWatcher>,
     change_ingester: ChangeIngester,
-    #[allow(unused)]
-    document_watcher: DocumentWatcher,
+    document_watcher: Arc<Mutex<Option<DocumentWatcher>>>,
     sync_automerge_to_fs: SyncAutomergeToFileSystem,
     sync_fs_to_automerge: SyncFileSystemToAutomerge,
     differ: Differ,
+}
+
+pub enum ProjectLoadError {
+    Unknown,
+    DocumentIdNotFoundLocally,
+    DocumentIdNotFoundLocallyOrRemotely,
+    DocumentIdNotFoundLocallyAndServerDidNotConnect,
 }
 
 impl Drop for Driver {
@@ -95,17 +101,185 @@ impl Driver {
         gitignore.build().unwrap()
     }
 
+    /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
+    pub async fn start_connection(
+        &mut self,
+        server_url: &Url,
+    ) -> Result<(), RemoteConnectionError> {
+        if self.inner.connection.lock().await.is_some() {
+            return Ok(());
+        }
+        // Start the connection
+        tracing::info!("Starting server connection with url {:?}", server_url);
+        let connection = RemoteConnection::new(self.repo.clone(), server_url.clone()).await?;
+        let mut conn = self.inner.connection.lock().await;
+        *conn = Some(connection);
+        Ok(())
+    }
+
+    async fn get_metadata_handle(
+        &self,
+        metadata_id: &DocumentId,
+    ) -> Result<DocHandle, ProjectLoadError> {
+        // Before we continue, we must acquire a handle to the metadata document.
+        // There are three cases to handle:
+        //  a: The document exists on the local repository.
+        //  b: The document exists on the server, and not the local repository.
+        //  c: The document doesn't exist at all.
+
+        // First, we check the local repository. Or, if we're already connected, this also checks the remote.
+        if let Some(metadata_handle) = self
+            .repo
+            .find(metadata_id.clone())
+            .await
+            .map_err(|_| ProjectLoadError::Unknown)?
+        {
+            return Ok(metadata_handle);
+        }
+
+        // If our connection isn't even initialized, we just give up.
+        let connection = self.inner.connection.lock().await;
+        let Some(connection) = connection.as_ref() else {
+            return Err(ProjectLoadError::DocumentIdNotFoundLocally);
+        };
+
+        // Next, we make sure we're connected to the server
+        // If the hang gets annoying when starting, we could set this to 1 to reduce it to a minimum.
+        if !Self::ensure_server_connection(&connection, 3).await {
+            tracing::error!(
+                "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
+            );
+            return Err(ProjectLoadError::DocumentIdNotFoundLocallyAndServerDidNotConnect);
+        }
+
+        // Now that we know we're connected, try the find again.
+        if let Some(metadata_handle) = self
+            .repo
+            .find(metadata_id.clone())
+            .await
+            .map_err(|_| ProjectLoadError::Unknown)?
+        {
+            return Ok(metadata_handle);
+        }
+
+        return Err(ProjectLoadError::DocumentIdNotFoundLocallyOrRemotely);
+    }
+
+    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle) {
+        let mut doc_watcher = self.inner.document_watcher.lock().await;
+        *doc_watcher = Some(
+            DocumentWatcher::new(
+                self.repo.clone(),
+                self.inner.branch_db.clone(),
+                metadata_handle.clone(),
+            )
+            .await,
+        );
+    }
+
+    /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
+    pub async fn load_project(&mut self, metadata_id: &DocumentId) -> Result<(), ProjectLoadError> {
+        let metadata_handle = self.get_metadata_handle(metadata_id).await?;
+
+        // The document watcher will auto-ingest the provided metadata handle.
+        self.create_document_watcher(&metadata_handle).await;
+        Ok(())
+    }
+
+    pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
+        let metadata_handle = self.inner.branch_db.create_metadata_doc().await;
+        self.create_document_watcher(&metadata_handle).await;
+        // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
+        // This has to go after the document watcher ingests the metadata doc, of course.
+        self.inner.sync_fs_to_automerge.checkin().await;
+        Ok(())
+    }
+
+    async fn get_latest_ref_on_branch_or_main(
+        &self,
+        branch: Option<&DocumentId>,
+    ) -> Result<HistoryRef, ProjectLoadError> {
+        let branch = match branch {
+            Some(branch) => Some(branch.clone()),
+            None => self.get_main_branch().await,
+        }
+        .ok_or(ProjectLoadError::Unknown)?;
+
+        self.get_branch_db()
+            .get_latest_ref_on_branch(&branch)
+            .await
+            .ok_or(ProjectLoadError::Unknown)
+    }
+
+    pub async fn get_local_changes(
+        &self,
+        branch: Option<&DocumentId>,
+    ) -> Result<Vec<(String, ChangeType)>, ProjectLoadError> {
+        tracing::info!("Getting local changes...");
+        // TODO: Potential bug here; what if the shadow doc isn't ready? The document_watcher must ingest first...
+        let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
+
+        tracing::debug!("Getting canonical files...");
+        let canonical_files = self
+            .inner
+            .branch_db
+            .get_hash_index(&ref_)
+            .await
+            .ok_or(ProjectLoadError::Unknown)?;
+        let db_clone = self.get_branch_db().clone();
+        tracing::debug!("Getting current files...");
+        let current_files = FileSystemTraversal::get_all_files(
+            self.inner.branch_db.get_project_dir(),
+            &self.inner.fs_index,
+            move |path, is_dir| db_clone.should_ignore(&path.to_path_buf(), is_dir),
+        )
+        .await
+        .into_iter()
+        .map(|(k, v)| (self.inner.branch_db.localize_path(&k), v))
+        .collect();
+
+        Ok(
+            FileSystemTraversal::get_file_changes(canonical_files, current_files)
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    pub async fn commit_local_changes(
+        &self,
+        branch: Option<&DocumentId>,
+    ) -> Result<(), ProjectLoadError> {
+        let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
+        self.inner.sync_fs_to_automerge.commit(&ref_, true).await;
+        Ok(())
+    }
+
+    /// Begin the sync task. This will automatically check out the latest relevant ref, check in stuff from the FS,
+    /// and constantly try to check out the next correct ref. Make sure any local changes are resolved, since this
+    /// will reset all files to canonical.
+    pub async fn start_sync(&mut self, branch: Option<&DocumentId>) {
+        // TODO: protect this so it can't be started twice
+        // Spawn off the sync task
+        let inner_clone = self.inner.clone();
+        if let Some(branch) = branch {
+            self.request_checkout(branch);
+        }
+        spawn_named("Sync", async move {
+            inner_clone.sync_main().await;
+            tracing::info!("Sync shutting down");
+        });
+    }
+
     /// Creates a new instance of [Driver].
     /// Causes tasks to run in the background. To cancel everything, drop the handle.
     /// If we couldn't start the driver, [None] is returned.
+    ///
+    /// When starting the driver
     pub async fn new(
         main_thread_block: MainThreadBlock,
-        server_url: Option<Url>,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
-        metadata_id: Option<DocumentId>,
-        saved_branch_id: Option<DocumentId>,
     ) -> Option<Self> {
         let storage = samod::storage::TokioFilesystemStorage::new(&storage_directory);
         let repo = Repo::build_tokio()
@@ -120,17 +294,6 @@ impl Driver {
             .await
             .ok()?;
 
-        // Start the connection
-        // Terrible hack: If we're not provided a server URL, default to a garbage localhost URL.
-        let Some(connection) = RemoteConnection::new(
-            repo.clone(),
-            server_url.unwrap_or(Url::parse("tcp://localhost:9999").unwrap()),
-        )
-        .await
-        else {
-            tracing::error!("Could not start connection!");
-            return None;
-        };
         let git_ignore: Gitignore = Self::build_gitignore(&project_path);
         let branch_db = BranchDb::new(repo.clone(), project_path, git_ignore);
         branch_db
@@ -146,28 +309,6 @@ impl Driver {
         let sync_fs_to_automerge =
             SyncFileSystemToAutomerge::new(branch_db.clone(), fs_index.clone());
 
-        let metadata_handle = match &metadata_id {
-            // If we're expecting an existing ID, try and fetch it.
-            Some(id) => {
-                let Some(handle) = Self::get_metadata_handle(&repo, id, &connection).await else {
-                    return None;
-                };
-                handle
-            }
-            // If we need to make a new ID, make a doc and check in the initial state of the filesystem.
-            None => branch_db.create_metadata_doc().await,
-        };
-
-        // The document watcher will auto-ingest the provided metadata handle.
-        let document_watcher =
-            DocumentWatcher::new(repo.clone(), branch_db.clone(), metadata_handle).await;
-
-        // If this is a new project (i.e. we earlier made a metadata doc), check in the files.
-        // This has to go after the document watcher ingests the metadata doc, of course.
-        if metadata_id.is_none() {
-            sync_fs_to_automerge.checkin().await;
-        }
-
         let change_ingester = ChangeIngester::new(peer_watcher.clone(), branch_db.clone());
         change_ingester.request_ingestion();
         let differ = Differ::new(branch_db.clone());
@@ -179,7 +320,7 @@ impl Driver {
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
 
-        let this = Some(Driver {
+        Some(Driver {
             file_changes_rx,
             inner: Arc::new(DriverInner {
                 main_thread_block,
@@ -187,12 +328,12 @@ impl Driver {
                 ref_tx,
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
-                requested_checkout: Arc::new(Mutex::new(saved_branch_id)),
-                connection,
+                requested_checkout: Default::default(),
+                connection: Default::default(),
                 branch_db,
                 peer_watcher,
                 change_ingester,
-                document_watcher,
+                document_watcher: Default::default(),
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
                 differ,
@@ -200,15 +341,7 @@ impl Driver {
             }),
             repo,
             token,
-        });
-
-        // Spawn off the sync task
-        let inner_clone = this.as_ref().unwrap().inner.clone();
-        spawn_named("Sync", async move {
-            inner_clone.sync_main().await;
-            tracing::info!("Sync shutting down");
-        });
-        this
+        })
     }
 
     pub async fn set_username(&self, username: Option<String>) {
@@ -247,58 +380,6 @@ impl Driver {
     pub async fn request_checkout(&self, branch: &DocumentId) {
         let mut req = self.inner.requested_checkout.lock().await;
         *req = Some(branch.clone());
-    }
-
-    async fn get_metadata_handle(
-        repo: &Repo,
-        metadata_id: &DocumentId,
-        connection: &RemoteConnection,
-    ) -> Option<DocHandle> {
-        // TODO: This is awkward; instead it would be great to create a fake old document and have it updated from the server asynchronously.
-        // For now we must wait til the server connects, if we don't have the doc ID locally.
-        // Before we continue, we must acquire a handle to the metadata document.
-        // There are three cases to handle:
-        //  a: The document exists on the local repository.
-        //  b: The document exists on the server, and not the local repository.
-        //  c: The document doesn't exist at all.
-
-        // First, we check the local repository.
-        let Ok(metadata_handle) = repo.find(metadata_id.clone()).await else {
-            tracing::error!("Can't start the driver; the repo was immediately stopped!");
-            return None;
-        };
-
-        match metadata_handle {
-            // We found it locally, or the server connected REALLY quickly.
-            Some(metadata_handle) => Some(metadata_handle),
-            // We didn't find it locally. Try the server for a bit.
-            None => {
-                // If the hang gets annoying when starting, we could set this to 1 to reduce it to a minimum.
-                if !Self::ensure_server_connection(&connection, 3).await {
-                    tracing::error!(
-                        "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
-                    );
-                    return None;
-                }
-
-                // Try again on the server, if we were able to connect
-                match repo.find(metadata_id.clone()).await {
-                    Ok(Some(handle)) => Some(handle),
-                    Ok(None) => {
-                        tracing::error!(
-                            "Couldn't find the metadata doc handle, even after connecting to the server!"
-                        );
-                        return None;
-                    }
-                    Err(_) => {
-                        tracing::error!(
-                            "Can't start the driver; the repo was immediately stopped!"
-                        );
-                        return None;
-                    }
-                }
-            }
-        }
     }
 
     pub async fn fork_branch(&self, name: String, branch: &DocumentId) {
@@ -462,14 +543,6 @@ impl DriverInner {
 
         self.sync_correct_ref().await;
 
-        tracing::trace!("Attepmting to sync FS to automerge...");
-        // Apply any watched FS updates to Automerge.
-        // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-        let committed_changes = self.sync_fs_to_automerge.commit(false).await;
-        if !committed_changes.is_empty() {
-            self.change_ingester.request_ingestion();
-        }
-
         let new_checked_out_ref = self
             .branch_db
             .get_checked_out_ref_mut()
@@ -480,6 +553,13 @@ impl DriverInner {
         // If we've changed branches, send the new checked out ref.
         if let Some(ref_) = &new_checked_out_ref {
             tracing::trace!("CHECKED OUT REF: {}", ref_.branch());
+            tracing::trace!("Attepmting to sync FS to automerge...");
+            // Apply any watched FS updates to Automerge.
+            // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
+            let committed_changes = self.sync_fs_to_automerge.commit(&ref_, false).await;
+            if !committed_changes.is_empty() {
+                self.change_ingester.request_ingestion();
+            }
         } else {
             tracing::trace!("NO CHECKED OUT REF");
         }

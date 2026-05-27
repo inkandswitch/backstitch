@@ -134,13 +134,14 @@ func _on_branch_checked_out():
 	task_modal.end_task("Loading Backstitch")
 	init()
 
-func _on_create_failed():
+func _on_create_failed(message: String):
 	branch_checked_out.disconnect(_on_branch_checked_out)
 	GodotProject.create_failed.disconnect(_on_create_failed)
 	task_modal.end_task("Loading Backstitch")
 
+	# TODO: Turn this into an actual annoying popup
 	var toaster = EditorInterface.get_editor_toaster()
-	toaster.push_toast("Couldn't start the project! Check your server URL.");
+	toaster.push_toast("Couldn't start the project! Reason: %s" % message);
 
 # Asks the user for their username, if there is none stored.
 # If they cancel or close, returns false. If the username is confirmed, returns true.
@@ -235,6 +236,8 @@ func set_history_item_hash(item: TreeItem, value: String) -> void:
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
+
+	_setup_local_changes_dialog()
 
 	monkey_tester.enabled = false
 
@@ -355,6 +358,8 @@ func _try_init():
 func _process(delta: float) -> void:
 	if is_part_of_edited_scene():
 		return
+
+	_check_for_local_changes()
 
 	var checked_out_branch = GodotProject.get_checked_out_branch()
 	if checked_out_branch && checked_out_branch.id != last_seen_branch:
@@ -680,6 +685,13 @@ func update_history_tree():
 	# otherwise, ensure any invalid saved selection is reset
 	else:
 		history_saved_selection = null
+
+func _check_for_local_changes():
+	if GodotProject.local_changes().size() == 0: return
+	var dialog: AcceptDialog = %LocalChangesDialog
+	if dialog.visible: return
+	_popup_local_changes_dialog()
+
 
 func update_action_buttons():
 	if !GodotProject.has_project(): return
@@ -1021,3 +1033,36 @@ func _on_monkey_button_toggled(toggled_on: bool) -> void:
 
 func _on_monkey_tester_disabled_self(reason: String) -> void:
 	%MonkeyButton.button_pressed = false
+
+func _setup_local_changes_dialog() -> void:
+	var dialog: AcceptDialog = %LocalChangesDialog
+	dialog.add_button("Discard Local Changes", false, "discard_changes")
+	dialog.canceled.connect(_popup_local_changes_dialog)
+	dialog.custom_action.connect(_discard_changes)
+	dialog.confirmed.connect(_checkin_changes)
+
+	var tree: Tree = %LocalChanges
+	tree.set_column_title(0, "File")
+	tree.set_column_title(1, "Change")
+	tree.set_column_expand(0, true)
+	tree.set_column_expand(1, false)
+	tree.set_column_custom_minimum_width(1, 30)
+
+func _popup_local_changes_dialog() -> void:
+	%LocalChangesDialog.popup_centered()
+	var tree: Tree = %LocalChanges
+	tree.clear()
+	var local_changes = GodotProject.local_changes()
+	var root = tree.create_item()
+	for item in local_changes:
+		var i = tree.create_item(root)
+		i.set_text(0, item.path)
+		i.set_text(1, item.change_type)
+
+func _discard_changes() -> void:
+	%LocalChangesDialog.hide()
+	GodotProject.discard_local_changes()
+
+func _checkin_changes() -> void:
+	%LocalChangesDialog.hide()
+	GodotProject.checkin_local_changes()

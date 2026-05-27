@@ -65,22 +65,37 @@ impl DocumentWatcher {
 }
 
 impl DocumentWatcherInner {
-    // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
-    async fn track_branch_document(&self, id: DocumentId) {
+    async fn poll_document(repo: &Repo, id: &DocumentId, timeout: i32) -> Option<DocHandle> {
         // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
         // Permissive announce policies on the server fix it because the server is allowed to check with peers before
         // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
         // So, we need to call find() over and over until it is available on the server... then we can ingest.
         // Alex wants to add Repo::query(), that returns an ongoing query for a document rather than a future. Then, we can
         // improve this significantly.
-        let handle = loop {
-            tracing::info!("Polling for branch document {id}");
-            if let Some(handle) = self.repo.find(id.clone()).await.unwrap() {
-                break handle;
+        let mut time = 0;
+        loop {
+            if time > timeout {
+                break None;
             }
+            tracing::info!("Polling for document {id}");
+            if let Some(handle) = repo.find(id.clone()).await.unwrap() {
+                break Some(handle);
+            }
+            time += 500;
             tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
+    async fn track_branch_document(&self, id: DocumentId) {
+        let Some(handle) = Self::poll_document(&self.repo, &id, 10000).await else {
+            tracing::error!(
+                "Could not find branch document {id}, even after polling! Notfiying waiters with negative result."
+            );
+            // TODO: Actually notify waiters with negative result
+            return;
         };
-        
+
         self.ingest_branch_document(handle.clone()).await;
 
         let mut stream = handle.changes();
@@ -125,11 +140,9 @@ impl DocumentWatcherInner {
             return;
         }
         tokio::task::spawn(async move {
-            let handle = repo.find(doc_id.clone()).await;
+            let handle = Self::poll_document(&repo, &doc_id, 10000).await;
             // this may trigger a reconciliation for a shadow doc
-            branch_db
-                .ingest_binary_doc(doc_id, handle.ok().flatten())
-                .await;
+            branch_db.ingest_binary_doc(doc_id, handle).await;
         });
     }
 
@@ -184,7 +197,7 @@ impl DocumentWatcherInner {
             .update_branch_sync_state(handle, heads, linked_docs.values().cloned().collect())
             .await;
     }
-    
+
     #[tracing::instrument(skip_all, level = "trace")]
     async fn ingest_metadata_document(&self, handle: DocHandle) {
         // TODO: Stop tracking removed branches

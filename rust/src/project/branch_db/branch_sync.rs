@@ -45,7 +45,7 @@ impl BranchDb {
     pub async fn get_checked_out_ref(&self) -> Option<HistoryRef> {
         return self.checked_out_ref.read().await.clone();
     }
-    
+
     pub fn subscribe_doc_changes(&self) -> impl Stream<Item = ()> {
         let s = self.branch_change_tx.subscribe();
         return BroadcastStream::new(s).filter_map(async |f| f.ok());
@@ -90,6 +90,7 @@ impl BranchDb {
         tracing::debug!("Ingesting binary doc {id}...");
         let mut binary_states = self.binary_states.lock().await;
         if handle.is_none() {
+            // If this happens it could trigger a delete... but that's going to have to be OK.
             tracing::error!(
                 "Could not fetch binary document {:?}! Notifying waiters anyways.",
                 id

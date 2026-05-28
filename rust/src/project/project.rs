@@ -3,7 +3,7 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
-use crate::helpers::utils::{ChangeType, ChangedFile, CommitInfo};
+use crate::helpers::utils::{ChangedFile, CommitInfo};
 use crate::interop::godot_accessors::{
     BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
 };
@@ -171,7 +171,7 @@ impl Project {
             Err(e) => {
                 match e {
                     // If it wasn't found locally, that's OK, we try to connect first
-                    ProjectLoadError::DocumentIdNotFoundLocally => (),
+                    ProjectLoadError::MetadataIdNotFoundLocally => (),
                     _ => return Err(ProjectStartError::Unknown), // this shouldn't happen
                 }
             }
@@ -189,15 +189,16 @@ impl Project {
         driver.load_project(metadata_id).await.map_err(|e| {
             match e {
                 ProjectLoadError::Unknown => ProjectStartError::Unknown,
-                ProjectLoadError::DocumentIdNotFoundLocally => {
+                ProjectLoadError::MetadataIdNotFoundLocally => {
                     ProjectStartError::DocumentIdNotFoundLocally
                 } // this shouldn't happen at this stage
-                ProjectLoadError::DocumentIdNotFoundLocallyOrRemotely => {
+                ProjectLoadError::MetadataIdNotFoundLocallyOrRemotely => {
                     ProjectStartError::DocumentIdNotFoundLocallyOrRemotely
                 }
-                ProjectLoadError::DocumentIdNotFoundLocallyAndServerDidNotConnect => {
+                ProjectLoadError::MetadataIdNotFoundLocallyAndServerDidNotConnect => {
                     ProjectStartError::DocumentIdNotFoundLocallyAndServerDidNotConnect
                 }
+                ProjectLoadError::BranchIdNotFound => ProjectStartError::Unknown,
             }
         })?;
         tracing::info!("Successfully found project remotely!");
@@ -273,11 +274,13 @@ impl Project {
         // TODO: Don't block on main thread for checkin
         let mode_clone = mode.clone();
         let server_url_clone = server_url.clone();
+        tracing::debug!("Attempting to create driver...");
         let (driver, local_changes, found_locally) = self
             .runtime
             .block_on(
                 // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
                 spawn_named_on("Create driver", self.runtime.handle(), async move {
+                    tracing::debug!("Creating driver...");
                     let Some(mut driver) =
                         Driver::new(block, project_dir, username, storage_dir).await
                     else {

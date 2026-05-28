@@ -87,8 +87,6 @@ impl SyncFileSystemToAutomerge {
     /// Returns true on success.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn commit(&self, ref_: &HistoryRef, force: bool) -> HashSet<PathBuf> {
-        // Because we always change the checked out ref after committing, we need to lock this in write mode.
-        let r = self.branch_db.get_checked_out_ref_mut();
         let mut pending_changes = self.pending_changes.lock().await;
 
         if !force && pending_changes.is_empty() {

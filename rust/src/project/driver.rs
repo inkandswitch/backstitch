@@ -6,7 +6,7 @@ use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::BranchDb;
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
-use crate::project::document_watcher::DocumentWatcher;
+use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::FileSystemIndex;
 use crate::project::fs::fs_traversal::FileSystemTraversal;
 use crate::project::fs::sync_automerge_to_fs::SyncAutomergeToFileSystem;
@@ -66,9 +66,10 @@ pub struct DriverInner {
 
 pub enum ProjectLoadError {
     Unknown,
-    DocumentIdNotFoundLocally,
-    DocumentIdNotFoundLocallyOrRemotely,
-    DocumentIdNotFoundLocallyAndServerDidNotConnect,
+    MetadataIdNotFoundLocally,
+    MetadataIdNotFoundLocallyOrRemotely,
+    MetadataIdNotFoundLocallyAndServerDidNotConnect,
+    BranchIdNotFound,
 }
 
 impl Drop for Driver {
@@ -140,7 +141,7 @@ impl Driver {
         // If our connection isn't even initialized, we just give up.
         let connection = self.inner.connection.lock().await;
         let Some(connection) = connection.as_ref() else {
-            return Err(ProjectLoadError::DocumentIdNotFoundLocally);
+            return Err(ProjectLoadError::MetadataIdNotFoundLocally);
         };
 
         // Next, we make sure we're connected to the server
@@ -149,7 +150,7 @@ impl Driver {
             tracing::error!(
                 "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
             );
-            return Err(ProjectLoadError::DocumentIdNotFoundLocallyAndServerDidNotConnect);
+            return Err(ProjectLoadError::MetadataIdNotFoundLocallyAndServerDidNotConnect);
         }
 
         // Now that we know we're connected, try the find again.
@@ -162,7 +163,7 @@ impl Driver {
             return Ok(metadata_handle);
         }
 
-        return Err(ProjectLoadError::DocumentIdNotFoundLocallyOrRemotely);
+        return Err(ProjectLoadError::MetadataIdNotFoundLocallyOrRemotely);
     }
 
     async fn create_document_watcher(&mut self, metadata_handle: &DocHandle) {
@@ -205,8 +206,27 @@ impl Driver {
         }
         .ok_or(ProjectLoadError::Unknown)?;
 
+        // are we allowed to hold this mutex over the await?? I think so?
+        let doc_watcher = self.inner.document_watcher.lock().await;
+
+        let watcher = doc_watcher.as_ref().ok_or_else(|| {
+            tracing::error!("The document watcher must be initialized before calling this method");
+            ProjectLoadError::Unknown
+        })?;
+
+        tracing::debug!("Waiting for branch ingest...");
+        let res = watcher.wait_for_branch_ingest(&branch).await;
+
+        tracing::debug!("Branch ingest result: {:?}", res);
+        res.map_err(|e| match e {
+            IngestWaitError::NotTracked => ProjectLoadError::BranchIdNotFound,
+            IngestWaitError::TimedOut => ProjectLoadError::BranchIdNotFound,
+            IngestWaitError::Unknown => ProjectLoadError::Unknown,
+        })?;
+
+        // Using canonical here means we're allowed to do this work before the shadow doc is ready (i.e. all binary docs have checked in)
         self.get_branch_db()
-            .get_latest_ref_on_branch(&branch)
+            .get_latest_canonical_ref_on_branch(&branch)
             .await
             .ok_or(ProjectLoadError::Unknown)
     }
@@ -216,8 +236,14 @@ impl Driver {
         branch: Option<&DocumentId>,
     ) -> Result<Vec<(String, ChangeType)>, ProjectLoadError> {
         tracing::info!("Getting local changes...");
-        // TODO: Potential bug here; what if the shadow doc isn't ready? The document_watcher must ingest first...
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
+
+        // For an accurate hash index, we have to wait on the shadow doc.
+        // This ensures that any binary docs are fully loaded, so if we gotta manually hash anything it's OK.
+        self.get_branch_db()
+            .wait_for_shadow_doc(ref_.branch())
+            .await
+            .map_err(|_| ProjectLoadError::Unknown)?;
 
         tracing::debug!("Getting canonical files...");
         let canonical_files = self
@@ -225,7 +251,10 @@ impl Driver {
             .branch_db
             .get_hash_index(&ref_)
             .await
-            .ok_or(ProjectLoadError::Unknown)?;
+            .ok_or_else(|| {
+                tracing::debug!("Couldn't get canonical file hash index!");
+                ProjectLoadError::Unknown
+            })?;
         let db_clone = self.get_branch_db().clone();
         tracing::debug!("Getting current files...");
         let current_files = FileSystemTraversal::get_all_files(
@@ -238,6 +267,8 @@ impl Driver {
         .map(|(k, v)| (self.inner.branch_db.localize_path(&k), v))
         .collect();
 
+        tracing::debug!("Canonical file fetch complete.");
+
         Ok(
             FileSystemTraversal::get_file_changes(canonical_files, current_files)
                 .into_iter()
@@ -249,7 +280,9 @@ impl Driver {
         &self,
         branch: Option<&DocumentId>,
     ) -> Result<(), ProjectLoadError> {
+        tracing::debug!("Getting ref for local changes commit...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
+        tracing::debug!("Committing local changes...");
         self.inner.sync_fs_to_automerge.commit(&ref_, true).await;
         Ok(())
     }
@@ -262,7 +295,7 @@ impl Driver {
         // Spawn off the sync task
         let inner_clone = self.inner.clone();
         if let Some(branch) = branch {
-            self.request_checkout(branch);
+            self.request_checkout(branch).await;
         }
         spawn_named("Sync", async move {
             inner_clone.sync_main().await;

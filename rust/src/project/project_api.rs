@@ -7,10 +7,7 @@ use thiserror::Error;
 use crate::{
     diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
-    helpers::{
-        history_ref::HistoryRef,
-        utils::{ChangeType, ChangedFile},
-    },
+    helpers::{history_ref::HistoryRef, utils::ChangedFile},
 };
 
 /// Represents synchronization status for a project.

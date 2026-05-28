@@ -172,7 +172,9 @@ func _on_load_project_button_pressed():
 		return
 
 	GodotProject.load_project(doc_id);
-	await wait_for_checked_out_branch()
+	
+	if not _check_for_local_changes():
+		await wait_for_checked_out_branch()
 
 func update_init_panel():
 	var has_project = GodotProject.has_project()
@@ -686,11 +688,12 @@ func update_history_tree():
 	else:
 		history_saved_selection = null
 
-func _check_for_local_changes():
-	if GodotProject.local_changes().size() == 0: return
+func _check_for_local_changes() -> bool:
+	if GodotProject.local_changes().size() == 0: return false
 	var dialog: AcceptDialog = %LocalChangesDialog
-	if dialog.visible: return
+	if dialog.visible: return true
 	_popup_local_changes_dialog()
+	return true
 
 
 func update_action_buttons():
@@ -1046,7 +1049,9 @@ func _setup_local_changes_dialog() -> void:
 	tree.set_column_title(1, "Change")
 	tree.set_column_expand(0, true)
 	tree.set_column_expand(1, false)
-	tree.set_column_custom_minimum_width(1, 30)
+	tree.set_column_title_alignment(0, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
+	tree.set_column_title_alignment(1, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
+	tree.set_column_custom_minimum_width(1, 60)
 
 func _popup_local_changes_dialog() -> void:
 	%LocalChangesDialog.popup_centered()
@@ -1056,13 +1061,14 @@ func _popup_local_changes_dialog() -> void:
 	var root = tree.create_item()
 	for item in local_changes:
 		var i = tree.create_item(root)
-		i.set_text(0, item.path)
-		i.set_text(1, item.change_type)
+		i.set_text(0, item[0])
+		i.set_text(1, item[1])
 
-func _discard_changes() -> void:
+func _discard_changes(_action: String) -> void:
 	%LocalChangesDialog.hide()
 	GodotProject.discard_local_changes()
 
 func _checkin_changes() -> void:
 	%LocalChangesDialog.hide()
 	GodotProject.checkin_local_changes()
+	await wait_for_checked_out_branch()

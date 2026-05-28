@@ -9,8 +9,8 @@ use crate::{
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, ChangeType, ChangedFile, CommitInfo, DiffWrapper,
-            exact_human_readable_timestamp, human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
+            human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,

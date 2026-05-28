@@ -51,6 +51,28 @@ impl BranchDb {
         Some(HistoryRef::new(branch.clone(), heads))
     }
 
+    /// Get the most recent ref on a given branch (on the canonical doc).
+    pub async fn get_latest_canonical_ref_on_branch(
+        &self,
+        branch: &DocumentId,
+    ) -> Option<HistoryRef> {
+        let sync_states = self.branch_sync_states.lock().await;
+        let Some(state) = sync_states.get(branch).cloned() else {
+            tracing::error!(
+                "Branch not found in sync states! Unable to run get_latest_canonical_ref_on_branch."
+            );
+            return None;
+        };
+        drop(sync_states);
+
+        let st = state.lock().await;
+        let handle = st.canonical_doc.clone();
+        let heads = tokio::task::spawn_blocking(move || handle.with_document(|d| d.get_heads()))
+            .await
+            .ok()?;
+        Some(HistoryRef::new(branch.clone(), heads))
+    }
+
     pub async fn get_main_branch(&self) -> Option<DocumentId> {
         let Some((_, metadata)) = self.get_metadata_state().await else {
             tracing::error!("Couldn't get main branch; no metadata doc.");

@@ -1,10 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use futures::future::join_all;
-use tracing::Instrument;
-
 use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent},
+    fs::file_utils::FileContent,
     helpers::{history_ref::HistoryRef, utils::ChangeType},
     project::{
         branch_db::BranchDb,

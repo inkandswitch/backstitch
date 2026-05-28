@@ -4,8 +4,8 @@ use std::fs::Metadata;
 use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use tokio::fs::{self, File};
-use tokio::io::{self, AsyncReadExt};
+use tokio::fs::{self};
+use tokio::io::{self};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 use wincode::{SchemaRead, SchemaWrite};
@@ -111,7 +111,7 @@ impl FileSystemIndex {
             }
         }
 
-        version.insert("version", current_version);
+        let _ = version.insert("version", current_version);
 
         Ok(db)
     }

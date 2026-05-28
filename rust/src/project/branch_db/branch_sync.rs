@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use automerge::{Automerge, ChangeHash};
 use futures::{Stream, StreamExt};
 use samod::{DocHandle, DocumentId};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct BranchSyncState {
     pub shadow_doc: Option<Automerge>,
+    shadow_doc_init_tx: watch::Sender<bool>,
     pub canonical_doc: DocHandle,
     /// The most up-to-date heads we've seen on the canonical doc
     pub last_tracked: Vec<ChangeHash>,
@@ -23,10 +24,16 @@ pub(super) struct BranchSyncState {
     // TODO (Lilith): Figure out a way to reconcile fully synced heads prior to the most recent unsynced heads, if needed.
 }
 
+pub enum ShadowDocWaitError {
+    BranchNotIngested,
+    Unknown,
+}
+
 impl BranchSyncState {
     pub fn new(handle: DocHandle) -> Self {
         Self {
             shadow_doc: None,
+            shadow_doc_init_tx: watch::Sender::new(false),
             canonical_doc: handle,
             last_reconciled: Vec::new(),
             last_tracked: Vec::new(),
@@ -76,6 +83,27 @@ impl BranchDb {
         };
         // if the shadow doc has heads, we have at least 1 fully synced commit, which qualifies
         !shadow_doc.get_heads().is_empty()
+    }
+
+    pub async fn wait_for_shadow_doc(&self, branch: &DocumentId) -> Result<(), ShadowDocWaitError> {
+        let mut rx = {
+            let states = self.branch_sync_states.lock().await;
+            let state = states
+                .get(branch)
+                .ok_or(ShadowDocWaitError::BranchNotIngested)?;
+            let state = state.lock().await;
+            state.shadow_doc_init_tx.subscribe()
+        };
+
+        let current = rx.borrow_and_update().clone();
+        if current {
+            return Ok(());
+        }
+        rx.changed()
+            .await
+            .map_err(|_| ShadowDocWaitError::Unknown)?;
+
+        Ok(())
     }
 
     /// Returns true if a binary doc is fully loaded onto the BranchDb.
@@ -221,6 +249,7 @@ impl BranchDb {
             state.last_reconciled = new_heads.clone();
             state.last_tracked = new_heads;
             tracing::debug!("Reconcile completed.");
+            let _ = state.shadow_doc_init_tx.send_replace(true);
             let _ = doc_change_tx.send(());
         })
         .await

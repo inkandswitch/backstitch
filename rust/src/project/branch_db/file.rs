@@ -205,6 +205,7 @@ impl BranchDb {
         filters: &HashSet<String>,
     ) -> Option<HashMap<String, FileContent>> {
         tracing::info!("Getting files at ref {:?}", desired_ref);
+        tracing::debug!("Filters: {:?}", filters);
         let mut files = HashMap::new();
         let mut linked_doc_ids = Vec::new();
 

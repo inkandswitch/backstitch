@@ -52,6 +52,8 @@ impl FileSystemTraversal {
                 async move { index.get_hash(&file).await.map(|hash| (file, hash)) }
             })
             .buffer_unordered(64)
+            // TODO: Propagate hash errors upwards... once we figure out what to do with these.
+            // In case of hash retrieval failure, we don't want it to read the file as deleted.
             .filter_map(|r| async move { r.ok() })
             .collect()
             .instrument(tracing::info_span!("Hashing files"))

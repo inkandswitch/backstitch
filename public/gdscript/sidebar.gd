@@ -1051,7 +1051,7 @@ func _setup_local_changes_dialog() -> void:
 	tree.set_column_expand(1, false)
 	tree.set_column_title_alignment(0, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
 	tree.set_column_title_alignment(1, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
-	tree.set_column_custom_minimum_width(1, 60)
+	tree.set_column_custom_minimum_width(1, 80)
 
 func _popup_local_changes_dialog() -> void:
 	%LocalChangesDialog.popup_centered()

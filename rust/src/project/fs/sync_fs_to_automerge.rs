@@ -191,7 +191,7 @@ impl SyncFileSystemToAutomerge {
         files: &HashSet<PathBuf>,
     ) -> Vec<(String, Option<FileContent>)> {
         stream::iter(files)
-            .then(|path| async move {
+            .map(|path| async move {
                 let exists = tokio::fs::try_exists(path).await?;
                 // If it doesn't exist, the file is removed.
                 if !exists {
@@ -204,6 +204,7 @@ impl SyncFileSystemToAutomerge {
                     )
                 })
             })
+            .buffer_unordered(64)
             .filter_map(|x| async { x.ok() })
             .collect()
             .await

@@ -130,8 +130,8 @@ impl SyncFileSystemToAutomerge {
         }
 
         tracing::debug!("Current changes: {:?}", diff);
-        let keys = diff.into_keys().collect();
-        let contents = self.get_file_contents(&keys).await;
+        let keys: HashSet<PathBuf> = diff.into_keys().collect();
+        let contents = self.get_file_contents(keys.clone()).await;
 
         pending_changes.clear();
 
@@ -171,7 +171,7 @@ impl SyncFileSystemToAutomerge {
         .await;
 
         let contents = self
-            .get_file_contents(&current_files.into_keys().collect())
+            .get_file_contents(current_files.into_keys().collect())
             .await;
 
         let new_ref = self
@@ -188,18 +188,18 @@ impl SyncFileSystemToAutomerge {
 
     async fn get_file_contents(
         &self,
-        files: &HashSet<PathBuf>,
+        files: HashSet<PathBuf>,
     ) -> Vec<(String, Option<FileContent>)> {
         stream::iter(files)
             .map(|path| async move {
-                let exists = tokio::fs::try_exists(path).await?;
+                let exists = tokio::fs::try_exists(&path).await?;
                 // If it doesn't exist, the file is removed.
                 if !exists {
-                    return Ok((self.branch_db.localize_path(path), None));
+                    return Ok((self.branch_db.localize_path(&path), None));
                 }
-                tokio::fs::read(path).await.map(|data| {
+                tokio::fs::read(&path).await.map(|data| {
                     (
-                        self.branch_db.localize_path(path),
+                        self.branch_db.localize_path(&path),
                         Some(FileContent::from_buf(data)),
                     )
                 })

@@ -293,6 +293,13 @@ impl ProjectViewModel for Project {
             return SyncStatus::Unknown;
         };
         let is_connected = info.last_received.is_some();
+
+        tracing::debug!(
+            "last_acked_heads: {:?}, current heads: {:?}",
+            status.last_acked_heads,
+            ref_.heads()
+        );
+
         if status
             .last_acked_heads
             .as_ref()

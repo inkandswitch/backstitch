@@ -274,12 +274,12 @@ impl ProjectViewModel for Project {
 
         let Some((info, ref_)) =
             self.with_driver_blocking("Print sync debug", |driver| async move {
-                let info = driver.as_ref()?.get_connection_info().await?;
-                let ref_ = driver
-                    .as_ref()?
-                    .get_branch_db()
-                    .get_checked_out_ref()
-                    .await?;
+                let d = driver.as_ref()?;
+                let info = d.get_connection_info().await?;
+                let branch_db = d.get_branch_db();
+                let r#ref = branch_db.get_checked_out_ref().await?;
+                // don't use checked out ref, because that might be updated too late! we care about what's synced here, not what's checked out
+                let ref_ = branch_db.get_latest_ref_on_branch(r#ref.branch()).await?;
                 Some((info, ref_))
             })
         else {

@@ -188,6 +188,7 @@ func update_init_panel():
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
+	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
 
 
 func _share_available() -> bool:

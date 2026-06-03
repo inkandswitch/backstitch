@@ -45,6 +45,7 @@ struct DocumentWatcherInner {
     branch_db: BranchDb,
     tracked_branches: Arc<Mutex<HashMap<DocumentId, watch::Sender<BranchIngestState>>>>,
     token: CancellationToken,
+    poll_time: u64,
 }
 
 impl Drop for DocumentWatcher {
@@ -55,12 +56,18 @@ impl Drop for DocumentWatcher {
 
 impl DocumentWatcher {
     /// Spawns the [DocumentWatcher], creating parallel tasks for the metadata document tracking and subsequent tasks for any child documents.
-    pub async fn new(repo: Repo, branch_db: BranchDb, metadata_handle: DocHandle) -> Self {
+    pub async fn new(
+        repo: Repo,
+        branch_db: BranchDb,
+        metadata_handle: DocHandle,
+        poll_time: u64,
+    ) -> Self {
         let inner = Arc::new(DocumentWatcherInner {
             branch_db,
             repo,
             tracked_branches: Default::default(),
             token: CancellationToken::new(),
+            poll_time,
         });
 
         let inner_clone = inner.clone();
@@ -79,11 +86,11 @@ impl DocumentWatcher {
     }
 
     /// Subscribe to a one-shot document ingestion. If the document has already ingested, immediately resolves.
+    /// Doesn't look for binary docs -- those could still be broken (they're *allowed* to be... it's just bad.)
+    /// Branches aren't allowed to be broken at all.
     pub async fn wait_for_branch_ingest(&self, branch: &DocumentId) -> Result<(), IngestWaitError> {
         let mut rx: watch::Receiver<BranchIngestState> = {
-            tracing::debug!("here1");
             let branches = self.inner.tracked_branches.lock().await;
-            tracing::debug!("here2");
             let tx = branches.get(branch).ok_or(IngestWaitError::NotTracked)?;
             let rx = tx.subscribe();
             rx
@@ -102,30 +109,37 @@ impl DocumentWatcher {
 }
 
 impl DocumentWatcherInner {
-    async fn poll_document(repo: &Repo, id: &DocumentId, timeout: i32) -> Option<DocHandle> {
+    async fn poll_document(repo: &Repo, id: &DocumentId, timeout: u64) -> Option<DocHandle> {
         // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
         // Permissive announce policies on the server fix it because the server is allowed to check with peers before
         // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
         // So, we need to call find() over and over until it is available on the server... then we can ingest.
-        // Alex wants to add Repo::query(), that returns an ongoing query for a document rather than a future. Then, we can
-        // improve this significantly.
-        let mut time = 0;
+        // Alex wants to add a search API: https://github.com/alexjg/samod/pull/95
+        // Once that search API is complete, we can instead timeout like usual instead of spamming find().
+        let mut time = 0u64;
+        let duration = 5000u64;
         loop {
-            if time > timeout {
-                break None;
-            }
-            tracing::info!("Polling for document {id}");
             if let Some(handle) = repo.find(id.clone()).await.unwrap() {
                 break Some(handle);
             }
-            time += 500;
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            time += duration;
+            if time > timeout {
+                break None;
+            }
+            let _ = tokio::time::sleep(Duration::from_millis(duration)).await;
+            // TODO: trace! this, it's annoying
+            tracing::info!("Polling for document {id}");
         }
     }
 
     // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
     async fn track_branch_document(&self, id: DocumentId) {
-        let Some(handle) = Self::poll_document(&self.repo, &id, 30000).await else {
+        let handle = select! {
+            _ = self.token.cancelled() => return,
+            handle = Self::poll_document(&self.repo, &id, self.poll_time) => handle
+        };
+
+        let Some(handle) = handle else {
             tracing::error!(
                 "Could not find branch document {id}, even after polling! Notfiying waiters with negative result."
             );
@@ -187,10 +201,16 @@ impl DocumentWatcherInner {
         if branch_db.has_binary_doc(&doc_id).await {
             return;
         }
+        let poll_time = self.poll_time;
+        let token = self.token.clone();
         tokio::task::spawn(async move {
-            let handle = Self::poll_document(&repo, &doc_id, 30000).await;
-            // this may trigger a reconciliation for a shadow doc
-            branch_db.ingest_binary_doc(doc_id, handle).await;
+            select! {
+                _ = token.cancelled() => {}
+                handle = Self::poll_document(&repo, &doc_id, poll_time) => {
+                    // this may trigger a reconciliation for a shadow doc
+                    branch_db.ingest_binary_doc(doc_id, handle).await;
+                }
+            }
         });
     }
 

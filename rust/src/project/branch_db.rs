@@ -1,15 +1,11 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use samod::{DocHandle, DocumentId, Repo};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
-    helpers::{branch::{BranchesMetadataDoc}, history_ref::HistoryRef},
-    project::branch_db::{branch_sync::BranchSyncState},
+    helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
+    project::branch_db::branch_sync::BranchSyncState,
 };
 
 mod branch;
@@ -19,6 +15,17 @@ mod file;
 mod merge_revert;
 mod util;
 use ignore::gitignore::Gitignore;
+
+pub enum CanonicalBranchStatus {
+    Pending,
+    BranchNotIngested,
+    BinaryDocNotFound,
+    Healthy,
+}
+pub enum ShadowDocWaitError {
+    BranchNotIngested,
+    Unknown,
+}
 
 /// [BranchDb] is the primary data source for project data.
 /// It stores the project state, and provides a handful of convenient state-manipulation methods for controllers to use.
@@ -40,7 +47,7 @@ pub struct BranchDb {
     checked_out_ref: Arc<RwLock<Option<HistoryRef>>>,
 
     // Notified whenever we make or ingest changes to a branch
-    branch_change_tx: broadcast::Sender<()>
+    branch_change_tx: broadcast::Sender<()>,
 }
 
 impl BranchDb {
@@ -55,7 +62,7 @@ impl BranchDb {
             metadata_state: Default::default(),
             checked_out_ref: Default::default(),
             branch_sync_states: Default::default(),
-            branch_change_tx: tx
+            branch_change_tx: tx,
         }
     }
 

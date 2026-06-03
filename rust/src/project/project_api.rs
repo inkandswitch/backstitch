@@ -27,18 +27,14 @@ pub enum ProjectStartError {
     #[error("unknown error")]
     Unknown,
     #[error(
-        "we couldn't find a document of the given ID on your computer. We couldn't check online, since there wasn't a valid server URL provided."
+        "we couldn't find a document of the given ID on your computer or on the provided server"
     )]
-    DocumentIdNotFoundLocally,
-    #[error(
-        "we couldn't find a document of the given ID on your computer, or at the provided server URL."
-    )]
-    DocumentIdNotFoundLocallyOrRemotely,
+    DocumentIdNotFound,
 
     #[error(
-        "we couldn't find a document of the given ID on your computer. We tried the provided server URL, but it didn't connect."
+        "we couldn't find the referenced main branch on your computer or on the provided server"
     )]
-    DocumentIdNotFoundLocallyAndServerDidNotConnect,
+    MainBranchNotFound,
 
     #[error(
         "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \

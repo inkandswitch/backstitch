@@ -3,7 +3,7 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
-use crate::project::branch_db::BranchDb;
+use crate::project::branch_db::{BranchDb, CanonicalBranchStatus};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use thiserror::Error;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -64,12 +65,34 @@ pub struct DriverInner {
     differ: Differ,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum ProjectLoadServerStatus {
+    Connected,
+    Disconnected,
+    Error,
+}
+
+/// This requires a fairly complex error type, because the overall success is dependent on whether we connect the server or not.
+#[derive(Error, Debug)]
 pub enum ProjectLoadError {
+    #[error("unknown error")]
     Unknown,
-    MetadataIdNotFoundLocally,
-    MetadataIdNotFoundLocallyOrRemotely,
-    MetadataIdNotFoundLocallyAndServerDidNotConnect,
-    BranchIdNotFound,
+    #[error("a metadata document matching the ID was not found. Server status: {server_status:?}")]
+    MetadataIdNotFound {
+        server_status: ProjectLoadServerStatus,
+    },
+
+    #[error("the requested branch document was not found. Server status: {server_status:?}")]
+    BranchDocNotFound {
+        server_status: ProjectLoadServerStatus,
+    },
+
+    #[error(
+        "one or more linked binary document ID was not found. Server status: {server_status:?}"
+    )]
+    BinaryDocNotFound {
+        server_status: ProjectLoadServerStatus,
+    },
 }
 
 impl Drop for Driver {
@@ -141,7 +164,9 @@ impl Driver {
         // If our connection isn't even initialized, we just give up.
         let connection = self.inner.connection.lock().await;
         let Some(connection) = connection.as_ref() else {
-            return Err(ProjectLoadError::MetadataIdNotFoundLocally);
+            return Err(ProjectLoadError::MetadataIdNotFound {
+                server_status: ProjectLoadServerStatus::Disconnected,
+            });
         };
 
         // Next, we make sure we're connected to the server
@@ -150,7 +175,9 @@ impl Driver {
             tracing::error!(
                 "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
             );
-            return Err(ProjectLoadError::MetadataIdNotFoundLocallyAndServerDidNotConnect);
+            return Err(ProjectLoadError::MetadataIdNotFound {
+                server_status: ProjectLoadServerStatus::Error,
+            });
         }
 
         // Now that we know we're connected, try the find again.
@@ -163,33 +190,115 @@ impl Driver {
             return Ok(metadata_handle);
         }
 
-        return Err(ProjectLoadError::MetadataIdNotFoundLocallyOrRemotely);
+        return Err(ProjectLoadError::MetadataIdNotFound {
+            server_status: ProjectLoadServerStatus::Connected,
+        });
     }
 
-    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle) {
+    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle, poll_time: u64) {
         let mut doc_watcher = self.inner.document_watcher.lock().await;
+
+        // If there's an existing doc watcher, this'll drop it and cancel.
         *doc_watcher = Some(
             DocumentWatcher::new(
                 self.repo.clone(),
                 self.inner.branch_db.clone(),
                 metadata_handle.clone(),
+                poll_time,
             )
             .await,
         );
     }
 
     /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
-    pub async fn load_project(&mut self, metadata_id: &DocumentId) -> Result<(), ProjectLoadError> {
+    pub async fn load_project(
+        &mut self,
+        metadata_id: &DocumentId,
+        branch_id: Option<&DocumentId>,
+    ) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.get_metadata_handle(metadata_id).await?;
 
+        // clear old load data, in case we're retrying after a failure
+        let mut doc_watcher = self.inner.document_watcher.lock().await;
+        *doc_watcher = None;
+        drop(doc_watcher);
+        self.get_branch_db().clear_branch_states().await;
+
+        let server_status = if self.inner.connection.lock().await.is_some() {
+            ProjectLoadServerStatus::Connected
+        } else {
+            ProjectLoadServerStatus::Disconnected
+        };
+
         // The document watcher will auto-ingest the provided metadata handle.
-        self.create_document_watcher(&metadata_handle).await;
-        Ok(())
+        if server_status == ProjectLoadServerStatus::Connected {
+            self.create_document_watcher(&metadata_handle, 30000).await;
+        } else {
+            // Poll time 0 means zero polling -- good for local documents.
+            self.create_document_watcher(&metadata_handle, 0).await;
+        }
+
+        let doc_watcher = self.inner.document_watcher.lock().await;
+        let watcher = doc_watcher
+            .as_ref()
+            .expect("Failed to create doc watcher??!?!");
+
+        // replace branch_id with main from metadata
+        let branch_id = match branch_id {
+            Some(branch) => Some(branch.clone()),
+            None => self.get_main_branch().await,
+        }
+        .ok_or(ProjectLoadError::Unknown)?;
+
+        // Wait until we've completely finished polling the branch
+        tracing::debug!("Waiting for branch to ingest...");
+        watcher
+            .wait_for_branch_ingest(&branch_id)
+            .await
+            .map_err(|e| match e {
+                IngestWaitError::NotTracked => {
+                    tracing::error!("The provided branch document wasn't in the metadata document, so we can't possibly ingest it!");
+                    ProjectLoadError::BranchDocNotFound { server_status: server_status.clone() }
+                },
+                IngestWaitError::TimedOut => {
+                    tracing::error!("The provided branch document timed out while trying to get...");
+                    ProjectLoadError::BranchDocNotFound { server_status: server_status.clone() }
+                },
+                IngestWaitError::Unknown => ProjectLoadError::Unknown,
+            })?;
+
+        // The binary docs might still be screwed... so we wait for the shadow doc ingest and check the status
+        tracing::debug!("Waiting for shadow to finish...");
+        self.get_branch_db()
+            .wait_for_shadow_doc(&branch_id)
+            .await
+            .map_err(|_| ProjectLoadError::Unknown)?;
+
+        let status = self
+            .get_branch_db()
+            .canonical_branch_status(&branch_id)
+            .await;
+
+        match status {
+            CanonicalBranchStatus::Pending => {
+                tracing::error!("Branch still pending... this shouldn't happen");
+                Err(ProjectLoadError::Unknown)
+            }
+            CanonicalBranchStatus::BranchNotIngested => {
+                tracing::error!("Branch not ingested... this shouldn't happen");
+                Err(ProjectLoadError::Unknown)
+            }
+            CanonicalBranchStatus::BinaryDocNotFound => {
+                tracing::error!("Giving up on load because a binary doc wasn't synced properly");
+                Err(ProjectLoadError::BinaryDocNotFound { server_status })
+            }
+            CanonicalBranchStatus::Healthy => Ok(()),
+        }
     }
 
     pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.inner.branch_db.create_metadata_doc().await;
-        self.create_document_watcher(&metadata_handle).await;
+        self.create_document_watcher(&metadata_handle, 30000).await;
         // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
         // This has to go after the document watcher ingests the metadata doc, of course.
         self.inner.sync_fs_to_automerge.checkin().await;
@@ -206,24 +315,6 @@ impl Driver {
         }
         .ok_or(ProjectLoadError::Unknown)?;
 
-        // are we allowed to hold this mutex over the await?? I think so?
-        let doc_watcher = self.inner.document_watcher.lock().await;
-
-        let watcher = doc_watcher.as_ref().ok_or_else(|| {
-            tracing::error!("The document watcher must be initialized before calling this method");
-            ProjectLoadError::Unknown
-        })?;
-
-        tracing::debug!("Waiting for branch ingest...");
-        let res = watcher.wait_for_branch_ingest(&branch).await;
-
-        tracing::debug!("Branch ingest result: {:?}", res);
-        res.map_err(|e| match e {
-            IngestWaitError::NotTracked => ProjectLoadError::BranchIdNotFound,
-            IngestWaitError::TimedOut => ProjectLoadError::BranchIdNotFound,
-            IngestWaitError::Unknown => ProjectLoadError::Unknown,
-        })?;
-
         // Using canonical here means we're allowed to do this work before the shadow doc is ready (i.e. all binary docs have checked in)
         self.get_branch_db()
             .get_latest_canonical_ref_on_branch(&branch)
@@ -237,13 +328,6 @@ impl Driver {
     ) -> Result<Vec<(String, ChangeType)>, ProjectLoadError> {
         tracing::info!("Getting local changes...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
-
-        // For an accurate hash index, we have to wait on the shadow doc.
-        // This ensures that any binary docs are fully loaded, so if we gotta manually hash anything it's OK.
-        self.get_branch_db()
-            .wait_for_shadow_doc(ref_.branch())
-            .await
-            .map_err(|_| ProjectLoadError::Unknown)?;
 
         tracing::debug!("Getting canonical files...");
         let canonical_files = self

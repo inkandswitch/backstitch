@@ -60,6 +60,11 @@ pub enum GodotProjectSignal {
     ChangesIngested,
 }
 
+struct LoadSuccess {
+    found_locally: bool,
+    found_on_provided_branch: bool,
+}
+
 impl Project {
     pub fn new(project_dir: PathBuf) -> Self {
         // TODO (Lilith): ensure we make this work across the ENTIRE program, not just the driver.
@@ -161,23 +166,90 @@ impl Project {
         driver: &mut Driver,
         server_url: Option<&Url>,
         metadata_id: &DocumentId,
-    ) -> Result<bool, ProjectStartError> {
-        match driver.load_project(metadata_id).await {
+        branch_id: Option<&DocumentId>,
+    ) -> Result<LoadSuccess, ProjectStartError> {
+        // I am going to become the joker because of this method, but I think it's all necessary/as simple as possible. Maybe I'm wrong...
+        // Either way, here's the logic:
+        // - Try locally. Good? Return!
+        // - If no server URL was provided:
+        //      - ... and the metadata doc wasn't found, give up
+        //      - ... and branch or binary docs weren't found, try again on the main branch
+        //          - If branch wasn't found, give up
+        //          - If binaries weren't found, we'll live!
+        // - Otherwise, if ANY docs aren't found, connect to the server and try again.
+        //      - If no metadata doc, give up.
+        //      - If no branch doc, try main branch. Still no? Give up.
+        //      - If no binary docs, we'll live!
+
+        // Simple, easy path -- try and load it locally.
+        match driver.load_project(metadata_id, branch_id).await {
             // success? Then just return!
             Ok(_) => {
                 tracing::info!("Successfully found project locally!");
-                return Ok(true);
+                return Ok(LoadSuccess {
+                    found_locally: true,
+                    found_on_provided_branch: true,
+                });
             }
             Err(e) => {
                 match e {
-                    // If it wasn't found locally, that's OK, we try to connect first
-                    ProjectLoadError::MetadataIdNotFoundLocally => (),
-                    _ => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    // If anything wasn't found locally, that's OK, we want to connect first
+                    ProjectLoadError::MetadataIdNotFound { server_status: _ } => match server_url {
+                        Some(_) => e,
+                        // If no server URL was provided, there's no coming back from this.
+                        None => return Err(ProjectStartError::DocumentIdNotFound),
+                    },
+                    ProjectLoadError::BranchDocNotFound { server_status: _ } => e,
+                    ProjectLoadError::BinaryDocNotFound { server_status: _ } => e,
                 }
             }
-        }
+        };
 
-        let server_url = server_url.ok_or(ProjectStartError::DocumentIdNotFoundLocally)?;
+        // Diverge here. If no server URL was provided, our only fallback is to try and check out the main branch.
+        let Some(server_url) = server_url else {
+            // Try the exact same thing, but this time without a branch ID
+            match driver.load_project(metadata_id, None).await {
+                // success? Then just return!
+                Ok(_) => {
+                    tracing::info!("Successfully found project locally, on the main branch!");
+                    return Ok(LoadSuccess {
+                        found_locally: true,
+                        found_on_provided_branch: false,
+                    });
+                }
+                Err(e) => {
+                    match e {
+                        ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                        // What the heck? We should've already checked this case...
+                        ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
+                            tracing::error!(
+                                "This shouldn't happen!! The metadata doc disappeared!!!!!"
+                            );
+                            return Err(ProjectStartError::DocumentIdNotFound);
+                        }
+                        // The project is broken!!!! We can't find the main
+                        ProjectLoadError::BranchDocNotFound { server_status: _ } => {
+                            tracing::error!(
+                                "Main branch not found. Your document is most likely corrupted. Please zip up your project and send it to the Backstitch team!"
+                            );
+                            return Err(ProjectStartError::MainBranchNotFound);
+                        }
+                        // This is more reasonable, and recoverable.
+                        ProjectLoadError::BinaryDocNotFound { server_status: _ } => {
+                            tracing::error!(
+                                "Not all binary docs synced properly... but we can recover."
+                            );
+                            // TODO: Actually recover
+                            return Ok(LoadSuccess {
+                                found_locally: true,
+                                found_on_provided_branch: false,
+                            });
+                        }
+                    }
+                }
+            };
+        };
 
         // try and start the connection
         driver
@@ -186,23 +258,75 @@ impl Project {
             .map_err(|_| ProjectStartError::Unknown)?;
 
         // try again to load
-        driver.load_project(metadata_id).await.map_err(|e| {
-            match e {
-                ProjectLoadError::Unknown => ProjectStartError::Unknown,
-                ProjectLoadError::MetadataIdNotFoundLocally => {
-                    ProjectStartError::DocumentIdNotFoundLocally
-                } // this shouldn't happen at this stage
-                ProjectLoadError::MetadataIdNotFoundLocallyOrRemotely => {
-                    ProjectStartError::DocumentIdNotFoundLocallyOrRemotely
-                }
-                ProjectLoadError::MetadataIdNotFoundLocallyAndServerDidNotConnect => {
-                    ProjectStartError::DocumentIdNotFoundLocallyAndServerDidNotConnect
-                }
-                ProjectLoadError::BranchIdNotFound => ProjectStartError::Unknown,
+        match driver.load_project(metadata_id, branch_id).await {
+            // success? Then just return!
+            Ok(_) => {
+                tracing::info!("Successfully found project remotely!");
+                return Ok(LoadSuccess {
+                    found_locally: false,
+                    found_on_provided_branch: true,
+                });
             }
-        })?;
-        tracing::info!("Successfully found project remotely!");
-        Ok(false)
+            Err(e) => {
+                match e {
+                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
+                        return Err(ProjectStartError::DocumentIdNotFound);
+                    }
+                    ProjectLoadError::BranchDocNotFound { server_status: _ } => {}
+                    ProjectLoadError::BinaryDocNotFound { server_status: _ } => {
+                        tracing::error!(
+                            "Not all binary docs synced properly, even after a remote connection... but we can recover."
+                        );
+                        // TODO: Actually recover
+                        return Ok(LoadSuccess {
+                            found_locally: false,
+                            found_on_provided_branch: true,
+                        });
+                    }
+                }
+            }
+        };
+
+        // our branch doc is definitely invalid. It doesn't exist locally or on the server.
+        // Try and load the main branch instead.
+        match driver.load_project(metadata_id, None).await {
+            // success? Then just return!
+            Ok(_) => {
+                tracing::info!("Successfully found project remotely, using the main branch!");
+                return Ok(LoadSuccess {
+                    found_locally: false,
+                    found_on_provided_branch: false,
+                });
+            }
+            Err(e) => {
+                match e {
+                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
+                        tracing::error!(
+                            "What?!?!? The metadata doc went bad when trying to load the main branch!!"
+                        );
+                        return Err(ProjectStartError::DocumentIdNotFound);
+                    }
+                    ProjectLoadError::BranchDocNotFound { server_status: _ } => {
+                        tracing::error!(
+                            "Main branch not found, even on the server. Your document is most likely corrupted. Please zip up your project and send it to the Backstitch team!"
+                        );
+                        return Err(ProjectStartError::MainBranchNotFound);
+                    }
+                    ProjectLoadError::BinaryDocNotFound { server_status: _ } => {
+                        tracing::error!(
+                            "What?!?! Binary docs didn't sync on a second try, but they did on the first try!!! Well, we can recover..."
+                        );
+                        // TODO: Actually recover
+                        return Ok(LoadSuccess {
+                            found_locally: false,
+                            found_on_provided_branch: false,
+                        });
+                    }
+                }
+            }
+        };
     }
 
     /// Starting a project is a multi-step process. It looks like:
@@ -275,7 +399,8 @@ impl Project {
         let mode_clone = mode.clone();
         let server_url_clone = server_url.clone();
         tracing::debug!("Attempting to create driver...");
-        let (driver, local_changes, found_locally) = self
+        let init_branch = initial_branch.clone();
+        let (driver, local_changes, load_success) = self
             .runtime
             .block_on(
                 // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
@@ -295,12 +420,20 @@ impl Project {
                             .create_project()
                             .await
                             .map_err(|_| ProjectStartError::Unknown)?;
-                        return Ok((driver, Default::default(), true));
+                        return Ok((
+                            driver,
+                            Default::default(),
+                            LoadSuccess {
+                                found_locally: true,
+                                found_on_provided_branch: false,
+                            },
+                        ));
                     } else {
-                        let found_locally = Self::try_and_retry_load(
+                        let success = Self::try_and_retry_load(
                             &mut driver,
                             server_url.as_ref(),
                             &metadata_id.unwrap(), // we know this is valid, from earlier
+                            init_branch.as_ref(),
                         )
                         .await?;
 
@@ -311,7 +444,7 @@ impl Project {
                                 tracing::error!("Couldn't get local changes!");
                                 ProjectStartError::Unknown
                             })?;
-                        return Ok((driver, local_changes, found_locally));
+                        return Ok((driver, local_changes, success));
                     }
                 }),
             )
@@ -320,7 +453,11 @@ impl Project {
         self.changes_rx = Some(driver.get_changes_rx());
         self.checked_out_ref_rx = Some(driver.get_ref_rx());
         self.server_url = server_url_clone;
-        self.initial_branch = initial_branch;
+        self.initial_branch = if load_success.found_on_provided_branch {
+            initial_branch
+        } else {
+            None
+        };
         self.local_changes = local_changes
             .iter()
             .cloned()
@@ -332,7 +469,7 @@ impl Project {
         if local_changes.len() > 0 {
             // we can't start the sync until we confirm or reject the local changes
             // the one exception: if we found the project locally AND it was automatically loaded, we can automatically checkin the changes.
-            if mode == CreateMode::AutoLoadedProject && found_locally {
+            if mode == CreateMode::AutoLoadedProject && load_success.found_locally {
                 self.checkin_local_changes();
             }
             return Ok(());

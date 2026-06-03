@@ -1,6 +1,7 @@
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use samod::{BackoffConfig, DialerHandle, Repo, Url};
 use thiserror::Error;
+use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 use crate::helpers::spawn_utils::spawn_named;
@@ -46,8 +47,19 @@ impl RemoteConnection {
             let handle = handle.clone();
             let token = token.clone();
             spawn_named("Remote connection", async move {
-                token.cancelled().await;
-                handle.close();
+                let mut events = handle.events();
+
+                loop {
+                    select! {
+                        event = events.next() => {
+                            tracing::debug!("Dialer event: {event:?}");
+                        }
+                        _ = token.cancelled() => {
+                            handle.close();
+                            break;
+                        }
+                    }
+                }
             });
         }
 

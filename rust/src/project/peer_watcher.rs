@@ -35,10 +35,9 @@ impl PeerWatcher {
                         // Currently, we only ever have 1 peer: the server.
                         // Therefore, this code expects that the server is the first and only peer, if it's connected.
                         // When we move to more peers, we'll need to figure out a way to identify the server here.
-                        if let Some(info) = peers.first() {
-                            let old_info = rx.borrow().clone();
-                            _ = tx_clone.send(Some(Self::update_server_info(old_info, info.clone()).await));
-                        }
+                        let info = peers.into_iter().next();
+                        let old_info = rx.borrow().clone();
+                        _ = tx_clone.send_replace(Self::update_server_info(old_info, info).await);
                     }
                 }
             }
@@ -60,10 +59,13 @@ impl PeerWatcher {
 
     async fn update_server_info(
         old_info: Option<ConnectionInfo>,
-        new_info: ConnectionInfo,
-    ) -> ConnectionInfo {
+        new_info: Option<ConnectionInfo>,
+    ) -> Option<ConnectionInfo> {
+        let Some(new_info) = new_info else {
+            return None;
+        };
         if old_info.is_none() {
-            return new_info;
+            return Some(new_info);
         }
         let mut info = old_info.unwrap();
         info.last_received = new_info.last_received;
@@ -86,6 +88,6 @@ impl PeerWatcher {
             }
             info.docs.insert(doc_id.clone(), new_doc_state.clone());
         }
-        info
+        Some(info)
     }
 }

@@ -274,10 +274,14 @@ impl Driver {
             .await
             .map_err(|_| ProjectLoadError::Unknown)?;
 
+        tracing::debug!("Getting status...");
+
         let status = self
             .get_branch_db()
             .canonical_branch_status(&branch_id)
             .await;
+
+        tracing::debug!("Done loading project.");
 
         match status {
             CanonicalBranchStatus::Pending => {

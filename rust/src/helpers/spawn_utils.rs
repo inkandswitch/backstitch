@@ -8,7 +8,7 @@ where
     F::Output: Send + 'static,
 {
     use tracing::Instrument;
-    let span = tracing::info_span!("task");
+    let span = tracing::trace_span!("task");
     tokio::task::Builder::new()
         .name(name)
         .spawn(future.instrument(span))
@@ -34,7 +34,7 @@ where
 {
     use tracing::Instrument;
 
-    let span = tracing::info_span!("task");
+    let span = tracing::trace_span!("task");
     tokio::task::Builder::new()
         .name(name)
         .spawn_on(future.instrument(span), runtime)

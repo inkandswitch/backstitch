@@ -71,9 +71,17 @@ impl BranchDb {
                                     if let Some(bytes) = hash.to_bytes() {
                                         if let Ok(hash) = blake3::Hash::from_slice(bytes) {
                                             return Some((path, PendingHash::Hash(hash)));
+                                        } else {
+                                            tracing::error!("Couldn't read hash for {path}");
                                         }
+                                    } else {
+                                        tracing::error!("Couldn't convert hash for {path}");
                                     }
+                                } else {
+                                    tracing::debug!("Multiple heads found {path}");
                                 }
+                            } else {
+                                tracing::debug!("Couldn't get hashes for {path}");
                             }
 
                             // If there were any issues, fallback to the slow hash.

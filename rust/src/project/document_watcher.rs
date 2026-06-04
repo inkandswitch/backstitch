@@ -15,7 +15,7 @@ use automerge::{ROOT, ReadDoc};
 use autosurgeon::hydrate;
 use futures::{FutureExt, StreamExt};
 use samod::{DocHandle, DocumentId, Repo};
-use tokio::{select, sync::Mutex};
+use tokio::{select, sync::{Mutex, Semaphore}};
 use tokio_util::sync::CancellationToken;
 
 /// Tracks branch and metadata documents from an Automerge repo, updating BranchDB when the state changes.
@@ -30,6 +30,7 @@ struct DocumentWatcherInner {
     branch_db: BranchDb,
     tracked_branches: Arc<Mutex<HashSet<DocumentId>>>,
     token: CancellationToken,
+    find_limit: Arc<Semaphore>
 }
 
 impl Drop for DocumentWatcher {
@@ -46,6 +47,7 @@ impl DocumentWatcher {
             repo,
             tracked_branches: Default::default(),
             token: CancellationToken::new(),
+            find_limit: Arc::new(Semaphore::new(50))
         });
 
         let inner_clone = inner.clone();
@@ -120,12 +122,15 @@ impl DocumentWatcherInner {
     async fn track_binary_document(&self, doc_id: DocumentId) {
         let repo = self.repo.clone();
         let branch_db = self.branch_db.clone();
+        let semaphore = self.find_limit.clone();
         // easy early exit
         if branch_db.has_binary_doc(&doc_id).await {
             return;
         }
         tokio::task::spawn(async move {
+            let acquired = semaphore.acquire().await.unwrap();
             let handle = repo.find(doc_id.clone()).await;
+            drop(acquired);
             // this may trigger a reconciliation for a shadow doc
             branch_db
                 .ingest_binary_doc(doc_id, handle.ok().flatten())

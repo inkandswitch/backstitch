@@ -117,18 +117,20 @@ impl DocumentWatcherInner {
         // Alex wants to add a search API: https://github.com/alexjg/samod/pull/95
         // Once that search API is complete, we can instead timeout like usual instead of spamming find().
         let mut time = 0u64;
-        let duration = 5000u64;
+        let duration = 500u64;
         loop {
+            // TODO: trace! this, it's annoying
+            tracing::debug!("Polling for document {id}, for {timeout}ms");
             if let Some(handle) = repo.find(id.clone()).await.unwrap() {
+                tracing::debug!("Found document {id}");
                 break Some(handle);
             }
+            tracing::debug!("Didn't find document {id}");
             time += duration;
             if time > timeout {
                 break None;
             }
             let _ = tokio::time::sleep(Duration::from_millis(duration)).await;
-            // TODO: trace! this, it's annoying
-            tracing::info!("Polling for document {id}");
         }
     }
 
@@ -197,6 +199,7 @@ impl DocumentWatcherInner {
     async fn track_binary_document(&self, doc_id: DocumentId) {
         let repo = self.repo.clone();
         let branch_db = self.branch_db.clone();
+        tracing::debug!("Tracking binary doc {doc_id}");
         // easy early exit
         if branch_db.has_binary_doc(&doc_id).await {
             return;

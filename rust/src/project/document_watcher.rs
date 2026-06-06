@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use samod::{DocHandle, DocumentId, Repo};
 use tokio::{
     select,
-    sync::{Mutex, watch},
+    sync::{Mutex, Semaphore, watch},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -45,6 +45,7 @@ struct DocumentWatcherInner {
     branch_db: BranchDb,
     tracked_branches: Arc<Mutex<HashMap<DocumentId, watch::Sender<BranchIngestState>>>>,
     token: CancellationToken,
+    find_limit: Arc<Semaphore>,
     poll_time: u64,
 }
 
@@ -67,6 +68,7 @@ impl DocumentWatcher {
             repo,
             tracked_branches: Default::default(),
             token: CancellationToken::new(),
+            find_limit: Arc::new(Semaphore::new(50)),
             poll_time,
         });
 
@@ -109,7 +111,12 @@ impl DocumentWatcher {
 }
 
 impl DocumentWatcherInner {
-    async fn poll_document(repo: &Repo, id: &DocumentId, timeout: u64) -> Option<DocHandle> {
+    async fn poll_document(
+        repo: &Repo,
+        id: &DocumentId,
+        timeout: u64,
+        find_limit: Arc<Semaphore>,
+    ) -> Option<DocHandle> {
         // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
         // Permissive announce policies on the server fix it because the server is allowed to check with peers before
         // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
@@ -121,7 +128,10 @@ impl DocumentWatcherInner {
         loop {
             // TODO: trace! this, it's annoying
             tracing::debug!("Polling for document {id}, for {timeout}ms");
-            if let Some(handle) = repo.find(id.clone()).await.unwrap() {
+            let acquired = find_limit.acquire().await.unwrap();
+            let handle = repo.find(id.clone()).await.unwrap();
+            drop(acquired);
+            if let Some(handle) = handle {
                 tracing::debug!("Found document {id}");
                 break Some(handle);
             }
@@ -138,7 +148,7 @@ impl DocumentWatcherInner {
     async fn track_branch_document(&self, id: DocumentId) {
         let handle = select! {
             _ = self.token.cancelled() => return,
-            handle = Self::poll_document(&self.repo, &id, self.poll_time) => handle
+            handle = Self::poll_document(&self.repo, &id, self.poll_time, self.find_limit.clone()) => handle
         };
 
         let Some(handle) = handle else {
@@ -199,6 +209,7 @@ impl DocumentWatcherInner {
     async fn track_binary_document(&self, doc_id: DocumentId) {
         let repo = self.repo.clone();
         let branch_db = self.branch_db.clone();
+        let semaphore = self.find_limit.clone();
         tracing::debug!("Tracking binary doc {doc_id}");
         // easy early exit
         if branch_db.has_binary_doc(&doc_id).await {
@@ -209,7 +220,7 @@ impl DocumentWatcherInner {
         tokio::task::spawn(async move {
             select! {
                 _ = token.cancelled() => {}
-                handle = Self::poll_document(&repo, &doc_id, poll_time) => {
+                handle = Self::poll_document(&repo, &doc_id, poll_time, semaphore) => {
                     // this may trigger a reconciliation for a shadow doc
                     branch_db.ingest_binary_doc(doc_id, handle).await;
                 }

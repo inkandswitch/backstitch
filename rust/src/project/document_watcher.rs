@@ -210,11 +210,11 @@ impl DocumentWatcherInner {
         let repo = self.repo.clone();
         let branch_db = self.branch_db.clone();
         let semaphore = self.find_limit.clone();
-        tracing::debug!("Tracking binary doc {doc_id}");
         // easy early exit
         if branch_db.has_binary_doc(&doc_id).await {
             return;
         }
+        tracing::debug!("Tracking binary doc {doc_id}");
         let poll_time = self.poll_time;
         let token = self.token.clone();
         tokio::task::spawn(async move {

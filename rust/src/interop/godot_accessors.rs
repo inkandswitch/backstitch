@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use godot::classes::ConfigFile;
+use godot::classes::{ConfigFile, Resource};
 use godot::classes::class_macros::private::virtuals::Os::{VarDictionary, vdict};
 use godot::obj::{NewGd, Singleton};
 use godot::prelude::Var;
@@ -54,6 +54,16 @@ pub struct BackstitchEditorAccessor {}
 
 #[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
+
+
+    pub fn load_imported_resource(path: &str, class_type: &str) -> Gd<Resource> {
+        if class_type == "" {
+            
+        }
+        return Resource::new_gd();
+
+    }
+
     pub fn import_and_save_resource(
         path: &str,
         import_file_content: &str,
@@ -172,11 +182,6 @@ impl BackstitchEditorAccessor {
         }
         false
     }
-
-    // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
-    // pub fn clear_editor_selection() {
-    //     ClassDb::singleton().class_call_static("BackstitchEditor", "clear_editor_selection", &[]);
-    // }
 
     fn close_scene_file(path: &str) {
         EditorInterface::singleton().open_scene_from_path(path);

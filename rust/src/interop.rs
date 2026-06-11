@@ -8,3 +8,4 @@ mod text_differ_view;
 mod diff_inspector_section;
 mod lazy_load_token;
 mod backstitch_resource_loader;
+mod fake_importers;

@@ -176,23 +176,20 @@ func add_old_and_new(inspector_section: DiffInspectorSection, change_type: Strin
 		var prop_editor = get_prop_editor(inspector_section.get_object(), prop_name + "_new", new_prop_value, "added", label if !has_old else "")
 		inspector_section.get_vbox().add_child(prop_editor)
 
-func get_default_val_for_class(node_type: String, prop_name):
+func get_default_val_for_class(node_type: String, prop_name: String, script_class = null):
 	# We can't get the default value for a script instance
-	if node_type.begins_with("Resource("):
-		var path = node_type.trim_prefix("Resource(").trim_suffix(")").trim_prefix('"').trim_suffix('"')
-		# TODO: This is on a hanging PR and is not really necessary; we should be doing this in the diff code instead
-		var script_class: String = ResourceLoader.get_resource_script_class(path)
-		if script_class:
-			return ClassDB.class_get_property_default_value(script_class, prop_name)
+	var ret = null
+	if script_class != null and ClassDB.class_exists(script_class):
+		ret = ClassDB.class_get_property_default_value(script_class, prop_name)
+	if ret == null and not (node_type.begins_with("Resource(") or node_type.begins_with("ExtResource(")):
+		ret = ClassDB.class_get_property_default_value(node_type, prop_name)
+	if ret == null:
 		return "<default_value>"
-	if node_type.begins_with("ExtResource("):
-		return "<default_value>"
-	else:
-		return ClassDB.class_get_property_default_value(node_type, prop_name)
+	return ret
 
 
 
-func add_PropertyDiffResult(inspector_section: DiffInspectorSection, property_diff: Dictionary, node_type: String) -> void:
+func add_PropertyDiffResult(inspector_section: DiffInspectorSection, property_diff: Dictionary, node_type: String, script_class = null) -> void:
 	var change_type = property_diff["change_type"]
 	var prop_name = property_diff["name"]
 	var prop_label = snake_case_to_human_readable(property_diff["name"])
@@ -200,9 +197,9 @@ func add_PropertyDiffResult(inspector_section: DiffInspectorSection, property_di
 	var prop_new = property_diff.get("new_value", null)
 	if node_type != "":
 		if prop_old == null and change_type != "added":
-			prop_old = get_default_val_for_class(node_type, prop_name)
+			prop_old = get_default_val_for_class(node_type, prop_name, script_class)
 		if prop_new == null and change_type != "removed":
-			prop_new = get_default_val_for_class(node_type, prop_name)
+			prop_new = get_default_val_for_class(node_type, prop_name, script_class)
 
 	# print("!!! adding property diff result for ", prop_name, " with type ", change_type)
 	# print("!!! prop_old: ", prop_old)
@@ -544,7 +541,7 @@ func add_node_diff(file_section: DiffInspectorSection, file_path: String, node_d
 func add_text_resource_diff(inspector_section: DiffInspectorSection, changed_sub_resources: Array, changed_main_resource: Dictionary) -> void:
 	inspector_section.get_vbox().add_child(HSeparator.new())
 	if changed_main_resource is Dictionary and changed_main_resource.size() > 0:
-		add_sub_resource_diff(inspector_section, changed_main_resource["change_type"], changed_main_resource["sub_resource_id"], changed_main_resource["resource_type"], changed_main_resource["changed_props"])
+		add_sub_resource_diff(inspector_section, changed_main_resource["change_type"], changed_main_resource["sub_resource_id"], changed_main_resource["resource_type"], changed_main_resource["changed_props"], changed_main_resource.get("script_class", null))
 
 	for sub_resource in changed_sub_resources:
 		var change_type = sub_resource["change_type"]
@@ -553,7 +550,7 @@ func add_text_resource_diff(inspector_section: DiffInspectorSection, changed_sub
 		var changed_properties = sub_resource["changed_props"]
 		add_sub_resource_diff(inspector_section, change_type, sub_resource_id, sub_resource_type, changed_properties)
 
-func add_sub_resource_diff(inspector_section: DiffInspectorSection, change_type: String, sub_resource_id: String, sub_resource_type: String, changed_properties: Dictionary) -> void:
+func add_sub_resource_diff(inspector_section: DiffInspectorSection, change_type: String, sub_resource_id: String, sub_resource_type: String, changed_properties: Dictionary, script_class = null) -> void:
 	if (changed_properties.size() == 0 and change_type == "modified"):
 		print("!!! no prop diffs for ", sub_resource_id, " with type ", change_type)
 		return
@@ -584,7 +581,7 @@ func add_sub_resource_diff(inspector_section: DiffInspectorSection, change_type:
 		if i > 0:
 			var divider = HSeparator.new()
 			vbox.add_child(divider)
-		add_PropertyDiffResult(child_section, changed_properties[prop_name], sub_resource_type)
+		add_PropertyDiffResult(child_section, changed_properties[prop_name], sub_resource_type, script_class)
 		i += 1
 	inspector_section.get_vbox().add_child(child_section)
 

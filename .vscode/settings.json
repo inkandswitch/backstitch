@@ -12,5 +12,21 @@
     "C_Cpp.intelliSenseEngine": "disabled",
     "clangd.arguments": [
         "--compile-commands-dir=${workspaceFolder}/build/godot"
-    ]
+    ],
+    "files.exclude": {
+        "**/*.arm64.a": true,
+        "**/*.arm64.o": true,
+        "**/*.wasm32.o": true,
+
+        "**/*.arm64.o.d": true,
+        "**/*.arm64.san.a": true,
+        "**/*.arm64.san.o": true,
+        "**/*.san.a": true,
+        "**/*.san.o": true,
+        "**/*.x86_64.a": true,
+        "**/*.x86_64.o": true,
+        "**/*.x86_64.o.d": true,
+        "**/*.x86_64.san.a": true,
+        "**/*.x86_64.san.o": true,
+    }
 }

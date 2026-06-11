@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -35,12 +36,12 @@ fn get_temp_path(old_path: &PathBuf, override_ext: Option<&str>) -> PathBuf {
     let ext = if let Some(override_ext) = override_ext {
         override_ext
     } else {
-        Path::new(&path)
-            .extension()
+        path.extension()
             .and_then(|e| e.to_str())
             .unwrap_or("res")
     };
-    let temp_name = format!("backstitch_{}.{}", Uuid::new_v4(), ext);
+    let basename = path.file_stem().unwrap_or(OsStr::new("backstitch")).to_string_lossy().to_string();
+    let temp_name = format!("{}_{}.{}", basename, Uuid::new_v4(), ext);
     let temp_path = std::env::temp_dir().join(&temp_name);
     temp_path
 }

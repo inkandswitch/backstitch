@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use godot::classes::audio_stream_wav::LoopMode;
 use godot::classes::class_macros::private::virtuals::Os::{
-    Array, Encoding, PackedByteArray, Rect2i, VarDictionary, Vector2i, vdict,
+    Array, Encoding, PackedByteArray, Rect2i, VarDictionary, Vector2i, vdict
 };
 use godot::classes::text_server::{
     FixedSizeScaleMode, FontAntialiasing, Hinting, SubpixelPositioning,
@@ -14,6 +14,7 @@ use godot::classes::{
     AudioStreamMp3, AudioStreamOggVorbis, AudioStreamWav, Cubemap, CubemapArray, DpiTexture, Font,
     FontFile, Image, ImageTexture, ImageTexture3D, ImageTextureLayered, Resource, Texture2DArray,
 };
+use godot::meta::FromGodot;
 use godot::obj::{EngineEnum, NewGd};
 use godot::{builtin::GString, meta::ToGodot, obj::Gd};
 use uuid::Uuid;
@@ -144,6 +145,14 @@ pub struct FakeResourceImporterOBJ {}
 pub struct FakeResourceImporterScene {}
 pub struct FakeResourceImporterTextureAtlas {}
 
+fn get_or_default<T: ToGodot + FromGodot>(dict: &VarDictionary, key: &str, default: T) -> T {
+    if let Some(value) = dict.get(key) {
+        value.try_to_relaxed::<T>().unwrap_or(default)
+    } else {
+        default
+    }
+}
+
 impl FakeResourceImporter for FakeResourceImporterTexture {
     fn recognize(&self, path: &str, importer_name: Option<&str>) -> bool {
         if let Some(importer_name) = importer_name {
@@ -173,8 +182,7 @@ impl FakeResourceImporter for FakeResourceImporterTexture {
         content: &[u8],
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        let scale = params.get("scale").map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32)).unwrap_or(1.0);
-        let image = load_image_from_buffer(path, content, scale)?;
+        let image = load_image_from_buffer(path, content, get_or_default(&params, "svg/scale", 1.0))?;
         // parameters aren't particularly relevant here
         let texture = ImageTexture::create_from_image(&image)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
@@ -208,10 +216,7 @@ impl FakeResourceImporterLayeredTexture {
     }
 
     fn get_slice_arrangement(params: &VarDictionary) -> (i32, i32) {
-        let layout = params
-            .get("slices/arrangement")
-            .map(|s| s.to::<i32>())
-            .unwrap_or(1);
+        let layout: i32 = get_or_default(&params, "slices/arrangement", 1);
         match layout {
             0 => (1, 6),
             1 => (2, 3),
@@ -224,25 +229,13 @@ impl FakeResourceImporterLayeredTexture {
         if importer_name == "cubemap_texture" {
             Self::get_slice_arrangement(params)
         } else if importer_name == "2d_array_texture" || importer_name == "3d_texture" {
-            let x = params
-                .get("slices/horizontal")
-                .map(|s| s.to::<i32>())
-                .unwrap_or(1);
-            let y = params
-                .get("slices/vertical")
-                .map(|s| s.to::<i32>())
-                .unwrap_or(1);
+            let x: i32 = get_or_default(&params, "slices/horizontal", 1);
+            let y: i32 = get_or_default(&params, "slices/vertical", 1);
             (x, y)
         } else if importer_name == "cube_array_texture" {
             let (hslices, vslices) = Self::get_slice_arrangement(params);
-            let layout = params
-                .get("slices/layout")
-                .map(|s| s.to::<i32>())
-                .unwrap_or(1);
-            let amount = params
-                .get("slices/amount")
-                .map(|s| s.to::<i32>())
-                .unwrap_or(1);
+            let layout: i32 = get_or_default(&params, "slices/layout", 1);
+            let amount: i32 = get_or_default(&params, "slices/amount", 1);
             match layout {
                 0 => (hslices * amount, vslices), // horizontal
                 1 => (hslices, vslices * amount), // vertical
@@ -360,16 +353,11 @@ impl FakeResourceImporter for FakeResourceImporterMP3 {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut mp3 = Self::get_mp3_from_buffer(content)?;
-        mp3.set_loop(params.get("loop").map(|s| s.to::<bool>()).unwrap_or(false));
-        mp3.set_loop_offset(
-            params
-                .get("loop_offset")
-                .map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64))
-                .unwrap_or(0.0),
-        );
-        mp3.set_bpm(params.get("bpm").map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64)).unwrap_or(0.0));
-        mp3.set_beat_count(params.get("beat_count").map(|s| s.to::<i32>()).unwrap_or(0));
-        mp3.set_bar_beats(params.get("bar_beats").map(|s| s.to::<i32>()).unwrap_or(4));
+        mp3.set_loop(get_or_default(&params, "loop", false));
+        mp3.set_loop_offset(get_or_default(&params, "loop_offset", 0.0));
+        mp3.set_bpm(get_or_default(&params, "bpm", 0.0));
+        mp3.set_beat_count(get_or_default(&params, "beat_count", 0));
+        mp3.set_bar_beats(get_or_default(&params, "bar_beats", 4));
         Ok(mp3.upcast::<Resource>())
     }
 }
@@ -404,16 +392,11 @@ impl FakeResourceImporter for FakeResourceImporterOggVorbis {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut ogg_vorbis = Self::get_ogg_vorbis_from_buffer(content)?;
-        ogg_vorbis.set_loop(params.get("loop").map(|s| s.to::<bool>()).unwrap_or(false));
-        ogg_vorbis.set_loop_offset(
-            params
-                .get("loop_offset")
-                .map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64))
-                .unwrap_or(0.0),
-        );
-        ogg_vorbis.set_bpm(params.get("bpm").map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64)).unwrap_or(0.0));
-        ogg_vorbis.set_beat_count(params.get("beat_count").map(|s| s.to::<i32>()).unwrap_or(0));
-        ogg_vorbis.set_bar_beats(params.get("bar_beats").map(|s| s.to::<i32>()).unwrap_or(4));
+        ogg_vorbis.set_loop(get_or_default(&params, "loop", false));
+        ogg_vorbis.set_loop_offset(get_or_default(&params, "loop_offset", 0.0));
+        ogg_vorbis.set_bpm(get_or_default(&params, "bpm", 0.0));
+        ogg_vorbis.set_beat_count(get_or_default(&params, "beat_count", 0));
+        ogg_vorbis.set_bar_beats(get_or_default(&params, "bar_beats", 4));
         Ok(ogg_vorbis.upcast::<Resource>())
     }
 }
@@ -446,12 +429,12 @@ impl FakeResourceImporter for FakeResourceImporterWAV {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut wav = Self::get_wav_from_buffer(content)?;
-        let mode = params.get("loop_mode").map(|s| s.to::<i32>()).unwrap_or(0);
-        if mode != 0 {
-            wav.set_loop_mode(LoopMode::try_from_ord(mode).unwrap_or(LoopMode::DISABLED));
+        let mode: i32 = get_or_default(&params, "loop_mode", 0);
+        if mode > 0 {
+            wav.set_loop_mode(LoopMode::try_from_ord(mode - 1).unwrap_or(LoopMode::DISABLED));
         }
-        wav.set_loop_begin(params.get("loop_begin").map(|s| s.to::<i32>()).unwrap_or(0));
-        wav.set_loop_end(params.get("loop_end").map(|s| s.to::<i32>()).unwrap_or(-1));
+        wav.set_loop_begin(get_or_default(&params, "loop_begin", 0));
+        wav.set_loop_end(get_or_default(&params, "loop_end", -1));
         Ok(wav.upcast::<Resource>())
     }
 }
@@ -489,14 +472,8 @@ impl FakeResourceImporter for FakeResourceImporterBMFont {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut font_file = Self::get_bmfont_from_buffer(path, content)?;
-        let fallbacks = params
-            .get("fallbacks")
-            .map(|s| s.to::<Array<Gd<Font>>>())
-            .unwrap_or(Array::new());
-        let smode = params
-            .get("scaling_mode")
-            .map(|s| s.to::<i32>())
-            .unwrap_or(2);
+        let fallbacks: Array<Gd<Font>> = get_or_default(&params, "fallbacks", Array::new());
+        let smode: i32 = get_or_default(&params, "scaling_mode", 2);
         font_file.set_allow_system_fallback(false);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
@@ -543,62 +520,23 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut dynamic_font = Self::get_dynamic_font_from_buffer(path, content)?;
 
-        let antialiasing = params
-            .get("antialiasing")
-            .map(|s| s.to::<i32>())
-            .unwrap_or(0);
-        let generate_mipmaps = params
-            .get("generate_mipmaps")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let disable_embedded_bitmaps = params
-            .get("disable_embedded_bitmaps")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let msdf = params
-            .get("multichannel_signed_distance_field")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let px_range = params
-            .get("msdf_pixel_range")
-            .map(|s| s.to::<i32>())
-            .unwrap_or(0);
-        let px_size = params.get("msdf_size").map(|s| s.to::<i32>()).unwrap_or(0);
-        let ot_ov = params
-            .get("opentype_features")
-            .map(|s| s.to::<VarDictionary>())
-            .unwrap_or(vdict! {});
-        let autohinter = params
-            .get("force_autohinter")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let modulate_color_glyphs = params
-            .get("modulate_color_glyphs")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let allow_system_fallback = params
-            .get("allow_system_fallback")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let hinting = params.get("hinting").map(|s| s.to::<i32>()).unwrap_or(0);
-        let subpixel_positioning = params
-            .get("subpixel_positioning")
-            .map(|s| s.to::<i32>())
-            .unwrap_or(0);
-        let keep_rounding_remainders = params
-            .get("keep_rounding_remainders")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let oversampling = params
-            .get("oversampling")
-            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f32))
-            .unwrap_or(0.0);
+        let antialiasing: i32 = get_or_default(&params, "antialiasing", 0);
+        let generate_mipmaps: bool = get_or_default(&params, "generate_mipmaps", false);
+        let disable_embedded_bitmaps: bool = get_or_default(&params, "disable_embedded_bitmaps", false);
+        let msdf: bool = get_or_default(&params, "multichannel_signed_distance_field", false);
+        let px_range: i32 = get_or_default(&params, "msdf_pixel_range", 0);
+        let px_size: i32 = get_or_default(&params, "msdf_size", 0);
+        let ot_ov: VarDictionary = get_or_default(&params, "opentype_features", vdict! {});
+        let autohinter: bool = get_or_default(&params, "force_autohinter", false);
+        let modulate_color_glyphs: bool = get_or_default(&params, "modulate_color_glyphs", false);
+        let allow_system_fallback: bool = get_or_default(&params, "allow_system_fallback", false);
+        let hinting: i32 = get_or_default(&params, "hinting", 0);
+        let subpixel_positioning: i32 = get_or_default(&params, "subpixel_positioning", 0);
+        let keep_rounding_remainders: bool = get_or_default(&params, "keep_rounding_remainders", false);
+        let oversampling: f32 = get_or_default(&params, "oversampling", 0.0);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
-        let fallbacks = params
-            .get("fallbacks")
-            .map(|s| s.to::<Array<Gd<Font>>>())
-            .unwrap_or(Array::new());
+        let fallbacks: Array<Gd<Font>> = get_or_default(&params, "fallbacks", Array::new());
 
         dynamic_font.set_antialiasing(
             FontAntialiasing::try_from_ord(antialiasing).unwrap_or(FontAntialiasing::NONE),
@@ -653,48 +591,6 @@ impl FakeResourceImporter for FakeResourceImporterImageFont {
         let image = load_image_from_buffer(path, content, 1.0)?;
 
         // TODO: there's no way to create a font file from an image unless we reimplement the entire font file importing logic, so we're just going to return the image
-
-        // let mut font: Gd<FontFile> = FontFile::new_gd();
-        // let columns = params.get("columns").map(|s| s.to::<i32>()).unwrap_or(1);
-        // let rows = params.get("rows").map(|s| s.to::<i32>()).unwrap_or(1);
-        // let ascent = params.get("ascent").map(|s| s.to::<i32>()).unwrap_or(0);
-        // let descent = params.get("descent").map(|s| s.to::<i32>()).unwrap_or(0);
-        // let ranges = params.get("character_ranges").map(|s| s.to::<PackedStringArray>()).unwrap_or(PackedStringArray::new());
-        // let kern = params.get("kerning_pairs").map(|s| s.to::<PackedStringArray>()).unwrap_or(PackedStringArray::new());
-
-        // // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
-        // // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
-        // let fallbacks = params.get("fallbacks").map(|s| s.to::<Array<Gd<Font>>>()).unwrap_or(Array::new());
-        // let img_margin = params.get("image_margin").map(|s| s.to::<Rect2i>()).unwrap_or(Rect2i::new(Vector2i::new(0, 0), Vector2i::new(0, 0)));
-        // let char_margin = params.get("character_margin").map(|s| s.to::<Rect2i>()).unwrap_or(Rect2i::new(Vector2i::new(0, 0), Vector2i::new(0, 0)));
-        // let smode = params.get("scaling_mode").map(|s| s.to::<i32>()).unwrap_or(2);
-
-        // let remaining = columns * rows;
-        // let chr_cell_width = (image.get_width() - img_margin.position.x - img_margin.size.x) / columns;
-        // let chr_cell_height = (image.get_height() - img_margin.position.y - img_margin.size.y) / rows;
-        // if chr_cell_width <= 0 || chr_cell_height <= 0 {
-        //     return Err(godot::global::Error::ERR_INVALID_PARAMETER);
-        // }
-        // let chr_width = chr_cell_width - char_margin.position.x - char_margin.size.x;
-        // let chr_height = chr_cell_height - char_margin.position.y - char_margin.size.y;
-        // if chr_width <= 0 || chr_height <= 0 {
-        //     return Err(godot::global::Error::ERR_INVALID_PARAMETER);
-        // }
-
-        // font.set_antialiasing(FontAntialiasing::NONE);
-        // font.set_generate_mipmaps(false);
-        // font.set_multichannel_signed_distance_field(false);
-        // font.set_fixed_size(chr_height);
-        // font.set_subpixel_positioning(SubpixelPositioning::DISABLED);
-        // font.set_keep_rounding_remainders(true);
-        // font.set_force_autohinter(false);
-        // font.set_modulate_color_glyphs(false);
-        // font.set_allow_system_fallback(false);
-        // font.set_hinting(Hinting::NONE);
-        // font.set_fallbacks(&fallbacks);
-        // font.set_texture_image(0, Vector2i::new(chr_height, 0), 0, &image);
-        // font.set_fixed_size_scale_mode(FixedSizeScaleMode::try_from_ord(smode).unwrap_or(FixedSizeScaleMode::ENABLED));
-
         return Ok(image.upcast::<Resource>());
     }
 }
@@ -718,26 +614,11 @@ impl FakeResourceImporter for FakeResourceImporterSVG {
             GString::try_from_bytes(content, Encoding::Utf8).unwrap_or_default();
         let mut texture = DpiTexture::create_from_string(&contents)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
-        let base_scale = params
-            .get("base_scale")
-            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32))
-            .unwrap_or(1.0);
-        let saturation = params
-            .get("saturation")
-            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32))
-            .unwrap_or(1.0);
-        let color_map = params
-            .get("color_map")
-            .map(|s| s.to::<VarDictionary>())
-            .unwrap_or(vdict! {});
-        let fix_alpha_border = params
-            .get("fix_alpha_border")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
-        let premult_alpha = params
-            .get("premult_alpha")
-            .map(|s| s.to::<bool>())
-            .unwrap_or(false);
+        let base_scale: f32 = get_or_default(&params, "base_scale", 1.0);
+        let saturation: f32 = get_or_default(&params, "saturation", 1.0);
+        let color_map: VarDictionary = get_or_default(&params, "color_map", vdict! {});
+        let fix_alpha_border: bool = get_or_default(&params, "fix_alpha_border", false);
+        let premult_alpha: bool = get_or_default(&params, "premult_alpha", false);
         // Ignoring, only relevant if we save the resource to a file
         // let compress = params.get("compress").map(|s| s.to::<bool>()).unwrap_or(true);
         texture.set_base_scale(base_scale);

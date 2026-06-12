@@ -173,7 +173,7 @@ impl FakeResourceImporter for FakeResourceImporterTexture {
         content: &[u8],
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        let scale = params.get("scale").map(|s| s.to::<f32>()).unwrap_or(1.0);
+        let scale = params.get("scale").map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32)).unwrap_or(1.0);
         let image = load_image_from_buffer(path, content, scale)?;
         // parameters aren't particularly relevant here
         let texture = ImageTexture::create_from_image(&image)
@@ -364,10 +364,10 @@ impl FakeResourceImporter for FakeResourceImporterMP3 {
         mp3.set_loop_offset(
             params
                 .get("loop_offset")
-                .map(|s| s.to::<f64>())
+                .map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64))
                 .unwrap_or(0.0),
         );
-        mp3.set_bpm(params.get("bpm").map(|s| s.to::<f64>()).unwrap_or(0.0));
+        mp3.set_bpm(params.get("bpm").map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64)).unwrap_or(0.0));
         mp3.set_beat_count(params.get("beat_count").map(|s| s.to::<i32>()).unwrap_or(0));
         mp3.set_bar_beats(params.get("bar_beats").map(|s| s.to::<i32>()).unwrap_or(4));
         Ok(mp3.upcast::<Resource>())
@@ -408,10 +408,10 @@ impl FakeResourceImporter for FakeResourceImporterOggVorbis {
         ogg_vorbis.set_loop_offset(
             params
                 .get("loop_offset")
-                .map(|s| s.to::<f64>())
+                .map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64))
                 .unwrap_or(0.0),
         );
-        ogg_vorbis.set_bpm(params.get("bpm").map(|s| s.to::<f64>()).unwrap_or(0.0));
+        ogg_vorbis.set_bpm(params.get("bpm").map(|s| s.try_to_relaxed::<f64>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f64)).unwrap_or(0.0));
         ogg_vorbis.set_beat_count(params.get("beat_count").map(|s| s.to::<i32>()).unwrap_or(0));
         ogg_vorbis.set_bar_beats(params.get("bar_beats").map(|s| s.to::<i32>()).unwrap_or(4));
         Ok(ogg_vorbis.upcast::<Resource>())
@@ -591,7 +591,7 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
             .unwrap_or(false);
         let oversampling = params
             .get("oversampling")
-            .map(|s| s.to::<f64>())
+            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(0) as f32))
             .unwrap_or(0.0);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
@@ -618,7 +618,7 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
                 .unwrap_or(SubpixelPositioning::DISABLED),
         );
         dynamic_font.set_keep_rounding_remainders(keep_rounding_remainders);
-        dynamic_font.set_oversampling(oversampling as f32);
+        dynamic_font.set_oversampling(oversampling);
         dynamic_font.set_fallbacks(&fallbacks);
 
         Ok(dynamic_font.upcast::<Resource>())
@@ -720,11 +720,11 @@ impl FakeResourceImporter for FakeResourceImporterSVG {
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
         let base_scale = params
             .get("base_scale")
-            .map(|s| s.to::<f32>())
+            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32))
             .unwrap_or(1.0);
         let saturation = params
             .get("saturation")
-            .map(|s| s.to::<f32>())
+            .map(|s| s.try_to_relaxed::<f32>().unwrap_or(s.try_to_relaxed::<i64>().unwrap_or(1) as f32))
             .unwrap_or(1.0);
         let color_map = params
             .get("color_map")

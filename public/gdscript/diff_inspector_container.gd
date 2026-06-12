@@ -306,11 +306,88 @@ func _on_scene_resource_box_clicked(sec: DiffInspectorSection, section: String) 
 			self._on_parent_node_box_hovered(sec, section)
 		)
 
+# This rigamarole is necessary because, for some GODFORSAKEN REASON, ScriptEditor.open_file() is not bound.
+# There is literally no other way to open up a non-script text file in the script editor.
+# TODO: Push on https://github.com/godotengine/godot/pull/117595 to be merged.
+var recent_scripts_popup: PopupMenu = null
+
+# This is the second-worst thing I've ever done.
+func get_script_editor_private_opem_recent_method():
+	var script_editor = EditorInterface.get_script_editor()
+	if script_editor != null:
+		var children = script_editor.find_children("*", "VBoxContainer", false, false)
+		if children.size() == 0:
+			printerr("Couldn't find main vbox!!!!")
+			return Callable()
+		var vbox_children = children[0].find_children("*", "HBoxContainer", false, false)
+		if vbox_children.size() == 0:
+			printerr("Could not find menu_hb!!")
+			return Callable()
+		var menu_hb: HBoxContainer = vbox_children[0]
+		var file_button: MenuButton
+		for child in menu_hb.get_children(true):
+			if child is MenuButton:
+				if child.get_text() == "File":
+					file_button = child
+				else:
+					# this should only fail if the translation locale is not english; it should be the first one in any case
+					printerr("First file menu isn't File! setting anyway...")
+					file_button = child
+				break
+		if not file_button:
+			printerr("NO FILE BUTTON!!!!!")
+			return Callable()
+		var file_menu_popup: PopupMenu = file_button.get_popup()
+		var popup_children = file_menu_popup.find_children("*", "PopupMenu", false, false)
+		if popup_children.size() == 0:
+			printerr("Could not find recent scripts popup!!!!")
+			return Callable()
+		recent_scripts_popup = popup_children[0]
+		var list = recent_scripts_popup.get_signal_connection_list("id_pressed")
+		if list.size() == 0:
+			printerr("id_pressed signal connection list is empty!!!!")
+			return Callable()
+		var dict: Dictionary = list.get(0)
+		var callable: Callable = dict.get("callable", Callable())
+		return callable
+	return Callable()
+var private_script_editor_open_recent_scripts_method: Callable = get_script_editor_private_opem_recent_method()
+
+func open_text_file(file_path: String) -> void:
+	# add it to the most recent files at index 0
+	var arr = EditorInterface.get_editor_settings().get_project_metadata("recent_files", "scripts")
+	var idx = arr.find(file_path)
+	if idx == -1:
+		# we have to clear the recent scripts menu by calling the private_script_editor_open_recent_scripts_method with the last popup menu item index
+		# this will simply clear the project metadata and call _update_recent_files deferred, which is what we want
+		private_script_editor_open_recent_scripts_method.call(recent_scripts_popup.item_count - 1)
+		idx = 0
+		arr.insert(0, file_path)
+		# re-set the project metadata so that it updates
+		EditorInterface.get_editor_settings().set_project_metadata("recent_files", "scripts", arr)
+	# call the private method with the index
+	private_script_editor_open_recent_scripts_method.call(idx)
+
+func get_text_file_extensions() -> PackedStringArray:
+	return EditorInterface.get_editor_settings().get_setting("docks/filesystem/textfile_extensions").split(",")
+
+func open_scene_or_resource_from_path(file_path: String) -> void:
+	# don't open import files
+	if file_path.get_extension().to_lower() == "import":
+		return
+	var extension = file_path.get_extension().to_lower()
+	if extension == "tscn" or extension == "scn":
+		EditorInterface.open_scene_from_path(file_path)
+	elif extension == "gd" or extension == "cs" or get_text_file_extensions().has(extension):
+		open_text_file(file_path)
+	else:
+		EditorInterface.edit_resource(ResourceLoader.load(file_path))
+
 func _on_text_box_clicked(section: String) -> void:
 	var file_path = section
 	var extension = file_path.get_extension().to_lower()
 	EditorInterface.get_file_system_dock().navigate_to_path(file_path)
-	EditorInterface.open_scene_or_resource_from_path(file_path)
+	open_scene_or_resource_from_path(file_path)
 	EditorInterface.set_main_screen_editor("Script")
 
 

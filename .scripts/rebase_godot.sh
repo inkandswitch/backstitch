@@ -65,6 +65,7 @@ BRANCHES_TO_MERGE=(
 	add-close-file
 	bind-open_scene_or_resource_path
 	bind-resourceloader-get_resource_script_class
+	fix-resource-loader-race-condition
 )
 
 KOBEWI_BRANCHES=(

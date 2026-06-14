@@ -106,8 +106,11 @@ signal branch_checked_out
 static var instance: BackstitchSidebar
 
 func _update_ui_on_state_change():
-	print("Backstitch: Updating UI due to state change...")
-	update_ui()
+	waiting_callables.append(
+		func():
+			print("Backstitch: Updating UI due to state change...")
+			update_ui()
+	)
 
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()

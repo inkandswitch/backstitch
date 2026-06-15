@@ -1,13 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
+use autosurgeon::Doc;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use samod::DocumentId;
 use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
-    helpers::{doc_utils::SimpleDocReader, utils::ChangeType},
+    helpers::{
+        doc_utils::SimpleDocReader,
+        utils::{ChangeType, CommitMetadata, commit_with_metadata},
+    },
     project::{
         branch_db::{BranchDb, HistoryRef},
         fs::fs_traversal::FileSystemTraversal,
@@ -59,10 +63,13 @@ impl BranchDb {
                     tracing::info!("COLLECTED");
 
                     // Using rayon for this, to parallelize the key retrieval from the document (not just hashing!!)
-                    let out: HashMap<String, PendingHash> = entries
+                    // Maps to a PendingHash() with either a hash value or a request to look for a linked doc for slow hashing.
+                    // Also maps to a bool indicating whether to re-insert the computed hash after slow hashing (useful for old or broken docs).
+                    let out: HashMap<String, (PendingHash, bool)> = entries
                         .into_par_iter()
                         .filter_map(|(path, entry_id)| {
                             // First, try and access the quick hash from the doc.
+                            let should_reinsert;
                             if let Ok(hashes) = d.get_all_at(&entry_id, "hash", heads) {
                                 // If there are multiple hashes here, it means there are conflicts!
                                 // i.e. the hash might be totally invalid; we need to calculate it manually.
@@ -70,18 +77,25 @@ impl BranchDb {
                                     let hash = &hashes.get(0).unwrap().0;
                                     if let Some(bytes) = hash.to_bytes() {
                                         if let Ok(hash) = blake3::Hash::from_slice(bytes) {
-                                            return Some((path, PendingHash::Hash(hash)));
+                                            return Some((path, (PendingHash::Hash(hash), false)));
                                         } else {
                                             tracing::error!("Couldn't read hash for {path}");
+                                            should_reinsert = true;
                                         }
                                     } else {
                                         tracing::error!("Couldn't convert hash for {path}");
+                                        should_reinsert = true;
                                     }
-                                } else {
+                                } else if hashes.len() > 1 {
                                     tracing::debug!("Multiple heads found {path}");
+                                    should_reinsert = false; // don't do this, I think it's unsafe because multiple clients would thrash on it
+                                } else {
+                                    tracing::debug!("No stored hash for {path}");
+                                    should_reinsert = true;
                                 }
                             } else {
                                 tracing::debug!("Couldn't get hashes for {path}");
+                                should_reinsert = true; // I don't think this happens but might as well
                             }
 
                             // If there were any issues, fallback to the slow hash.
@@ -89,12 +103,18 @@ impl BranchDb {
                             match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
                                 Ok(content) => {
                                     tracing::debug!("Done logging {path}");
-                                    return Some((path, PendingHash::Hash(content.to_hash())));
+                                    return Some((
+                                        path,
+                                        (PendingHash::Hash(content.to_hash()), should_reinsert),
+                                    ));
                                 }
                                 Err(res) => match res {
                                     Ok(id) => {
                                         tracing::debug!("Done logging {path}");
-                                        return Some((path, PendingHash::Linked(id)));
+                                        return Some((
+                                            path,
+                                            (PendingHash::Linked(id), should_reinsert),
+                                        ));
                                     }
                                     Err(error_msg) => {
                                         tracing::error!("error: {:?}", error_msg);
@@ -115,17 +135,22 @@ impl BranchDb {
             .await
             .ok()??;
 
-        let new_hashes = async move {
+        let (new_hashes, reinserting) = async move {
             // Resolve binary files
             let mut new_hashes = HashMap::new();
-            for (path, pending_hash) in hashes {
+            let mut reinserting = false;
+            for (path, (pending_hash, should_reinsert)) in hashes {
                 if self.should_ignore(&self.globalize_path(&path), false) {
                     continue;
+                }
+                if should_reinsert {
+                    reinserting = true;
                 }
                 let hash = match pending_hash {
                     PendingHash::Hash(hash) => hash,
                     PendingHash::Linked(document_id) => {
                         tracing::info!("Hashing linked file {document_id}");
+                        // It may be wise to do this in parallel too... but this shouldn't be a frequent case.
                         let Some(content) = self.get_linked_file(&document_id).await else {
                             tracing::error!("Could not get linked file for hashing {path}");
                             continue;
@@ -133,16 +158,71 @@ impl BranchDb {
                         content.to_hash()
                     }
                 };
-                new_hashes.insert(path, hash);
+                new_hashes.insert(path, (hash, should_reinsert));
             }
-            new_hashes
+            (new_hashes, reinserting)
         }
         .instrument(tracing::info_span!("Second get_hash_index"))
         .await;
 
+        if reinserting {
+            tracing::info!("Found broken hashes; reinserting");
+            let ref_clone = ref_.clone();
+            let username = self.username.lock().await.clone();
+            let new_hashes = new_hashes.clone();
+            self.with_shadow_document(ref_.branch(), async move |d| {
+                let Some(files_id) = d.get_obj_id_at(ROOT, "files", ref_clone.heads()) else {
+                    tracing::error!("files not found at ref {ref_clone}!");
+                    return;
+                };
+
+                let entries: Vec<(String, ObjId)> = d
+                    .map_range_at(&files_id, .., ref_clone.heads())
+                    .filter_map(|item| {
+                        let id = item.id();
+                        // if it's a scalar for some reason, ignore this entry
+                        match item.value {
+                            ValueRef::Object(_) => Some((item.key.into_owned(), id)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                let mut tx = d.transaction();
+                for (path, id) in entries {
+                    let Some((hash, should_reinsert)) = new_hashes.get(&path) else {
+                        continue;
+                    };
+                    if !should_reinsert {
+                        continue;
+                    }
+
+                    let _ = tx.put(id, "hash", hash.as_bytes().to_vec());
+                }
+
+                commit_with_metadata(
+                    tx,
+                    &CommitMetadata {
+                        username,
+                        branch_id: Some(ref_clone.branch().clone()),
+                        merge_metadata: None,
+                        reverted_to: None,
+                        changed_files: None,
+                        is_setup: Some(false),
+                    },
+                );
+            })
+            .await
+            .unwrap();
+        }
+
         tracing::debug!("Finished get hash index");
 
-        Some(new_hashes)
+        Some(
+            new_hashes
+                .into_iter()
+                .map(|(path, (hash, _))| (path, hash))
+                .collect(),
+        )
     }
 
     /// Get a list of file operations between two points in Backstitch history.

@@ -55,7 +55,6 @@ impl ProjectViewModel for Project {
             return;
         }
         self.stop();
-        BackstitchConfigAccessor::set_user_value("user_name", "");
         BackstitchConfigAccessor::set_project_value("project_doc_id", "");
         BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
     }

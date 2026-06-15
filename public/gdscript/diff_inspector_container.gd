@@ -248,11 +248,6 @@ func do_node_box_click(sec: DiffInspectorSection, file_path: String, section: St
 		if section.begins_with("./"):
 			node_path = node_path.substr(2)
 
-		if BackstitchEditor.is_changing_scene():
-			waiting_callables.append(func():
-				self.do_node_box_click(sec, file_path, section, true)
-			)
-			return
 		var node: Node = EditorInterface.get_edited_scene_root()
 		if node.scene_file_path != file_path:
 			EditorInterface.open_scene_from_path(file_path)

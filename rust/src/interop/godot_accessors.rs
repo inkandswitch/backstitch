@@ -103,26 +103,6 @@ impl BackstitchEditorAccessor {
             .unwrap_or(false);
     }
 
-    // TODO: This should never be true now because of reload scene changes, but we need to test it
-    pub fn is_changing_scene() -> bool {
-        let result = ClassDb::singleton()
-            .class_call_static("BackstitchEditor", "is_changing_scene", &[])
-            .to::<bool>();
-        if result {
-            tracing::warn!("************** is_changing_scene is TRUE?!");
-        }
-        result
-    }
-
-    // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
-    // pub fn force_refresh_editor_inspector() {
-    //     ClassDb::singleton().class_call_static(
-    //         "BackstitchEditor",
-    //         "force_refresh_editor_inspector",
-    //         &[],
-    //     );
-    // }
-
     // TODO: Remove the progress dialog stuff entirely and replace it with something else, like our own modal progress dialog
     pub fn progress_add_task(task: &str, label: &str, steps: i32, can_cancel: bool) {
         ClassDb::singleton().class_call_static(

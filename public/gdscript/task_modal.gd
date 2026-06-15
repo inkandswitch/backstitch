@@ -239,7 +239,7 @@ func end_task(name: String):
 # don't use this if you need to wait for the task to finish, use start task and end task manually instead
 func do_task(name: String, task: Callable):
 	self.queued_calls.append(func():
-		start_task(name)
+		self._add_task(name, name, -1, true, false)
 
 		self.queued_calls.append(func():
 			await task.call()

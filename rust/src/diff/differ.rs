@@ -1,5 +1,5 @@
 use std::
-    collections::HashSet
+    collections::{HashMap, HashSet}
 ;
 
 use godot::{
@@ -8,11 +8,11 @@ use godot::{
 use tracing::instrument;
 
 use crate::{
-    diff::{resource_differ::BinaryResourceDiff, scene_differ::{SceneDiff, TextResourceDiff}, text_differ::TextDiff}, fs::file_utils::{FileContent, FileSystemEvent}, helpers::{history_path::HistoryRefPath, history_ref::HistoryRef}, project::branch_db::BranchDb
+    diff::{resource_differ::BinaryResourceDiff, scene_differ::{SceneDiff, TextResourceDiff}, text_differ::TextDiff}, fs::file_utils::{FileContent, FileSystemEvent}, helpers::{history_path::HistoryRefPath, history_ref::HistoryRef}, parser::godot_parser::{GodotScene, TypeOrInstance}, project::branch_db::BranchDb
 };
 
 /// The type of change that occurred in a diff.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ChangeType {
     /// The element was added.
     Added,
@@ -87,11 +87,11 @@ impl Differ {
             .await
             .and_then(|events| Some(events.into_iter().map(|event| {
                 match event {
-                    FileSystemEvent::FileCreated(path, content) => (self.branch_db.localize_path(&path), content, ChangeType::Added),
-                    FileSystemEvent::FileModified(path, content) => (self.branch_db.localize_path(&path), content, ChangeType::Modified),
-                    FileSystemEvent::FileDeleted(path) => (self.branch_db.localize_path(&path), FileContent::Deleted, ChangeType::Removed),
+                    FileSystemEvent::FileCreated(path, content) => (self.branch_db.localize_path(&path), (content, ChangeType::Added)),
+                    FileSystemEvent::FileModified(path, content) => (self.branch_db.localize_path(&path), (content, ChangeType::Modified)),
+                    FileSystemEvent::FileDeleted(path) => (self.branch_db.localize_path(&path), (FileContent::Deleted, ChangeType::Removed)),
                 }
-            }).collect::<Vec<(String, FileContent, ChangeType)>>()))
+            }).collect::<HashMap<String, (FileContent, ChangeType)>>()))
         else {
             // Something went wrong
             return ProjectDiff::default();
@@ -117,7 +117,11 @@ impl Differ {
 
         let mut diffs: Vec<Diff> = vec![];
 
-        for (path, new_file_content, change_type) in &new_file_contents {
+        let mut old_scenes_to_load: HashSet<String> = HashSet::new();
+        let mut new_scenes_to_load: HashSet<String> = HashSet::new();
+        let mut diff_idx_to_needed_map: HashMap<usize, HashMap<usize, (bool, String)>> = HashMap::new();
+
+        for (path, (new_file_content, change_type)) in &new_file_contents {
             let old_file_content = old_file_contents
                 .get(path)
                 .unwrap_or(&FileContent::Deleted);
@@ -142,9 +146,38 @@ impl Differ {
                     (_, _) => "".to_string(),
                 };
                 if resource_type == "PackedScene" {
+                    let mut idx_to_instance_path_needed: HashMap<usize, (bool, String)> = HashMap::new();
+                    let mut scene_diff = self.get_scene_diff(&path, old_scene, new_scene, before, after).await;
+                    for (idx, node_diff) in scene_diff.changed_nodes.iter_mut().enumerate() {
+                        if let Some(TypeOrInstance::Instance(instance_id)) = node_diff.node_type.as_ref() {
+                            if node_diff.change_type == ChangeType::Modified || node_diff.change_type == ChangeType::Added {
+                                let Some(instance_path) = new_scene.as_ref().unwrap().get_ext_resource_path(instance_id) else {
+                                    continue;
+                                };
+                                if let Some((FileContent::Scene(new_file_content), _)) = new_file_contents.get(&instance_path) {
+                                    node_diff.node_type =  new_file_content.get_root_node_type();
+                                } else {
+                                    new_scenes_to_load.insert(instance_path.clone());
+                                    idx_to_instance_path_needed.insert(idx, (true, instance_path));
+                                }
+                            } else if node_diff.change_type == ChangeType::Removed {
+                                let Some(instance_path) = old_scene.as_ref().unwrap().get_ext_resource_path(instance_id) else {
+                                    continue;
+                                };
+                                if let Some(FileContent::Scene(old_file_content)) = old_file_contents.get(&instance_path) {
+                                    node_diff.node_type = old_file_content.get_root_node_type();
+                                } else {
+                                    old_scenes_to_load.insert(instance_path.clone());
+                                    idx_to_instance_path_needed.insert(idx, (false, instance_path));
+                                }
+                            }
+                        }
+                    }
+                    if !idx_to_instance_path_needed.is_empty() {
+                        diff_idx_to_needed_map.insert(diffs.len(), idx_to_instance_path_needed);
+                    }
                     diffs.push(Diff::Scene(
-                        self.get_scene_diff(&path, old_scene, new_scene, before, after)
-                        .await,
+                        scene_diff,
                     ));
                 } else {
                     diffs.push(Diff::TextResourceDiff(
@@ -182,6 +215,23 @@ impl Differ {
                 continue;
             }
         }
+
+        if !old_scenes_to_load.is_empty() || !new_scenes_to_load.is_empty() {
+            let old_needed_content = self.branch_db.get_files_at_ref(before, &old_scenes_to_load).await.unwrap_or(HashMap::new());
+            let new_needed_content = self.branch_db.get_files_at_ref(after, &new_scenes_to_load).await.unwrap_or(HashMap::new());
+            for (diff_idx, idx_to_instance_path_needed) in diff_idx_to_needed_map.iter() {
+                let Diff::Scene(scene_diff) = &mut diffs[*diff_idx] else {
+                    continue;
+                };
+                for (node_idx, (is_new, instance_path)) in idx_to_instance_path_needed.iter() {
+                    let contents = if *is_new {&old_needed_content } else {&new_needed_content};
+                    if let Some(FileContent::Scene(new_file_content)) = contents.get(instance_path) {
+                        scene_diff.changed_nodes[*node_idx].node_type = new_file_content.get_root_node_type();
+                    }
+                }
+            }
+        }
+
 
         ProjectDiff { file_diffs: diffs }
     }

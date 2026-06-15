@@ -791,9 +791,6 @@ func update_sync_status() -> void:
 	else: printerr("unknown sync status: " + sync_status.state)
 
 func update_highlight_changes(diff: Dictionary) -> void:
-	if (BackstitchEditor.is_changing_scene()):
-		deferred_highlight_update = func(): update_highlight_changes(diff)
-		return
 
 	var edited_root = EditorInterface.get_edited_scene_root()
 

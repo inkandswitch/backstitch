@@ -601,7 +601,18 @@ impl GodotScene {
 	}
 
     pub fn get_ext_resource_path(&self, ext_resource_id: &String) -> Option<String> {
+        let ext_resource_id = ext_resource_id
+                                    .trim_start_matches("ExtResource(\"")
+                                    .trim_end_matches("\")");
         self.ext_resources.get(ext_resource_id).map(|ext_resource| ext_resource.path.clone())
+    }
+
+    pub fn get_root_node_type(&self) -> Option<TypeOrInstance> {
+        if let Some(root_node_id) = self.root_node_id.as_ref() {
+            let node = self.get_node(root_node_id);
+            return node.map(|n| n.type_or_instance.clone()).unwrap_or_default();
+        }
+        None
     }
 
 }

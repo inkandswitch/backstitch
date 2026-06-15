@@ -170,6 +170,34 @@ impl FileContent {
 
 	}
 
+	pub fn is_binary(&self) -> bool {
+		match self {
+			FileContent::Binary(_) => true,
+			_ => false,
+		}
+	}
+
+	pub fn is_text(&self) -> bool {
+		match self {
+			FileContent::String(_) => true,
+			_ => false,
+		}
+	}
+
+	pub fn is_scene(&self) -> bool {
+		match self {
+			FileContent::Scene(_) => true,
+			_ => false,
+		}
+	}
+
+	pub fn is_deleted(&self) -> bool {
+		match self {
+			FileContent::Deleted => true,
+			_ => false,
+		}
+	}
+
 }
 
 impl Default for FileContent {

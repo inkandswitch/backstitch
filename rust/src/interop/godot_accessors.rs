@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use godot::classes::ConfigFile;
-use godot::classes::class_macros::private::virtuals::Os::{VarDictionary, vdict};
-use godot::obj::{NewGd, Singleton};
-use godot::prelude::Var;
+use godot::obj::{Singleton};
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{ClassDb, EditorInterface, Object},
@@ -54,37 +51,6 @@ pub struct BackstitchEditorAccessor {}
 
 #[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
-    pub fn import_and_save_resource(
-        path: &str,
-        import_file_content: &str,
-        import_base_path: &str,
-    ) -> godot::global::Error {
-        // TODO: Depends on https://github.com/godotengine/godot/pull/116861; if this doesn't make it into 4.7, we'll have to figure out something else
-        let mut cf = ConfigFile::new_gd();
-        if cf.parse(import_file_content) != godot::global::Error::OK {
-            return godot::global::Error::ERR_INVALID_PARAMETER;
-        }
-        let importer_name = cf.get_value("remap", "importer");
-        let mut params: VarDictionary = vdict!{};
-        for key in cf.get_section_keys("params").as_slice().iter() {
-            params.set(key.to_variant(), cf.get_value("params", key));
-        }
-        let result = EditorInterface::singleton()
-            .call(
-                "import_and_save_resource",
-                &[
-                    path.to_variant(),
-                    importer_name.to_variant(),
-                    params.to_variant(),
-                    import_base_path.to_variant(),
-                ],
-            )
-            .to::<PackedStringArray>();
-        if result.is_empty() {
-            return godot::global::Error::ERR_CANT_OPEN;
-        }
-        return godot::global::Error::OK;
-    }
 
     pub fn is_editor_importing() -> bool {
         return EditorInterface::singleton()
@@ -92,26 +58,6 @@ impl BackstitchEditorAccessor {
             .map(|mut fs| return fs.call("is_importing", &[]).to::<bool>())
             .unwrap_or(false);
     }
-
-    // TODO: This should never be true now because of reload scene changes, but we need to test it
-    pub fn is_changing_scene() -> bool {
-        let result = ClassDb::singleton()
-            .class_call_static("BackstitchEditor", "is_changing_scene", &[])
-            .to::<bool>();
-        if result {
-            tracing::warn!("************** is_changing_scene is TRUE?!");
-        }
-        result
-    }
-
-    // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
-    // pub fn force_refresh_editor_inspector() {
-    //     ClassDb::singleton().class_call_static(
-    //         "BackstitchEditor",
-    //         "force_refresh_editor_inspector",
-    //         &[],
-    //     );
-    // }
 
     // TODO: Remove the progress dialog stuff entirely and replace it with something else, like our own modal progress dialog
     pub fn progress_add_task(task: &str, label: &str, steps: i32, can_cancel: bool) {
@@ -172,11 +118,6 @@ impl BackstitchEditorAccessor {
         }
         false
     }
-
-    // TODO: Confirm that we no longer need this; if not, then we need to PR this to Godot
-    // pub fn clear_editor_selection() {
-    //     ClassDb::singleton().class_call_static("BackstitchEditor", "clear_editor_selection", &[]);
-    // }
 
     fn close_scene_file(path: &str) {
         EditorInterface::singleton().open_scene_from_path(path);

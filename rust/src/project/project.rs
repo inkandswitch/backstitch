@@ -105,7 +105,6 @@ impl Project {
     pub fn safe_to_update_godot() -> bool {
         return !(EditorFilesystemAccessor::is_scanning()
             || BackstitchEditorAccessor::is_editor_importing()
-            || BackstitchEditorAccessor::is_changing_scene()
             || BackstitchEditorAccessor::unsaved_files_open());
     }
 

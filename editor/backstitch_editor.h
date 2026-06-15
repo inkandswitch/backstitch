@@ -21,7 +21,6 @@ protected:
 public:
   BackstitchEditor();
   ~BackstitchEditor();
-  static bool is_changing_scene();
   static void progress_add_task(const String &p_task, const String &p_label,
                                 int p_steps, bool p_can_cancel = false);
   static bool progress_task_step(const String &p_task, const String &p_state,

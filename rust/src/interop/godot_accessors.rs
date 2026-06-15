@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use godot::classes::{ConfigFile, Resource};
-use godot::classes::class_macros::private::virtuals::Os::{VarDictionary, vdict};
-use godot::obj::{NewGd, Singleton};
-use godot::prelude::Var;
+use godot::obj::{Singleton};
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{ClassDb, EditorInterface, Object},
@@ -54,47 +51,6 @@ pub struct BackstitchEditorAccessor {}
 
 #[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
-
-
-    pub fn load_imported_resource(path: &str, class_type: &str) -> Gd<Resource> {
-        if class_type == "" {
-            
-        }
-        return Resource::new_gd();
-
-    }
-
-    pub fn import_and_save_resource(
-        path: &str,
-        import_file_content: &str,
-        import_base_path: &str,
-    ) -> godot::global::Error {
-        // TODO: Depends on https://github.com/godotengine/godot/pull/116861; if this doesn't make it into 4.7, we'll have to figure out something else
-        let mut cf = ConfigFile::new_gd();
-        if cf.parse(import_file_content) != godot::global::Error::OK {
-            return godot::global::Error::ERR_INVALID_PARAMETER;
-        }
-        let importer_name = cf.get_value("remap", "importer");
-        let mut params: VarDictionary = vdict!{};
-        for key in cf.get_section_keys("params").as_slice().iter() {
-            params.set(key.to_variant(), cf.get_value("params", key));
-        }
-        let result = EditorInterface::singleton()
-            .call(
-                "import_and_save_resource",
-                &[
-                    path.to_variant(),
-                    importer_name.to_variant(),
-                    params.to_variant(),
-                    import_base_path.to_variant(),
-                ],
-            )
-            .to::<PackedStringArray>();
-        if result.is_empty() {
-            return godot::global::Error::ERR_CANT_OPEN;
-        }
-        return godot::global::Error::OK;
-    }
 
     pub fn is_editor_importing() -> bool {
         return EditorInterface::singleton()

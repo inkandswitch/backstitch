@@ -151,7 +151,7 @@ _link-godot skip_godot_clone="no":
     else
         echo "**** Skipping Godot clone... ****"
     fi
-    just _symlink "editor" "build/godot/modules/backstitch_editor"
+    rm -f "build/godot/modules/backstitch_editor"
 
 # Link the assets directory for our plugin
 _link-public: _make-plugin-dir

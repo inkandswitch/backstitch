@@ -59,17 +59,7 @@ $GITCMD checkout $NEW_BRANCH_NAME
 $GITCMD reset --hard $HEAD
 
 BRANCHES_TO_MERGE=(
-	bind-get-unsaved-scripts
-	add-reload_all_scenes
-	import_and_save_resource
-	add-close-file
-	bind-open_scene_or_resource_path
-	bind-resourceloader-get_resource_script_class
 	fix-resource-loader-race-condition
-)
-
-KOBEWI_BRANCHES=(
-	slashtableflip
 )
 
 #unset -e, we don't want to exit on error here
@@ -78,16 +68,6 @@ set +e
 for branch in "${BRANCHES_TO_MERGE[@]}"; do
     # merge branch, use a merge commit
     $GITCMD merge $GODOT_REMOTE/$branch -m "Merge branch '$branch'"
-	if [ $? -ne 0 ]; then
-		$GITCMD merge --abort
-		echo "Error: Failed to merge branch '$branch'"
-		exit 1
-	fi
-done
-
-for branch in "${KOBEWI_BRANCHES[@]}"; do
-    # merge branch, use a merge commit
-    $GITCMD merge KoBeWi/$branch -m "Merge branch '$branch'"
 	if [ $? -ne 0 ]; then
 		$GITCMD merge --abort
 		echo "Error: Failed to merge branch '$branch'"

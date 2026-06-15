@@ -112,6 +112,12 @@ func _update_ui_on_state_change():
 			update_ui()
 	)
 
+func _update_ui_on_sync_change():
+	waiting_callables.append(
+		func():
+			update_sync_status()
+	)
+
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()
 
@@ -292,6 +298,7 @@ func bind_listeners(godot_project):
 	%UserNameDialog.confirmed.connect(_on_user_name_confirmed)
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
+	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)

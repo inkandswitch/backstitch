@@ -11,7 +11,7 @@ use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::{ProjectStartError, ProjectViewModel};
 use automerge::ChangeHash;
-use samod::{DocumentId, Url};
+use samod::{ConnectionInfo, DocumentId, Url};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +35,7 @@ pub struct Project {
     // These are here so we don't needlessly block during process
     changes_rx: Option<watch::Receiver<Vec<CommitInfo>>>,
     checked_out_ref_rx: Option<watch::Receiver<Option<HistoryRef>>>,
+    connection_info_rx: Option<watch::Receiver<Option<ConnectionInfo>>>,
 
     // Project driver. If some, is running.
     // I'd prefer this not be a mutex, but we need to move it into temporary threads in order to dispatch async code from sync code.
@@ -56,7 +57,7 @@ pub struct Project {
 
 /// Notifications that can be emitted via process and consumed by GodotProject, in order to trigger signals to GDScript.
 pub enum GodotProjectSignal {
-    CheckedOutBranch,
+    ServerStatusChanged,
     ChangesIngested,
 }
 
@@ -89,6 +90,7 @@ impl Project {
             local_changes: Default::default(),
             server_url: None,
             initial_branch: None,
+            connection_info_rx: None,
         }
     }
 
@@ -451,6 +453,7 @@ impl Project {
             .unwrap()?;
 
         self.changes_rx = Some(driver.get_changes_rx());
+        self.connection_info_rx = Some(driver.get_connection_info_rx());
         self.checked_out_ref_rx = Some(driver.get_ref_rx());
         self.server_url = server_url_clone;
         self.initial_branch = if load_success.found_on_provided_branch {
@@ -511,6 +514,7 @@ impl Project {
         self.local_changes = Default::default();
         self.changes_rx = None;
         self.checked_out_ref_rx = None;
+        self.connection_info_rx = None;
         self.history = None;
     }
 
@@ -599,6 +603,12 @@ impl Project {
             self.ingest_changes(changes);
         }
 
+        let rx = self.connection_info_rx.as_mut().unwrap();
+        if rx.has_changed().unwrap_or(false) {
+            rx.mark_unchanged();
+            signals.push(GodotProjectSignal::ServerStatusChanged);
+        }
+
         // Check to see if we need to produce a CheckedOutBranch signal
         let rx = self.checked_out_ref_rx.as_mut().unwrap();
         if rx.has_changed().unwrap_or(false) {
@@ -608,7 +618,6 @@ impl Project {
                 .map(|r| r.branch().to_string())
                 .unwrap_or("".to_string());
             BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
-            signals.push(GodotProjectSignal::CheckedOutBranch);
             rx.mark_unchanged();
         }
 

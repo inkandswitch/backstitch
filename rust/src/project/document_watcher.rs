@@ -126,8 +126,7 @@ impl DocumentWatcherInner {
         let mut time = 0u64;
         let duration = 500u64;
         loop {
-            // TODO: trace! this, it's annoying
-            tracing::debug!("Polling for document {id}, for {timeout}ms");
+            tracing::trace!("Polling for document {id}, for {timeout}ms");
             let acquired = find_limit.acquire().await.unwrap();
             let handle = repo.find(id.clone()).await.unwrap();
             drop(acquired);
@@ -214,7 +213,7 @@ impl DocumentWatcherInner {
         if branch_db.has_binary_doc(&doc_id).await {
             return;
         }
-        tracing::debug!("Tracking binary doc {doc_id}");
+        tracing::trace!("Tracking binary doc {doc_id}");
         let poll_time = self.poll_time;
         let token = self.token.clone();
         tokio::task::spawn(async move {

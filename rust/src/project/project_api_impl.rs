@@ -294,7 +294,7 @@ impl ProjectViewModel for Project {
         };
         let is_connected = info.last_received.is_some();
 
-        tracing::debug!(
+        tracing::trace!(
             "last_acked_heads: {:?}, current heads: {:?}",
             status.last_acked_heads,
             ref_.heads()

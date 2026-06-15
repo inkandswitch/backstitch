@@ -635,6 +635,10 @@ impl Driver {
     pub fn get_ref_rx(&self) -> watch::Receiver<Option<HistoryRef>> {
         self.inner.ref_tx.subscribe()
     }
+
+    pub fn get_connection_info_rx(&self) -> watch::Receiver<Option<ConnectionInfo>> {
+        self.inner.peer_watcher.subscribe()
+    }
 }
 
 impl DriverInner {

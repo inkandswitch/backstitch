@@ -190,6 +190,9 @@ impl GodotProject {
     fn state_changed();
 
     #[signal]
+    fn sync_changed();
+
+    #[signal]
     fn create_failed();
 
     #[func]
@@ -651,12 +654,13 @@ impl INode for GodotProject {
         }
         for signal in signals {
             match signal {
-                GodotProjectSignal::CheckedOutBranch => {
-                    // TODO: remove this signal
-                }
                 GodotProjectSignal::ChangesIngested => {
                     self.base_mut()
                         .call_deferred("emit_signal", &["state_changed".to_variant()]);
+                }
+                GodotProjectSignal::ServerStatusChanged => {
+                    self.base_mut()
+                        .call_deferred("emit_signal", &["sync_changed".to_variant()]);
                 }
             }
         }

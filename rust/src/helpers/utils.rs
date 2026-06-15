@@ -19,7 +19,7 @@ pub(crate) fn parse_automerge_url(url: &str) -> Option<DocumentId> {
     DocumentId::from_str(hash).ok()
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct MergeMetadata {
     pub merged_branch_id: DocumentId,
     pub forked_at_heads: Vec<ChangeHash>,
@@ -42,13 +42,13 @@ impl fmt::Display for ChangeType {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ChangedFile {
     pub change_type: ChangeType,
     pub path: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct CommitMetadata {
     pub username: Option<String>,
     pub branch_id: Option<DocumentId>,
@@ -79,7 +79,7 @@ pub(crate) fn commit_with_metadata(
     .0
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CommitInfo {
     pub hash: ChangeHash,
     pub timestamp: i64,

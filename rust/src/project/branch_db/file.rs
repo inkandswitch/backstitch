@@ -4,7 +4,6 @@ use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
 use autosurgeon::Doc;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use samod::DocumentId;
-use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -41,31 +40,29 @@ impl BranchDb {
         let ref_clone = ref_.clone();
         let hashes = self
             .with_shadow_document(ref_.branch(), async move |d| {
-                let out = async move {
-                    let heads = ref_clone.heads();
-                    let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
-                        tracing::error!("files not found at ref {ref_clone}!");
-                        return None;
-                    };
+                let heads = ref_clone.heads();
+                let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
+                    tracing::error!("files not found at ref {ref_clone}!");
+                    return None;
+                };
 
-                    let entries: Vec<(String, ObjId)> = d
-                        .map_range_at(&files_id, .., heads)
-                        .filter_map(|item| {
-                            let id = item.id();
-                            // if it's a scalar for some reason, ignore this entry
-                            match item.value {
-                                ValueRef::Object(_) => Some((item.key.into_owned(), id)),
-                                _ => None,
-                            }
-                        })
-                        .collect();
+                let entries: Vec<(String, ObjId)> = d
+                    .map_range_at(&files_id, .., heads)
+                    .filter_map(|item| {
+                        let id = item.id();
+                        // if it's a scalar for some reason, ignore this entry
+                        match item.value {
+                            ValueRef::Object(_) => Some((item.key.into_owned(), id)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
 
-                    tracing::info!("COLLECTED");
-
-                    // Using rayon for this, to parallelize the key retrieval from the document (not just hashing!!)
-                    // Maps to a PendingHash() with either a hash value or a request to look for a linked doc for slow hashing.
-                    // Also maps to a bool indicating whether to re-insert the computed hash after slow hashing (useful for old or broken docs).
-                    let out: HashMap<String, (PendingHash, bool)> = entries
+                // Using rayon for this, to parallelize the key retrieval from the document (not just hashing!!)
+                // Maps to a PendingHash() with either a hash value or a request to look for a linked doc for slow hashing.
+                // Also maps to a bool indicating whether to re-insert the computed hash after slow hashing (useful for old or broken docs).
+                Some(
+                    entries
                         .into_par_iter()
                         .filter_map(|(path, entry_id)| {
                             // First, try and access the quick hash from the doc.
@@ -123,47 +120,36 @@ impl BranchDb {
                                 },
                             };
                         })
-                        .collect();
-
-                    Some(out)
-                }
-                .instrument(tracing::info_span!("Inner get_hash_index"))
-                .await;
-                out
+                        .collect::<HashMap<String, (PendingHash, bool)>>(),
+                )
             })
-            .instrument(tracing::info_span!("Outer get_hash_index"))
             .await
             .ok()??;
 
-        let (new_hashes, reinserting) = async move {
-            // Resolve binary files
-            let mut new_hashes = HashMap::new();
-            let mut reinserting = false;
-            for (path, (pending_hash, should_reinsert)) in hashes {
-                if self.should_ignore(&self.globalize_path(&path), false) {
-                    continue;
-                }
-                if should_reinsert {
-                    reinserting = true;
-                }
-                let hash = match pending_hash {
-                    PendingHash::Hash(hash) => hash,
-                    PendingHash::Linked(document_id) => {
-                        tracing::info!("Hashing linked file {document_id}");
-                        // It may be wise to do this in parallel too... but this shouldn't be a frequent case.
-                        let Some(content) = self.get_linked_file(&document_id).await else {
-                            tracing::error!("Could not get linked file for hashing {path}");
-                            continue;
-                        };
-                        content.to_hash()
-                    }
-                };
-                new_hashes.insert(path, (hash, should_reinsert));
+        // Resolve binary files
+        let mut new_hashes = HashMap::new();
+        let mut reinserting = false;
+        for (path, (pending_hash, should_reinsert)) in hashes {
+            if self.should_ignore(&self.globalize_path(&path), false) {
+                continue;
             }
-            (new_hashes, reinserting)
+            if should_reinsert {
+                reinserting = true;
+            }
+            let hash = match pending_hash {
+                PendingHash::Hash(hash) => hash,
+                PendingHash::Linked(document_id) => {
+                    tracing::info!("Hashing linked file {document_id}");
+                    // It may be wise to do this in parallel too... but this shouldn't be a frequent case.
+                    let Some(content) = self.get_linked_file(&document_id).await else {
+                        tracing::error!("Could not get linked file for hashing {path}");
+                        continue;
+                    };
+                    content.to_hash()
+                }
+            };
+            new_hashes.insert(path, (hash, should_reinsert));
         }
-        .instrument(tracing::info_span!("Second get_hash_index"))
-        .await;
 
         if reinserting {
             tracing::info!("Found broken hashes; reinserting");
@@ -214,8 +200,6 @@ impl BranchDb {
             .await
             .unwrap();
         }
-
-        tracing::debug!("Finished get hash index");
 
         Some(
             new_hashes
@@ -296,7 +280,7 @@ impl BranchDb {
             tracing::debug!("Skipping get_files_at_ref; filters empty");
             return None;
         }
-        tracing::info!("Getting files at ref {:?}", desired_ref);
+        tracing::info!("Getting {:?} files at ref {:?}", filters.len(), desired_ref);
         tracing::trace!("Filters: {:?}", filters);
         let mut files = HashMap::new();
         let mut linked_doc_ids = Vec::new();

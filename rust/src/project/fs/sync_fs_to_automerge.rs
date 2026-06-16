@@ -104,13 +104,13 @@ impl SyncFileSystemToAutomerge {
             &self.fs_index,
             move |path, is_dir| db_clone.should_ignore(&path.to_path_buf(), is_dir),
         )
-        .instrument(tracing::info_span!("get_all_files"))
+        .instrument(tracing::debug_span!("get_all_files"))
         .await;
 
         let Some(old_files) = self
             .branch_db
             .get_hash_index(ref_)
-            .instrument(tracing::info_span!("get_hash_index"))
+            .instrument(tracing::debug_span!("get_hash_index"))
             .await
         else {
             tracing::error!("Failed to get current files!");
@@ -138,7 +138,7 @@ impl SyncFileSystemToAutomerge {
         let new_ref = self
             .branch_db
             .commit_fs_changes(contents, &ref_, None, false)
-            .instrument(tracing::info_span!("commit_fs_changes"))
+            .instrument(tracing::debug_span!("commit_fs_changes"))
             .await;
         if let Some(new_ref) = new_ref {
             tracing::info!("Successfully made a commit! {:?}", new_ref);

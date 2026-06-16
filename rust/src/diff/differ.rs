@@ -83,6 +83,8 @@ impl Differ {
             .get_changed_files_between_refs(Some(before), after)
             .await?;
 
+        tracing::debug!("diffing {} changes...", changed_files.len());
+
         if changed_files.is_empty() {
             return None;
         }

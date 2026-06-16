@@ -1,7 +1,6 @@
-use automerge::{Automerge, ObjType, ROOT, ReadDoc};
+use automerge::{Automerge, ObjId, ObjType, ROOT, ReadDoc, transaction::Transaction};
 use autosurgeon::Doc;
 use samod::DocHandle;
-use tracing::Instrument;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -24,7 +23,7 @@ impl BranchDb {
         revert: Option<&HistoryRef>,
         is_checking_in: bool,
     ) -> Option<HistoryRef> {
-        tracing::info!("Attempting to commit changes...");
+        tracing::info!("Attempting to commit {} changes...", files.len());
 
         // TODO (Lilith): Once upon a time, we checked contentwise to make sure we're not committing empty changes.
         // I don't think we need to do that anymore, but we need to test without it.
@@ -74,6 +73,12 @@ impl BranchDb {
             return None;
         };
 
+        if d.get_heads() != *ref_.heads() {
+            tracing::warn!(
+                "Expected heads are different than current heads. The diffing will probably be wrong!"
+            );
+        }
+
         let mut tx = d.transaction();
 
         let mut changes: Vec<ChangedFile> = Vec::new();
@@ -102,7 +107,7 @@ impl BranchDb {
 
             // either get existing text or create new text
             let content_key = match tx.get(&file_entry, "content") {
-                Ok(Some((automerge::Value::Object(ObjType::Text), content))) => content,
+                Ok(Some((automerge::Value::Object(ObjType::Text), content_key))) => content_key,
                 _ => tx
                     .put_object(&file_entry, "content", ObjType::Text)
                     .unwrap(),
@@ -122,6 +127,16 @@ impl BranchDb {
             let scene_file = tx
                 .get_obj_id(&files, &path)
                 .unwrap_or_else(|| tx.put_object(&files, &path, ObjType::Map).unwrap());
+
+            // If this happens, it's a bug with the caller... but check, for debug purposes.
+            if let Some(old_hash) = Self::get_existing_hash(&tx, &scene_file) {
+                if old_hash == hash {
+                    tracing::error!(
+                        "Scene {} hash is the same as stored! Committing anyways.",
+                        path
+                    );
+                }
+            }
 
             autosurgeon::reconcile_prop(&mut tx, &scene_file, "structured_content", godot_scene)
                 .unwrap_or_else(|e| {
@@ -190,9 +205,7 @@ impl BranchDb {
         // That's OK; once the binary doc sync finishes, it will trigger a reconcile to canonical.
         // In the mean time, we can continue committing to the shadow doc.
         drop(state);
-        self.try_reconcile_branch(state_arc.clone())
-            .instrument(tracing::info_span!("try_reconcile_branch"))
-            .await;
+        self.try_reconcile_branch(state_arc.clone()).await;
 
         tracing::info!("Committed {} files.", count);
 
@@ -204,6 +217,21 @@ impl BranchDb {
         }
 
         return Some(HistoryRef::new(ref_.branch().clone(), new_heads));
+    }
+
+    fn get_existing_hash(tx: &Transaction<'_>, obj_id: &ObjId) -> Option<blake3::Hash> {
+        if let Ok(hashes) = tx.get_all(obj_id, "hash") {
+            // If there are multiple hashes here, it means we can't rely on it and have to do a contentwise comparison.
+            if hashes.len() == 1 {
+                let hash = &hashes.get(0).unwrap().0;
+                if let Some(bytes) = hash.to_bytes() {
+                    if let Ok(hash) = blake3::Hash::from_slice(bytes) {
+                        return Some(hash);
+                    }
+                }
+            }
+        };
+        None
     }
 
     pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> DocHandle {

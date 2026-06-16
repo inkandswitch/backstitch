@@ -681,9 +681,17 @@ impl DriverInner {
             tracing::trace!("Attepmting to sync FS to automerge...");
             // Apply any watched FS updates to Automerge.
             // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-            let committed_changes = self.sync_fs_to_automerge.commit(&ref_, false).await;
-            if !committed_changes.is_empty() {
-                self.change_ingester.request_ingestion();
+            // We need to grab the most current heads in case we haven't marked them as officially checked-out yet. (I think?)
+            if let Some(current_shadow_ref) =
+                self.branch_db.get_latest_ref_on_branch(ref_.branch()).await
+            {
+                let committed_changes = self
+                    .sync_fs_to_automerge
+                    .commit(&current_shadow_ref, false)
+                    .await;
+                if !committed_changes.is_empty() {
+                    self.change_ingester.request_ingestion();
+                }
             }
         } else {
             tracing::trace!("NO CHECKED OUT REF");

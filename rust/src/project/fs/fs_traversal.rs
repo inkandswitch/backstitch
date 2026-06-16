@@ -6,7 +6,6 @@ use std::{
 
 use futures::{StreamExt, stream};
 use jwalk::WalkDir;
-use tracing::Instrument;
 
 use crate::{helpers::utils::ChangeType, project::fs::fs_index::FileSystemIndex};
 
@@ -42,7 +41,6 @@ impl FileSystemTraversal {
                 .map(|entry| entry.path())
                 .collect::<Vec<PathBuf>>()
         })
-        .instrument(tracing::info_span!("Walking tree"))
         .await
         .unwrap();
 
@@ -54,9 +52,16 @@ impl FileSystemTraversal {
             .buffer_unordered(64)
             // TODO: Propagate hash errors upwards... once we figure out what to do with these.
             // In case of hash retrieval failure, we don't want it to read the file as deleted.
-            .filter_map(|r| async move { r.ok() })
+            .filter_map(|r| async move {
+                match r {
+                    Ok(v) => return Some(v),
+                    Err(e) => {
+                        tracing::error!("Failed to hash: {e}");
+                        return None;
+                    }
+                }
+            })
             .collect()
-            .instrument(tracing::info_span!("Hashing files"))
             .await
     }
 

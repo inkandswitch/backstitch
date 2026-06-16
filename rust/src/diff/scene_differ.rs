@@ -71,7 +71,7 @@ pub struct NodeDiff {
     /// The path of the node within the scene.
     pub node_path: String,
     /// The type of the node.
-    pub node_type: String,
+    pub node_type: Option<TypeOrInstance>,
     /// The changed properties of the node.
     pub changed_properties: HashMap<String, PropertyDiff>,
 }
@@ -80,7 +80,7 @@ impl NodeDiff {
     pub fn new(
         change_type: ChangeType,
         node_path: String,
-        node_type: String,
+        node_type: Option<TypeOrInstance>,
         changed_properties: HashMap<String, PropertyDiff>,
     ) -> NodeDiff {
         NodeDiff {
@@ -97,6 +97,7 @@ pub struct SubResourceDiff {
     pub change_type: ChangeType,
     pub sub_resource_id: String,
     pub resource_type: String,
+    pub script_class: Option<String>,
     pub changed_properties: HashMap<String, PropertyDiff>,
 }
 
@@ -105,12 +106,14 @@ impl SubResourceDiff {
         change_type: ChangeType,
         sub_resource_id: String,
         resource_type: String,
+        script_class: Option<String>,
         changed_properties: HashMap<String, PropertyDiff>,
     ) -> SubResourceDiff {
         SubResourceDiff {
             change_type,
             sub_resource_id,
             resource_type,
+            script_class,
             changed_properties,
         }
     }
@@ -186,8 +189,6 @@ trait PropertyGetter {
     fn get_property(&self, prop: &str) -> Option<&OrderedProperty>;
     fn get_properties(&self) -> &HashMap<String, OrderedProperty>;
     fn get_type_or_instance(&self) -> Option<TypeOrInstance>;
-    fn is_subresource(&self) -> bool;
-    fn get_id(&self) -> String;
 }
 
 impl PropertyGetter for GodotNode {
@@ -200,12 +201,6 @@ impl PropertyGetter for GodotNode {
     fn get_type_or_instance(&self) -> Option<TypeOrInstance> {
         self.type_or_instance.clone()
     }
-    fn is_subresource(&self) -> bool {
-        false
-    }
-    fn get_id(&self) -> String {
-        self.id.to_string()
-    }
 }
 
 impl PropertyGetter for SubResourceNode {
@@ -217,12 +212,6 @@ impl PropertyGetter for SubResourceNode {
     }
     fn get_type_or_instance(&self) -> Option<TypeOrInstance> {
         Some(TypeOrInstance::Type(self.resource_type.clone()))
-    }
-    fn is_subresource(&self) -> bool {
-        true
-    }
-    fn get_id(&self) -> String {
-        self.id.to_string()
     }
 }
 
@@ -303,9 +292,11 @@ impl Differ {
         let mut ext_resource_ids = HashSet::new();
 
         let mut resource_type: String = "".to_string();
+        let mut script_class: Option<String> = None;
         // Collect all the relevant node IDs, sub resource IDs, and ext resource IDs from both scenes.
         if let Some(old_scene) = old_scene {
             resource_type = old_scene.resource_type.clone();
+            script_class = old_scene.script_class.clone();
             Self::get_ids_from_scene(
                 old_scene,
                 &mut node_ids,
@@ -315,12 +306,17 @@ impl Differ {
         }
         if let Some(new_scene) = new_scene {
             resource_type = new_scene.resource_type.clone();
+            script_class = new_scene.script_class.clone();
             Self::get_ids_from_scene(
                 new_scene,
                 &mut node_ids,
                 &mut ext_resource_ids,
                 &mut sub_resource_ids,
             );
+        }
+
+        if let Some(script_class) = script_class.as_ref() {
+            tracing::warn!("!!! script_class: {}", script_class);
         }
 
         let mut changed_sub_resources = Vec::new();
@@ -351,7 +347,7 @@ impl Differ {
 
             changed_sub_resources.push(diff);
         }
-        let changed_main_resource = self
+        let mut changed_main_resource = self
             .get_sub_resource_diff(
                 "",
                 old_scene.and_then(|s| s.main_resource.as_ref()),
@@ -362,6 +358,9 @@ impl Differ {
                 after,
             )
             .await;
+        changed_main_resource
+            .as_mut()
+            .map(|s| s.script_class = script_class);
 
         TextResourceDiff::new(
             path.clone(),
@@ -424,6 +423,7 @@ impl Differ {
             },
             sub_resource_id.to_string(),
             old_class_name.or(new_class_name).unwrap_or_default(),
+            None,
             changed_properties,
         ))
     }
@@ -443,18 +443,12 @@ impl Differ {
             return None;
         }
 
-        let old_class_name = old_node.map(|n| {
-            n.get_type_or_instance()
-                .as_ref()
-                .map(|t| Self::get_class_name(t, old_scene))
-                .unwrap_or_default()
-        });
-        let new_class_name = new_node.map(|n| {
-            n.get_type_or_instance()
-                .as_ref()
-                .map(|t| Self::get_class_name(t, new_scene))
-                .unwrap_or_default()
-        });
+        let old_class_name = old_node
+            .map(|n| n.get_type_or_instance())
+            .unwrap_or_default();
+        let new_class_name = new_node
+            .map(|n| n.get_type_or_instance())
+            .unwrap_or_default();
 
         let mut changed_properties = HashMap::new();
 
@@ -504,28 +498,9 @@ impl Differ {
                 (Some(_), None) => old_scene?.get_node_path(&node_id),
                 (_, _) => new_scene?.get_node_path(&node_id),
             },
-            new_class_name.or(old_class_name).unwrap_or_default(),
+            new_class_name.or(old_class_name),
             changed_properties,
         ))
-    }
-
-    /// Get a class name [String] from a [TypeOrInstance] and the [GodotScene] it is from.
-    fn get_class_name(type_or_instance: &TypeOrInstance, scene: Option<&GodotScene>) -> String {
-        match type_or_instance {
-            TypeOrInstance::Type(type_name) => type_name.clone(),
-            TypeOrInstance::Instance(instance_id) => {
-                if let Some(scene) = scene {
-                    // strip the "ExtResource(" and ")" from the instance_id
-                    let instance_id = instance_id
-                        .trim_start_matches("ExtResource(\"")
-                        .trim_end_matches("\")");
-                    if let Some(ext_resource) = scene.ext_resources.get(instance_id) {
-                        return format!("Resource(\"{}\")", ext_resource.path);
-                    }
-                }
-                String::new()
-            }
-        }
     }
 
     /// Returns the [VariantStrValue] of a property on a node, or the default value if the property doesn't

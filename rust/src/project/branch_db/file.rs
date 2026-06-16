@@ -292,8 +292,12 @@ impl BranchDb {
         desired_ref: &HistoryRef,
         filters: &HashSet<String>,
     ) -> Option<HashMap<String, FileContent>> {
+        if filters.is_empty() {
+            tracing::debug!("Skipping get_files_at_ref; filters empty");
+            return None;
+        }
         tracing::info!("Getting files at ref {:?}", desired_ref);
-        tracing::debug!("Filters: {:?}", filters);
+        tracing::trace!("Filters: {:?}", filters);
         let mut files = HashMap::new();
         let mut linked_doc_ids = Vec::new();
 
@@ -303,7 +307,7 @@ impl BranchDb {
             .with_shadow_document(desired_ref.branch(), async |doc| {
                 let files_obj_id: ObjId = doc.get_at(ROOT, "files", desired_ref.heads()).ok()??.1;
                 for path in doc.keys_at(&files_obj_id, desired_ref.heads()) {
-                    if !filters.is_empty() && !filters.contains(&path) {
+                    if !filters.contains(&path) {
                         continue;
                     }
                     let file_entry = match doc.get_at(&files_obj_id, &path, desired_ref.heads()) {

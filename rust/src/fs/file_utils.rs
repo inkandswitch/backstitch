@@ -169,6 +169,20 @@ impl FileContent {
         }
         Err(Err(io::Error::new(io::ErrorKind::Other, "Failed to url!")))
     }
+
+    pub fn is_text(&self) -> bool {
+        match self {
+            FileContent::String(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_scene(&self) -> bool {
+        match self {
+            FileContent::Scene(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub fn is_buf_binary(buf: &[u8]) -> bool {

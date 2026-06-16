@@ -21,10 +21,6 @@ BackstitchEditor::BackstitchEditor() {}
 
 BackstitchEditor::~BackstitchEditor() {}
 
-bool BackstitchEditor::is_changing_scene() {
-  return EditorNode::get_singleton()->is_changing_scene();
-}
-
 void BackstitchEditor::progress_add_task(const String &p_task,
                                         const String &p_label, int p_steps,
                                         bool p_can_cancel) {
@@ -44,8 +40,6 @@ void BackstitchEditor::progress_end_task(const String &p_task) {
 }
 
 void BackstitchEditor::_bind_methods() {
-  ClassDB::bind_static_method(get_class_static(), D_METHOD("is_changing_scene"),
-                              &BackstitchEditor::is_changing_scene);
   ClassDB::bind_static_method(
       get_class_static(),
       D_METHOD("progress_add_task", "task", "label", "steps", "can_cancel"),

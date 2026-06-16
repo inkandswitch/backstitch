@@ -673,6 +673,23 @@ impl GodotScene {
     pub fn get_node(&self, node_id: &NodeId) -> Option<&GodotNode> {
         self.nodes.get(node_id)
     }
+
+    pub fn get_ext_resource_path(&self, ext_resource_id: &String) -> Option<String> {
+        let ext_resource_id = ext_resource_id
+            .trim_start_matches("ExtResource(\"")
+            .trim_end_matches("\")");
+        self.ext_resources
+            .get(ext_resource_id)
+            .map(|ext_resource| ext_resource.path.clone())
+    }
+
+    pub fn get_root_node_type(&self) -> Option<TypeOrInstance> {
+        if let Some(root_node_id) = self.root_node_id.as_ref() {
+            let node = self.get_node(root_node_id);
+            return node.map(|n| n.type_or_instance.clone()).unwrap_or_default();
+        }
+        None
+    }
 }
 
 #[inline]
@@ -823,8 +840,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let format = match heading.get("format").and_then(|f| f.parse::<i64>().ok()) {
                         Some(format) => format,
                         None => {
-                            return Err("Missing required 'format' attribute in gd_resource header"
-                                .to_string());
+                            return Err(
+                                "Missing required 'format' attribute in gd_resource header"
+                                    .to_string(),
+                            );
                         }
                     };
 
@@ -988,8 +1007,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let ext_resource_type = match heading.get("type").cloned() {
                         Some(resource_type) => unquote(&resource_type),
                         None => {
-                            return Err("Missing required 'type' attribute in ext_resource section"
-                                .to_string());
+                            return Err(
+                                "Missing required 'type' attribute in ext_resource section"
+                                    .to_string(),
+                            );
                         }
                     };
 
@@ -998,8 +1019,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let path = match heading.get("path").cloned() {
                         Some(path) => unquote(&path),
                         None => {
-                            return Err("Missing required 'path' attribute in ext_resource section"
-                                .to_string());
+                            return Err(
+                                "Missing required 'path' attribute in ext_resource section"
+                                    .to_string(),
+                            );
                         }
                     };
 
@@ -1036,8 +1059,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let subresource_type = match heading.get("type").cloned() {
                         Some(resource_type) => unquote(&resource_type),
                         None => {
-                            return Err("Missing required 'type' attribute in sub_resource section"
-                                .to_string());
+                            return Err(
+                                "Missing required 'type' attribute in sub_resource section"
+                                    .to_string(),
+                            );
                         }
                     };
 
@@ -1056,8 +1081,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let signal = match heading.get("signal").cloned() {
                         Some(signal) => unquote(&signal),
                         None => {
-                            return Err("Missing required 'signal' attribute in connection section"
-                                .to_string());
+                            return Err(
+                                "Missing required 'signal' attribute in connection section"
+                                    .to_string(),
+                            );
                         }
                     };
 
@@ -1081,8 +1108,10 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     let method = match heading.get("method").cloned() {
                         Some(method) => unquote(&method),
                         None => {
-                            return Err("Missing required 'method' attribute in connection section"
-                                .to_string());
+                            return Err(
+                                "Missing required 'method' attribute in connection section"
+                                    .to_string(),
+                            );
                         }
                     };
 

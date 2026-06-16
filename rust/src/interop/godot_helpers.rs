@@ -1,5 +1,6 @@
 use crate::fs::file_utils::FileContent;
 use crate::helpers::utils::ChangedFile;
+use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
 use automerge::ChangeHash;
 use godot::builtin::Variant;
@@ -224,5 +225,28 @@ impl ToGodotExt for Vec<ChangedFile> {
     }
     fn _to_variant(&self) -> Variant {
         self._to_godot().to_variant()
+    }
+}
+
+impl GodotConvert for TypeOrInstance {
+    type Via = GString;
+}
+
+impl ToGodot for TypeOrInstance {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
+}
+
+impl ToVariantExt for Option<TypeOrInstance> {
+    fn _to_variant(&self) -> Variant {
+        match self {
+            Some(type_or_instance) => type_or_instance.to_variant(),
+            None => Variant::nil(),
+        }
     }
 }

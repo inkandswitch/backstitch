@@ -7,7 +7,7 @@ use std::str::FromStr;
 use godot::builtin::{GString, PackedStringArray, StringName, VarDictionary, Variant};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{
-    ConfigFile, IResourceFormatLoader, IResourceFormatSaver, ProjectSettings, Resource,
+    ClassDb, ConfigFile, IResourceFormatLoader, IResourceFormatSaver, ProjectSettings, Resource,
     ResourceFormatLoader, ResourceFormatSaver, ResourceLoader, ResourceUid,
 };
 use godot::global::Error;
@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::fs::file_utils::FileContent;
 use crate::helpers::history_path::HistoryRefPath;
 use crate::helpers::history_ref::HistoryRef;
-use crate::interop::godot_accessors::BackstitchEditorAccessor;
+use crate::interop::fake_importers::FakeImporter;
 use crate::interop::godot_project::GodotProject;
 
 /// This class allows us to load resources directly from backstitch history.
@@ -28,6 +28,7 @@ use crate::interop::godot_project::GodotProject;
 pub struct BackstitchResourceLoader {
     #[base]
     base: Base<ResourceFormatLoader>,
+    fake_importer: FakeImporter,
 }
 
 #[inline]
@@ -88,20 +89,6 @@ impl BackstitchResourceLoader {
         }
         Ok((content, import_content))
     }
-    /// ext_resource path to the backstitch path at the same history ref and sets UIDs to -1
-    /// (None) so Godot loads by path via this loader.
-    fn content_bytes_for_temp(
-        content: &FileContent,
-        history_ref: &HistoryRef,
-    ) -> Result<Vec<u8>, Error> {
-        match content {
-            FileContent::Scene(scene) => Ok(scene
-                .serialize_with_ext_resource_override(Some(history_ref), true)
-                .into_bytes()),
-            FileContent::String(s) => Ok(s.as_bytes().to_vec()),
-            FileContent::Binary(b) => Ok(b.clone()),
-        }
-    }
 
     fn get_temp_path(history_ref_path: &HistoryRefPath, override_ext: Option<&str>) -> PathBuf {
         let path = history_ref_path
@@ -133,52 +120,94 @@ impl BackstitchResourceLoader {
         history_ref: &HistoryRef,
         temp_path: &PathBuf,
     ) -> Result<(), Error> {
-        let bytes = match Self::content_bytes_for_temp(&content, history_ref) {
-            Ok(b) => b,
-            Err(e) => return Err(e),
+        let temp_text;
+        let buf: &[u8] = match content {
+            FileContent::String(text) => text.as_bytes(),
+            FileContent::Binary(data) => data,
+            FileContent::Scene(scene) => {
+                // ext_resource path to the backstitch path at the same history ref and sets UIDs to -1
+                // (None) so Godot loads by path via this loader.
+                temp_text =
+                    Some(scene.serialize_with_ext_resource_override(Some(history_ref), true));
+                temp_text.as_ref().unwrap().as_bytes()
+            }
         };
-
         let mut file = match File::create(&temp_path) {
             Ok(f) => f,
             Err(_) => return Err(Error::ERR_CANT_CREATE),
         };
-        if file.write_all(&bytes).is_err() {
+        if file.write_all(buf).is_err() {
             return Err(Error::ERR_CANT_CREATE);
         }
         drop(file);
         Ok(())
     }
 
-    fn get_path_and_type_from_import_file_content(
+    fn get_importer_and_params_from_import_file_content(
         &self,
         import_file_content: &str,
-    ) -> (GString, GString) {
+    ) -> (GString, VarDictionary) {
         let mut import_file = ConfigFile::new_gd();
         import_file.parse(import_file_content);
-        let mut path = import_file.get_value("remap", "path");
-        let mut type_name = import_file.get_value("remap", "type");
-        if path.is_nil() {
-            let remap_keys = import_file.get_section_keys("remap");
-            for i in 0..remap_keys.len() {
-                let remap_key = remap_keys.get(i);
-                let remap_key_str = remap_key.unwrap_or_default().to_string();
-                if remap_key_str.starts_with("path") {
-                    path = import_file.get_value("remap", &remap_key_str);
-                    break;
-                }
+        let importer = import_file.get_value("remap", "importer");
+        let keys: PackedStringArray = import_file.get_section_keys("params");
+        let mut params: VarDictionary = vdict! {};
+        for key in keys.as_slice().iter() {
+            params.set(key.to_variant(), import_file.get_value("params", key));
+        }
+        (importer.to::<GString>(), params)
+    }
+
+    fn set_resource_path(resource: &mut Gd<Resource>, path: GString, cache_mode: CacheMode) {
+        match cache_mode {
+            CacheMode::IGNORE | CacheMode::IGNORE_DEEP => {
+                resource.set_path_cache(&path);
+            }
+            CacheMode::REPLACE | CacheMode::REPLACE_DEEP => {
+                resource.take_over_path(&path);
+            }
+            CacheMode::REUSE => {
+                resource.set_path(&path);
+            }
+            _ => {
+                // we should never get here
+                tracing::error!("Invalid cache mode: {}", cache_mode.ord());
             }
         }
-        if type_name.is_nil() {
-            type_name = import_file.get_value("remap", "type");
+    }
+
+    fn get_content_as_textfile_resource(content: &FileContent) -> Option<Gd<Resource>> {
+        // For some reason, TextFile isn't bound in Rust, so we instantiate it manually.
+        if !content.is_text() && !content.is_scene() {
+            tracing::error!("Do not try to save a non-text or scene file as a TextFile");
+            return None;
         }
-        (path.to::<GString>(), type_name.to::<GString>())
+        let resource = ClassDb::singleton().instantiate(&StringName::from("TextFile"));
+        if resource.is_nil() {
+            tracing::error!("Error instantiating TextFile");
+            return None;
+        }
+        let mut resource = resource.try_to::<Gd<Resource>>().unwrap();
+        match content {
+            FileContent::String(text) => {
+                resource.call("set_text", &[text.to_variant()]);
+            }
+            FileContent::Scene(scene) => {
+                resource.call("set_text", &[scene.serialize().to_variant()]);
+            }
+            _ => return None,
+        }
+        Some(resource)
     }
 }
 
 #[godot_api]
 impl IResourceFormatLoader for BackstitchResourceLoader {
     fn init(base: Base<ResourceFormatLoader>) -> Self {
-        Self { base }
+        Self {
+            base,
+            fake_importer: FakeImporter::default(),
+        }
     }
 
     fn get_recognized_extensions(&self) -> PackedStringArray {
@@ -306,6 +335,14 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         _use_sub_threads: bool,
         cache_mode_ord: i32,
     ) -> Variant {
+        // _original_path should match the path passed to load() because the resource loader should fail to remap the path due to the `backstitch` prefix.
+        // If it doesn't, log it so we know our assumptions were wrong.
+        debug_assert!(
+            _original_path == path,
+            "Original path {} does not match path {}, we should never get here!",
+            _original_path,
+            path
+        );
         let cache_mode = CacheMode::try_from_ord(cache_mode_ord).unwrap_or(CacheMode::IGNORE);
         let path_str = path.to_string();
         let history_ref_path = match HistoryRefPath::from_str(&path_str) {
@@ -324,7 +361,69 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                     return Variant::nil();
                 }
             };
-        let mut temp_path = Self::get_temp_path(&history_ref_path, None);
+
+        let mut maybe_import = import_file_content.is_some();
+        if !maybe_import {
+            let extensions = ResourceLoader::singleton().get_recognized_extensions_for_type("");
+            let ext = Path::new(&history_ref_path.path)
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+                .to_lowercase();
+            if !extensions.contains(&GString::from(&ext)) && !content.is_scene() {
+                maybe_import = true;
+            }
+        }
+
+        if maybe_import {
+            let (_importer, _params) = match import_file_content {
+                Some(FileContent::String(import_file_content)) => {
+                    let (importer, params) =
+                        self.get_importer_and_params_from_import_file_content(&import_file_content);
+                    (Some(importer.to_string()), params)
+                }
+                _ => (None, vdict! {}),
+            };
+            if self
+                .fake_importer
+                .recognize(&history_ref_path.path, _importer.as_deref())
+            {
+                let content_bytes = match &content {
+                    FileContent::String(t) => t.as_bytes(),
+                    FileContent::Binary(bytes) => bytes.as_slice(),
+                    _ => {
+                        tracing::error!(
+                            "Content is not a string or binary, we should never get here"
+                        );
+                        return Variant::nil();
+                    }
+                };
+                let resource = self.fake_importer.import_file(
+                    &history_ref_path.to_string(),
+                    _importer.as_deref(),
+                    content_bytes,
+                    &_params,
+                );
+                if let Err(e) = resource {
+                    if content.is_text() {
+                        let resource = Self::get_content_as_textfile_resource(&content);
+                        return resource.unwrap_or_default().to_variant();
+                    }
+                    // don't log error if the importer is not implemented
+                    if e != Error::ERR_UNAVAILABLE {
+                        tracing::error!("Error importing file: {}", e.as_str());
+                    }
+                    return Variant::nil();
+                }
+                let mut resource = resource.unwrap();
+                Self::set_resource_path(&mut resource, path, cache_mode);
+                return resource.to_variant();
+            }
+            // else continue with the normal flow
+        }
+
+        let temp_path = Self::get_temp_path(&history_ref_path, None);
 
         match Self::write_content_to_temp_file(&content, &history_ref_path.ref_, &temp_path) {
             Ok(_) => (),
@@ -337,36 +436,6 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 return Variant::nil();
             }
         };
-
-        if let Some(FileContent::String(import_file_content)) = import_file_content {
-            let (import_base_path, _type_name) =
-                self.get_path_and_type_from_import_file_content(&import_file_content);
-            let ext = import_base_path.get_extension().to_string().to_lowercase();
-            let temp_imported_path = Self::get_temp_path(&history_ref_path, Some(&ext));
-            // temp_imported_path minus the extension
-            let temp_base_name = temp_imported_path
-                .to_string_lossy()
-                .to_string()
-                .strip_suffix(&format!(".{}", ext))
-                .unwrap_or(&temp_imported_path.to_string_lossy().to_string())
-                .to_string();
-            let err = BackstitchEditorAccessor::import_and_save_resource(
-                &temp_path.to_string_lossy().to_string(),
-                &import_file_content,
-                &temp_base_name,
-            );
-            let _ = Self::remove_temp_path(&temp_path);
-
-            if err != Error::OK {
-                tracing::error!(
-                    "Error importing and saving resource at path {}: {}",
-                    temp_path.to_string_lossy().to_string(),
-                    err.as_str()
-                );
-                return Variant::nil();
-            }
-            temp_path = temp_imported_path.clone();
-        }
 
         let temp_path_godot =
             GString::from(&temp_path.to_string_lossy().to_string()).simplify_path();
@@ -402,21 +471,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
             }
         };
 
-        match cache_mode {
-            CacheMode::IGNORE | CacheMode::IGNORE_DEEP => {
-                resource.set_path_cache(&path);
-            }
-            CacheMode::REPLACE | CacheMode::REPLACE_DEEP => {
-                resource.take_over_path(&path);
-            }
-            CacheMode::REUSE => {
-                resource.set_path(&path);
-            }
-            _ => {
-                // we should never get here
-                tracing::error!("Invalid cache mode: {}", cache_mode.ord());
-            }
-        }
+        Self::set_resource_path(&mut resource, path, cache_mode);
         resource.to_variant()
     }
 }
@@ -452,7 +507,6 @@ impl IResourceFormatSaver for BackstitchResourceFormatSaver {
     }
 
     fn get_recognized_extensions(&self, _resource: Option<Gd<Resource>>) -> PackedStringArray {
-        // get_all_recognized_extensions()
         // see note in BackstitchResourceLoader::get_recognized_extensions()
         PackedStringArray::new()
     }

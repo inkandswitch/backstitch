@@ -1,4 +1,4 @@
-use automerge::{transaction::Transaction, Automerge, ChangeHash, ObjId, Prop, ReadDoc, Value};
+use automerge::{Automerge, ChangeHash, ObjId, Prop, ReadDoc, Value, transaction::Transaction};
 
 #[allow(dead_code)]
 pub trait SimpleDocReader {

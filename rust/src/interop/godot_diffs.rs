@@ -19,7 +19,7 @@ use crate::{
         text_differ::{TextDiff, TextDiffHunk, TextDiffLine},
     },
     interop::{
-        godot_helpers::{GodotConvertExt, ToGodotExt},
+        godot_helpers::{GodotConvertExt, ToGodotExt, ToVariantExt},
         lazy_load_token::LazyLoadToken,
     },
     parser::godot_parser::TypeOrInstance,
@@ -170,7 +170,7 @@ impl ToGodot for TextResourceDiff {
             "change_type": self.change_type.to_godot(),
             "resource_type": self.resource_type.to_godot(),
             "changed_sub_resources": self.changed_sub_resources.to_godot(),
-            "changed_main_resource": self.changed_main_resource.as_ref().map(|s| s.to_godot().to_variant()).unwrap_or(Variant::nil()),
+            "changed_main_resource": self.changed_main_resource.as_ref().map(|s| s.to_variant()).unwrap_or(Variant::nil()),
             "diff_type": "text_resource_changed",
         }
     }
@@ -187,6 +187,7 @@ impl ToGodot for SubResourceDiff {
             "change_type": self.change_type.to_godot(),
             "sub_resource_id": self.sub_resource_id.to_godot(),
             "resource_type": self.resource_type.to_godot(),
+            "script_class": self.script_class.as_ref().map(|s| s.to_godot().to_variant()).unwrap_or(Variant::nil()),
             "changed_props": self.changed_properties.to_godot(),
         }
     }
@@ -235,7 +236,7 @@ impl ToGodot for NodeDiff {
             "change_type": self.change_type.to_godot(),
             "changed_props": self.changed_properties.to_godot(),
             "node_path": self.node_path.to_godot(),
-            "type": self.node_type.to_godot()
+            "type": self.node_type.to_variant()
         }
     }
 }

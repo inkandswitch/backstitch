@@ -17,7 +17,16 @@
 				"$msCompile"
 			],
 			"label": "Build: Prepare moddable-platformer (Debug)",
-			"command": "just _acquire-formatters && just prepare moddable-platformer debug debug"
+			"command": "just _acquire-formatters && just prepare moddable-platformer debug debug '' tokio-console"
+		},
+		{
+			"type": "shell",
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"label": "Build: Prepare threadbare (Debug)",
+			"command": "just _acquire-formatters && just prepare threadbare debug debug '' tokio-console"
 		},
 	]
 }

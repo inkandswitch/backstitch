@@ -78,7 +78,7 @@ impl BranchDb {
             tracing::error!("Couldn't get main branch; no metadata doc.");
             return None;
         };
-        return Some(metadata.main_doc_id);
+        Some(metadata.main_doc_id)
     }
 
     /// Check if a path should be ignored based on the provided glob patterns
@@ -147,10 +147,10 @@ impl BranchDb {
         };
 
         for (bid, state) in m.branches.iter() {
-            if let Some(forked_from) = &state.forked_from {
-                if forked_from.branch() == id {
-                    result.push(bid.clone());
-                }
+            if let Some(forked_from) = &state.forked_from
+                && forked_from.branch() == id
+            {
+                result.push(bid.clone());
             }
         }
         result

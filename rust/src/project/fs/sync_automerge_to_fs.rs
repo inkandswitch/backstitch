@@ -75,7 +75,7 @@ impl SyncAutomergeToFileSystem {
 
         let Some(mut contents) = self
             .branch_db
-            .get_files_at_ref(&goal_ref, &changes.keys().cloned().collect())
+            .get_files_at_ref(goal_ref, &changes.keys().cloned().collect())
             .await
         else {
             tracing::error!(
@@ -116,11 +116,11 @@ impl SyncAutomergeToFileSystem {
                     "File {:?} already exists with a different hash; overwriting.",
                     path
                 );
-                return false;
+                false
             }
             Err(e) => {
                 tracing::error!("Couldn't get existing hash for file {:?}, {e}", path);
-                return false;
+                false
             }
         }
     }
@@ -129,7 +129,7 @@ impl SyncAutomergeToFileSystem {
     /// Returns Some(()) if we successfully wrote the file.
     pub async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> Option<()> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path, false) {
+        if self.branch_db.should_ignore(path, false) {
             return None;
         }
 
@@ -138,7 +138,7 @@ impl SyncAutomergeToFileSystem {
         }
 
         // Write the file content to disk
-        if let Err(e) = content.write(&path).await {
+        if let Err(e) = content.write(path).await {
             tracing::error!("Failed to write file {:?} during checkout: {}", path, e);
             return None;
         };
@@ -149,7 +149,7 @@ impl SyncAutomergeToFileSystem {
     /// Delete a file on disk, if it exists and isn't ignored. Returns Some(()) if we successfully deleted the file.
     pub async fn handle_file_delete(&self, path: &PathBuf) -> Option<()> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path, false) {
+        if self.branch_db.should_ignore(path, false) {
             return None;
         }
 
@@ -162,12 +162,9 @@ impl SyncAutomergeToFileSystem {
         };
 
         // Delete the file from disk
-        match tokio::fs::remove_file(&canon).await {
-            Err(e) => {
-                tracing::error!("Failed to delete file {:?} during checkout: {}", path, e);
-                return None;
-            }
-            Ok(_) => (),
+        if let Err(e) = tokio::fs::remove_file(&canon).await {
+            tracing::error!("Failed to delete file {:?} during checkout: {}", path, e);
+            return None;
         };
         tracing::info!("Successfully deleted {:?}", path);
         Some(())

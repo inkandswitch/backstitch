@@ -83,7 +83,7 @@ impl SimpleDocReader for Automerge {
         prop: P,
         heads: &[automerge::ChangeHash],
     ) -> Option<i64> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Int(num) => Some(num),
                 _ => None,
@@ -118,7 +118,7 @@ impl SimpleDocReader for Automerge {
         prop: P,
         heads: &[ChangeHash],
     ) -> Option<String> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Str(smol_str) => Some(smol_str.to_string()),
                 _ => None,
@@ -140,7 +140,7 @@ impl SimpleDocReader for Automerge {
         prop: P,
         heads: &[ChangeHash],
     ) -> Option<ObjId> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Object(_), obj_id))) => Some(obj_id),
             _ => None,
         }
@@ -189,7 +189,7 @@ impl SimpleDocReader for Transaction<'_> {
         prop: P,
         heads: &[automerge::ChangeHash],
     ) -> Option<i64> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Int(num) => Some(num),
                 _ => None,
@@ -224,7 +224,7 @@ impl SimpleDocReader for Transaction<'_> {
         prop: P,
         heads: &[ChangeHash],
     ) -> Option<String> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Scalar(cow), _))) => match cow.into_owned() {
                 automerge::ScalarValue::Str(smol_str) => Some(smol_str.to_string()),
                 _ => None,
@@ -246,7 +246,7 @@ impl SimpleDocReader for Transaction<'_> {
         prop: P,
         heads: &[ChangeHash],
     ) -> Option<ObjId> {
-        match self.get_at(obj, prop, &heads) {
+        match self.get_at(obj, prop, heads) {
             Ok(Some((Value::Object(_), obj_id))) => Some(obj_id),
             _ => None,
         }

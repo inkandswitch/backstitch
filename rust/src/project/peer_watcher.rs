@@ -82,11 +82,11 @@ impl PeerWatcher {
                 if new_doc_state
                     .last_acked_heads
                     .as_ref()
-                    .is_some_and(|h| h.len() == 0)
+                    .is_some_and(|h| h.is_empty())
                     && old_doc_state
                         .last_acked_heads
                         .as_ref()
-                        .is_some_and(|h| h.len() > 0)
+                        .is_some_and(|h| !h.is_empty())
                 {
                     continue;
                 }

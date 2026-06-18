@@ -27,7 +27,7 @@ impl FileSystemWatcher {
     // Handle file creation and modification events
     async fn handle_file_event(&self, path: &PathBuf) -> Option<WatcherEvent> {
         // Skip if path matches any ignore pattern
-        if self.branch_db.should_ignore(&path, path.is_dir()) {
+        if self.branch_db.should_ignore(path, path.is_dir()) {
             return None;
         }
 
@@ -41,7 +41,7 @@ impl FileSystemWatcher {
         if path.is_file() {
             return Some(WatcherEvent::FileTouched(path.clone()));
         }
-        return None;
+        None
     }
 
     // Watch the filesystem for meaningful changes

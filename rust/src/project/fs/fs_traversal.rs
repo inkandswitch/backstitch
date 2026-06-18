@@ -54,10 +54,10 @@ impl FileSystemTraversal {
             // In case of hash retrieval failure, we don't want it to read the file as deleted.
             .filter_map(|r| async move {
                 match r {
-                    Ok(v) => return Some(v),
+                    Ok(v) => Some(v),
                     Err(e) => {
                         tracing::error!("Failed to hash: {e}");
-                        return None;
+                        None
                     }
                 }
             })

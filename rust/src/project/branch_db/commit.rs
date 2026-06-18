@@ -129,13 +129,13 @@ impl BranchDb {
                 .unwrap_or_else(|| tx.put_object(&files, &path, ObjType::Map).unwrap());
 
             // If this happens, it's a bug with the caller... but check, for debug purposes.
-            if let Some(old_hash) = Self::get_existing_hash(&tx, &scene_file) {
-                if old_hash == hash {
-                    tracing::error!(
-                        "Scene {} hash is the same as stored! Committing anyways.",
-                        path
-                    );
-                }
+            if let Some(old_hash) = Self::get_existing_hash(&tx, &scene_file)
+                && old_hash == hash
+            {
+                tracing::error!(
+                    "Scene {} hash is the same as stored! Committing anyways.",
+                    path
+                );
             }
 
             autosurgeon::reconcile_prop(&mut tx, &scene_file, "structured_content", godot_scene)
@@ -192,7 +192,7 @@ impl BranchDb {
 
         let new_heads = d.get_heads();
 
-        if new_heads.get(0) != res.as_ref() {
+        if new_heads.first() != res.as_ref() {
             tracing::error!(
                 "Document heads {:?} different from commit result {:?}!",
                 new_heads,
@@ -216,18 +216,18 @@ impl BranchDb {
             );
         }
 
-        return Some(HistoryRef::new(ref_.branch().clone(), new_heads));
+        Some(HistoryRef::new(ref_.branch().clone(), new_heads))
     }
 
     fn get_existing_hash(tx: &Transaction<'_>, obj_id: &ObjId) -> Option<blake3::Hash> {
         if let Ok(hashes) = tx.get_all(obj_id, "hash") {
             // If there are multiple hashes here, it means we can't rely on it and have to do a contentwise comparison.
             if hashes.len() == 1 {
-                let hash = &hashes.get(0).unwrap().0;
-                if let Some(bytes) = hash.to_bytes() {
-                    if let Ok(hash) = blake3::Hash::from_slice(bytes) {
-                        return Some(hash);
-                    }
+                let hash = &hashes.first().unwrap().0;
+                if let Some(bytes) = hash.to_bytes()
+                    && let Ok(hash) = blake3::Hash::from_slice(bytes)
+                {
+                    return Some(hash);
                 }
             }
         };
@@ -249,7 +249,7 @@ impl BranchDb {
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
-                        username: username,
+                        username,
                         branch_id: None,
                         merge_metadata: None,
                         reverted_to: None,
@@ -261,6 +261,6 @@ impl BranchDb {
         });
 
         // TODO: actually store the handle
-        return handle;
+        handle
     }
 }

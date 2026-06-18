@@ -33,11 +33,11 @@ unsafe impl ExtensionLibrary for MyExtension {
             Engine::singleton().register_singleton("GodotProject", &GodotProject::new_alloc());
             let loader = BackstitchResourceLoader::new_gd();
             let saver = BackstitchResourceFormatSaver::new_gd();
-            let _ = ResourceLoader::singleton()
+            ResourceLoader::singleton()
                 .add_resource_format_loader_ex(&loader)
                 .at_front(true)
                 .done();
-            let _ = ResourceSaver::singleton()
+            ResourceSaver::singleton()
                 .add_resource_format_saver_ex(&saver)
                 .at_front(true)
                 .done();
@@ -56,13 +56,13 @@ unsafe impl ExtensionLibrary for MyExtension {
         }
         if level == InitLevel::Scene {
             // TODO: Figure out how to safely have a static mut pointer to a Gd<T>
-            let loader = unsafe { &*(&raw mut BACKSTITCH_RESOURCE_LOADER) };
-            let saver = unsafe { &*(&raw mut BACKSTITCH_RESOURCE_FORMAT_SAVER) };
+            let loader = unsafe { &BACKSTITCH_RESOURCE_LOADER };
+            let saver = unsafe { &BACKSTITCH_RESOURCE_FORMAT_SAVER };
             if let Some(loader) = loader {
-                let _ = ResourceLoader::singleton().remove_resource_format_loader(loader);
+                ResourceLoader::singleton().remove_resource_format_loader(loader);
             }
             if let Some(saver) = saver {
-                let _ = ResourceSaver::singleton().remove_resource_format_saver(saver);
+                ResourceSaver::singleton().remove_resource_format_saver(saver);
             }
             unsafe {
                 BACKSTITCH_RESOURCE_LOADER = None;

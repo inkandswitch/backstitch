@@ -73,8 +73,8 @@ impl TextDiff {
             diff_hunks: Vec::new(),
             change_type,
         };
-        for (_i, hunk) in unified.iter_hunks().enumerate() {
-            let (old_start, new_start, old_lines, new_lines) = get_range(&hunk.ops());
+        for hunk in unified.iter_hunks() {
+            let (old_start, new_start, old_lines, new_lines) = get_range(hunk.ops());
             let mut diff_hunk = TextDiffHunk {
                 old_start: old_start as i64,
                 new_start: new_start as i64,
@@ -82,7 +82,7 @@ impl TextDiff {
                 new_lines: new_lines as i64,
                 diff_lines: Vec::new(),
             };
-            for (_idx, change) in hunk.iter_changes().enumerate() {
+            for change in hunk.iter_changes() {
                 let diff_line = TextDiffLine {
                     new_line_no: if let Some(new_index) = change.new_index() {
                         new_index as i64 + 1
@@ -160,12 +160,12 @@ impl Differ {
     ) -> TextDiff {
         let empty_string = String::from("");
         let old_text = if let Some(FileContent::String(s)) = old_content {
-            &s
+            s
         } else {
             &empty_string
         };
         let new_text = if let Some(FileContent::String(s)) = new_content {
-            &s
+            s
         } else {
             &empty_string
         };

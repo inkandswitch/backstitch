@@ -137,7 +137,7 @@ impl SyncFileSystemToAutomerge {
 
         let new_ref = self
             .branch_db
-            .commit_fs_changes(contents, &ref_, None, false)
+            .commit_fs_changes(contents, ref_, None, false)
             .instrument(tracing::debug_span!("commit_fs_changes"))
             .await;
         if let Some(new_ref) = new_ref {
@@ -176,7 +176,7 @@ impl SyncFileSystemToAutomerge {
 
         let new_ref = self
             .branch_db
-            .commit_fs_changes(contents, &checked_out_ref.as_ref().unwrap(), None, true)
+            .commit_fs_changes(contents, checked_out_ref.as_ref().unwrap(), None, true)
             .await;
 
         if let Some(new_ref) = new_ref {

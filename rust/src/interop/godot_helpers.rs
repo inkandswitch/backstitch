@@ -219,7 +219,7 @@ impl ToGodotExt for Vec<ChangedFile> {
                 let mut inner_array = PackedStringArray::new();
                 inner_array.push(&s.path.to_godot());
                 inner_array.push(&s.change_type.to_string().to_godot());
-                return inner_array;
+                inner_array
             })
             .collect::<Array<PackedStringArray>>()
     }

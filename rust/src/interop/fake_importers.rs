@@ -31,7 +31,7 @@ fn get_temp_path<P: AsRef<Path>>(old_path: P, override_ext: Option<&str>) -> Pat
     let path = old_path
         .as_ref()
         .strip_prefix("res://")
-        .unwrap_or(&old_path.as_ref());
+        .unwrap_or(old_path.as_ref());
     let ext = if let Some(override_ext) = override_ext {
         override_ext
     } else {
@@ -43,8 +43,8 @@ fn get_temp_path<P: AsRef<Path>>(old_path: P, override_ext: Option<&str>) -> Pat
         .to_string_lossy()
         .to_string();
     let temp_name = format!("backstitch_{}_{}.{}", basename, Uuid::new_v4(), ext);
-    let temp_path = std::env::temp_dir().join(&temp_name);
-    temp_path
+
+    std::env::temp_dir().join(&temp_name)
 }
 
 fn write_content_to_temp_file<P: AsRef<Path>>(
@@ -90,8 +90,8 @@ pub fn load_image_from_buffer<P: AsRef<Path>>(
             // a file type without a buffer load function, like "hdr" or "exr"
             let result = if path.starts_with("patchwork") {
                 // we need to save the file to a temporary file
-                let temp_path = get_temp_path(&path, Some("png"));
-                write_content_to_temp_file(&temp_path, &content)?;
+                let temp_path = get_temp_path(path, Some("png"));
+                write_content_to_temp_file(&temp_path, content)?;
                 let res = Image::load_from_file(temp_path.to_str().unwrap_or_default());
                 let _ = std::fs::remove_file(&temp_path);
                 res
@@ -183,7 +183,7 @@ impl FakeResourceImporter for FakeResourceImporterTexture {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let image =
-            load_image_from_buffer(path, content, get_or_default(&params, "svg/scale", 1.0))?;
+            load_image_from_buffer(path, content, get_or_default(params, "svg/scale", 1.0))?;
         // parameters aren't particularly relevant here
         let texture = ImageTexture::create_from_image(&image)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
@@ -217,7 +217,7 @@ impl FakeResourceImporterLayeredTexture {
     }
 
     fn get_slice_arrangement(params: &VarDictionary) -> (i32, i32) {
-        let layout: i32 = get_or_default(&params, "slices/arrangement", 1);
+        let layout: i32 = get_or_default(params, "slices/arrangement", 1);
         match layout {
             0 => (1, 6),
             1 => (2, 3),
@@ -230,13 +230,13 @@ impl FakeResourceImporterLayeredTexture {
         if importer_name == "cubemap_texture" {
             Self::get_slice_arrangement(params)
         } else if importer_name == "2d_array_texture" || importer_name == "3d_texture" {
-            let x: i32 = get_or_default(&params, "slices/horizontal", 1);
-            let y: i32 = get_or_default(&params, "slices/vertical", 1);
+            let x: i32 = get_or_default(params, "slices/horizontal", 1);
+            let y: i32 = get_or_default(params, "slices/vertical", 1);
             (x, y)
         } else if importer_name == "cube_array_texture" {
             let (hslices, vslices) = Self::get_slice_arrangement(params);
-            let layout: i32 = get_or_default(&params, "slices/layout", 1);
-            let amount: i32 = get_or_default(&params, "slices/amount", 1);
+            let layout: i32 = get_or_default(params, "slices/layout", 1);
+            let amount: i32 = get_or_default(params, "slices/amount", 1);
             match layout {
                 0 => (hslices * amount, vslices), // horizontal
                 1 => (hslices, vslices * amount), // vertical
@@ -352,11 +352,11 @@ impl FakeResourceImporter for FakeResourceImporterMP3 {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut mp3 = Self::get_mp3_from_buffer(content)?;
-        mp3.set_loop(get_or_default(&params, "loop", false));
-        mp3.set_loop_offset(get_or_default(&params, "loop_offset", 0.0));
-        mp3.set_bpm(get_or_default(&params, "bpm", 0.0));
-        mp3.set_beat_count(get_or_default(&params, "beat_count", 0));
-        mp3.set_bar_beats(get_or_default(&params, "bar_beats", 4));
+        mp3.set_loop(get_or_default(params, "loop", false));
+        mp3.set_loop_offset(get_or_default(params, "loop_offset", 0.0));
+        mp3.set_bpm(get_or_default(params, "bpm", 0.0));
+        mp3.set_beat_count(get_or_default(params, "beat_count", 0));
+        mp3.set_bar_beats(get_or_default(params, "bar_beats", 4));
         Ok(mp3.upcast::<Resource>())
     }
 }
@@ -391,11 +391,11 @@ impl FakeResourceImporter for FakeResourceImporterOggVorbis {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut ogg_vorbis = Self::get_ogg_vorbis_from_buffer(content)?;
-        ogg_vorbis.set_loop(get_or_default(&params, "loop", false));
-        ogg_vorbis.set_loop_offset(get_or_default(&params, "loop_offset", 0.0));
-        ogg_vorbis.set_bpm(get_or_default(&params, "bpm", 0.0));
-        ogg_vorbis.set_beat_count(get_or_default(&params, "beat_count", 0));
-        ogg_vorbis.set_bar_beats(get_or_default(&params, "bar_beats", 4));
+        ogg_vorbis.set_loop(get_or_default(params, "loop", false));
+        ogg_vorbis.set_loop_offset(get_or_default(params, "loop_offset", 0.0));
+        ogg_vorbis.set_bpm(get_or_default(params, "bpm", 0.0));
+        ogg_vorbis.set_beat_count(get_or_default(params, "beat_count", 0));
+        ogg_vorbis.set_bar_beats(get_or_default(params, "bar_beats", 4));
         Ok(ogg_vorbis.upcast::<Resource>())
     }
 }
@@ -426,12 +426,12 @@ impl FakeResourceImporter for FakeResourceImporterWAV {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut wav = Self::get_wav_from_buffer(content)?;
-        let mode: i32 = get_or_default(&params, "loop_mode", 0);
+        let mode: i32 = get_or_default(params, "loop_mode", 0);
         if mode > 0 {
             wav.set_loop_mode(LoopMode::try_from_ord(mode - 1).unwrap_or(LoopMode::DISABLED));
         }
-        wav.set_loop_begin(get_or_default(&params, "loop_begin", 0));
-        wav.set_loop_end(get_or_default(&params, "loop_end", -1));
+        wav.set_loop_begin(get_or_default(params, "loop_begin", 0));
+        wav.set_loop_end(get_or_default(params, "loop_end", -1));
         Ok(wav.upcast::<Resource>())
     }
 }
@@ -443,7 +443,7 @@ impl FakeResourceImporterBMFont {
     ) -> Result<Gd<FontFile>, godot::global::Error> {
         let mut font_file = FontFile::new_gd();
         // save it to a temporary file
-        let temp_path = get_temp_path(&PathBuf::from(path), Some("font"));
+        let temp_path = get_temp_path(PathBuf::from(path), Some("font"));
         write_content_to_temp_file(&temp_path, content)?;
         match font_file.load_bitmap_font(temp_path.to_str().unwrap_or_default()) {
             godot::global::Error::OK => Ok(font_file),
@@ -469,8 +469,8 @@ impl FakeResourceImporter for FakeResourceImporterBMFont {
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut font_file = Self::get_bmfont_from_buffer(path, content)?;
-        let fallbacks: Array<Gd<Font>> = get_or_default(&params, "fallbacks", Array::new());
-        let smode: i32 = get_or_default(&params, "scaling_mode", 2);
+        let fallbacks: Array<Gd<Font>> = get_or_default(params, "fallbacks", Array::new());
+        let smode: i32 = get_or_default(params, "scaling_mode", 2);
         font_file.set_allow_system_fallback(false);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
@@ -488,7 +488,7 @@ impl FakeResourceImporterDynamicFont {
         content: &[u8],
     ) -> Result<Gd<FontFile>, godot::global::Error> {
         let mut dynamic_font = FontFile::new_gd();
-        let temp_path = get_temp_path(&PathBuf::from(path), Some("font"));
+        let temp_path = get_temp_path(PathBuf::from(path), Some("font"));
         write_content_to_temp_file(&temp_path, content)?;
         match dynamic_font.load_dynamic_font(temp_path.to_str().unwrap_or_default()) {
             godot::global::Error::OK => Ok(dynamic_font),
@@ -517,25 +517,25 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
     ) -> Result<Gd<Resource>, godot::global::Error> {
         let mut dynamic_font = Self::get_dynamic_font_from_buffer(path, content)?;
 
-        let antialiasing: i32 = get_or_default(&params, "antialiasing", 0);
-        let generate_mipmaps: bool = get_or_default(&params, "generate_mipmaps", false);
+        let antialiasing: i32 = get_or_default(params, "antialiasing", 0);
+        let generate_mipmaps: bool = get_or_default(params, "generate_mipmaps", false);
         let disable_embedded_bitmaps: bool =
-            get_or_default(&params, "disable_embedded_bitmaps", false);
-        let msdf: bool = get_or_default(&params, "multichannel_signed_distance_field", false);
-        let px_range: i32 = get_or_default(&params, "msdf_pixel_range", 0);
-        let px_size: i32 = get_or_default(&params, "msdf_size", 0);
-        let ot_ov: VarDictionary = get_or_default(&params, "opentype_features", vdict! {});
-        let autohinter: bool = get_or_default(&params, "force_autohinter", false);
-        let modulate_color_glyphs: bool = get_or_default(&params, "modulate_color_glyphs", false);
-        let allow_system_fallback: bool = get_or_default(&params, "allow_system_fallback", false);
-        let hinting: i32 = get_or_default(&params, "hinting", 0);
-        let subpixel_positioning: i32 = get_or_default(&params, "subpixel_positioning", 0);
+            get_or_default(params, "disable_embedded_bitmaps", false);
+        let msdf: bool = get_or_default(params, "multichannel_signed_distance_field", false);
+        let px_range: i32 = get_or_default(params, "msdf_pixel_range", 0);
+        let px_size: i32 = get_or_default(params, "msdf_size", 0);
+        let ot_ov: VarDictionary = get_or_default(params, "opentype_features", vdict! {});
+        let autohinter: bool = get_or_default(params, "force_autohinter", false);
+        let modulate_color_glyphs: bool = get_or_default(params, "modulate_color_glyphs", false);
+        let allow_system_fallback: bool = get_or_default(params, "allow_system_fallback", false);
+        let hinting: i32 = get_or_default(params, "hinting", 0);
+        let subpixel_positioning: i32 = get_or_default(params, "subpixel_positioning", 0);
         let keep_rounding_remainders: bool =
-            get_or_default(&params, "keep_rounding_remainders", false);
-        let oversampling: f32 = get_or_default(&params, "oversampling", 0.0);
+            get_or_default(params, "keep_rounding_remainders", false);
+        let oversampling: f32 = get_or_default(params, "oversampling", 0.0);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
-        let fallbacks: Array<Gd<Font>> = get_or_default(&params, "fallbacks", Array::new());
+        let fallbacks: Array<Gd<Font>> = get_or_default(params, "fallbacks", Array::new());
 
         dynamic_font.set_antialiasing(
             FontAntialiasing::try_from_ord(antialiasing).unwrap_or(FontAntialiasing::NONE),
@@ -590,7 +590,7 @@ impl FakeResourceImporter for FakeResourceImporterImageFont {
         let image = load_image_from_buffer(path, content, 1.0)?;
 
         // TODO: there's no way to create a font file from an image unless we reimplement the entire font file importing logic, so we're just going to return the image
-        return Ok(image.upcast::<Resource>());
+        Ok(image.upcast::<Resource>())
     }
 }
 impl FakeResourceImporter for FakeResourceImporterSVG {
@@ -612,11 +612,11 @@ impl FakeResourceImporter for FakeResourceImporterSVG {
         let contents = GString::try_from_bytes(content, Encoding::Utf8).unwrap_or_default();
         let mut texture = DpiTexture::create_from_string(&contents)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
-        let base_scale: f32 = get_or_default(&params, "base_scale", 1.0);
-        let saturation: f32 = get_or_default(&params, "saturation", 1.0);
-        let color_map: VarDictionary = get_or_default(&params, "color_map", vdict! {});
-        let fix_alpha_border: bool = get_or_default(&params, "fix_alpha_border", false);
-        let premult_alpha: bool = get_or_default(&params, "premult_alpha", false);
+        let base_scale: f32 = get_or_default(params, "base_scale", 1.0);
+        let saturation: f32 = get_or_default(params, "saturation", 1.0);
+        let color_map: VarDictionary = get_or_default(params, "color_map", vdict! {});
+        let fix_alpha_border: bool = get_or_default(params, "fix_alpha_border", false);
+        let premult_alpha: bool = get_or_default(params, "premult_alpha", false);
         // Ignoring, only relevant if we save the resource to a file
         // let compress = params.get("compress").map(|s| s.to::<bool>()).unwrap_or(true);
         texture.set_base_scale(base_scale);
@@ -646,7 +646,7 @@ impl FakeResourceImporter for FakeResourceImporterOBJ {
         _params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         // not implemented, it will be treated as a text file in the diff anyway
-        return Err(godot::global::Error::ERR_UNAVAILABLE);
+        Err(godot::global::Error::ERR_UNAVAILABLE)
     }
 }
 
@@ -669,7 +669,7 @@ impl FakeResourceImporter for FakeResourceImporterScene {
         _params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
         // FAR too complicated to implement, just return an error
-        return Err(godot::global::Error::ERR_UNAVAILABLE);
+        Err(godot::global::Error::ERR_UNAVAILABLE)
     }
 }
 
@@ -690,7 +690,7 @@ impl FakeResourceImporter for FakeResourceImporterTextureAtlas {
         _content: &[u8],
         _params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        return Err(godot::global::Error::ERR_UNAVAILABLE);
+        Err(godot::global::Error::ERR_UNAVAILABLE)
     }
 }
 pub struct FakeImporter {

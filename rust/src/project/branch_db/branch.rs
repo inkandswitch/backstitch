@@ -91,7 +91,7 @@ impl BranchDb {
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
-                        username: username,
+                        username,
                         branch_id: None,
                         merge_metadata: None,
                         reverted_to: None,
@@ -127,7 +127,7 @@ impl BranchDb {
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
-                        username: username,
+                        username,
                         branch_id: None,
                         merge_metadata: None,
                         reverted_to: None,
@@ -153,13 +153,13 @@ impl BranchDb {
         tokio::task::spawn_blocking(move || {
             meta_handle.with_document(|d| {
                 let mut tx = d.transaction();
-                let mut branches_metadata: BranchesMetadataDoc = hydrate(&mut tx).unwrap();
+                let mut branches_metadata: BranchesMetadataDoc = hydrate(&tx).unwrap();
                 branches_metadata.branches.remove(&branch_clone);
                 let _ = reconcile(&mut tx, branches_metadata);
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
-                        username: username,
+                        username,
                         branch_id: None,
                         merge_metadata: None,
                         reverted_to: None,

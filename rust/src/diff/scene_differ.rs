@@ -396,12 +396,12 @@ impl Differ {
         // Collect all properties from new and old scenes
         let mut props: HashSet<String> = HashSet::new();
         if let Some(node) = old_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
         if let Some(node) = new_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
@@ -455,12 +455,12 @@ impl Differ {
         // Collect all properties from new and old scenes
         let mut props: HashSet<String> = HashSet::new();
         if let Some(node) = old_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
         if let Some(node) = new_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
@@ -494,9 +494,9 @@ impl Differ {
             },
             // have to do something like this, because get_node_path panics if the node doesn't exist in the scene
             match (old_node, new_node) {
-                (None, Some(_)) => new_scene?.get_node_path(&node_id),
-                (Some(_), None) => old_scene?.get_node_path(&node_id),
-                (_, _) => new_scene?.get_node_path(&node_id),
+                (None, Some(_)) => new_scene?.get_node_path(node_id),
+                (Some(_), None) => old_scene?.get_node_path(node_id),
+                (_, _) => new_scene?.get_node_path(node_id),
             },
             new_class_name.or(old_class_name),
             changed_properties,
@@ -565,7 +565,7 @@ impl Differ {
             None => None,
         };
 
-        return Some(PropertyDiff::new(
+        Some(PropertyDiff::new(
             prop.to_string(),
             // We check for node add or remove intentionally, here, because otherwise we're just diffing a Modified prop against
             // the default value retrieved earlier.
@@ -576,7 +576,7 @@ impl Differ {
             },
             old,
             new,
-        ));
+        ))
     }
 
     /// Check deeply to see if a subresource has changed.
@@ -599,7 +599,7 @@ impl Differ {
             return true;
         }
 
-        for (path, _) in &old_resource.properties {
+        for path in old_resource.properties.keys() {
             if !new_resource.properties.contains_key(path) {
                 // prop removed
                 return true;
@@ -751,7 +751,7 @@ impl Differ {
         }
 
         match self
-            .start_load_ext_resource(&path, if is_old { before } else { after })
+            .start_load_ext_resource(path, if is_old { before } else { after })
             .await
         {
             Ok(load_path) => VariantValue::LazyLoadData(path.clone(), load_path),
@@ -811,6 +811,6 @@ impl Differ {
             }
         }
         // normal variant string
-        return VariantStrValue::Variant(prop_value);
+        VariantStrValue::Variant(prop_value)
     }
 }

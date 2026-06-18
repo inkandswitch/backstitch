@@ -338,7 +338,7 @@ impl TextDifferView {
             };
 
             if diff_line.old_line_no >= 0 && diff_line.new_line_no >= 0 {
-                diff_old_line_no.push_str("|");
+                diff_old_line_no.push('|');
             }
 
             // Old line number

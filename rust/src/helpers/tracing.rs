@@ -15,10 +15,9 @@ use tracing_subscriber::{
 };
 
 fn get_user_dir() -> String {
-    let user_dir = ProjectSettings::singleton()
+    ProjectSettings::singleton()
         .globalize_path("user://")
-        .to_string();
-    user_dir
+        .to_string()
 }
 
 struct CompactTime;

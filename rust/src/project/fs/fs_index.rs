@@ -124,11 +124,11 @@ impl FileSystemIndex {
         // increment this when changes
         let current_version = "0";
 
-        if let Some(version) = bytes {
-            if version != current_version.as_bytes() {
-                let index = db.keyspace("index", KeyspaceCreateOptions::default)?;
-                db.delete_keyspace(index)?;
-            }
+        if let Some(version) = bytes
+            && version != current_version.as_bytes()
+        {
+            let index = db.keyspace("index", KeyspaceCreateOptions::default)?;
+            db.delete_keyspace(index)?;
         }
 
         let _ = version.insert("version", current_version);
@@ -152,7 +152,7 @@ impl FileSystemIndex {
         let path_bytes = path.as_ref().as_os_str().as_encoded_bytes();
         let metadata = fs::metadata(&path_buf).await?;
 
-        let db_hash = self.get_hash_from_db(&path_bytes, &metadata).await;
+        let db_hash = self.get_hash_from_db(path_bytes, &metadata).await;
         let hash = match db_hash {
             Ok(hash) => hash,
             Err(e) => {
@@ -176,7 +176,7 @@ impl FileSystemIndex {
             move || compute_hash(&path)
         })
         .await
-        .map_err(|_| IndexError::FilesystemError(format!("Some sort of join error??")))??;
+        .map_err(|_| IndexError::FilesystemError("Some sort of join error??".to_string()))??;
 
         match self.insert_hash_into_db(path_bytes, hash, &metadata).await {
             Ok(_) => {}
@@ -194,12 +194,14 @@ impl FileSystemIndex {
         hash: blake3::Hash,
         metadata: &Metadata,
     ) -> Result<(), IndexError> {
-        let entry = FileEntry::from_metadata(&metadata, hash)?;
+        let entry = FileEntry::from_metadata(metadata, hash)?;
         let entry =
             wincode::serialize(&entry).map_err(|e| IndexError::DatabaseError(e.to_string()))?;
         self.keyspace
             .as_ref()
-            .ok_or(IndexError::DatabaseError(format!("keyspace doesn't exist")))?
+            .ok_or(IndexError::DatabaseError(
+                "keyspace doesn't exist".to_string(),
+            ))?
             .insert(path, entry)?;
         Ok(())
     }
@@ -212,12 +214,14 @@ impl FileSystemIndex {
         if let Some(entry) = self
             .keyspace
             .as_ref()
-            .ok_or(IndexError::DatabaseError(format!("keyspace doesn't exist")))?
+            .ok_or(IndexError::DatabaseError(
+                "keyspace doesn't exist".to_string(),
+            ))?
             .get(path)?
         {
             let entry: FileEntry = wincode::deserialize(&entry)
                 .map_err(|e| IndexError::DatabaseError(e.to_string()))?;
-            if entry.matches(&metadata)? {
+            if entry.matches(metadata)? {
                 return Ok(Some(entry.hash()));
             }
         }

@@ -129,9 +129,9 @@ impl Project {
 
     // Do not run this on anything except the main thread!
     pub fn safe_to_update_godot() -> bool {
-        return !(EditorFilesystemAccessor::is_scanning()
+        !(EditorFilesystemAccessor::is_scanning()
             || BackstitchEditorAccessor::is_editor_importing()
-            || BackstitchEditorAccessor::unsaved_files_open());
+            || BackstitchEditorAccessor::unsaved_files_open())
     }
 
     pub fn get_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
@@ -295,39 +295,39 @@ impl Project {
             // success? Then just return!
             Ok(_) => {
                 tracing::info!("Successfully found project remotely, using the main branch!");
-                return Ok(LoadSuccess {
+                Ok(LoadSuccess {
                     found_locally: false,
                     found_on_provided_branch: false,
-                });
+                })
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::Unknown => Err(ProjectStartError::Unknown), // this shouldn't happen
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                         tracing::error!(
                             "What?!?!? The metadata doc went bad when trying to load the main branch!!"
                         );
-                        return Err(ProjectStartError::DocumentIdNotFound);
+                        Err(ProjectStartError::DocumentIdNotFound)
                     }
                     ProjectLoadError::BranchDocNotFound { server_status: _ } => {
                         tracing::error!(
                             "Main branch not found, even on the server. Your document is most likely corrupted. Please zip up your project and send it to the Backstitch team!"
                         );
-                        return Err(ProjectStartError::MainBranchNotFound);
+                        Err(ProjectStartError::MainBranchNotFound)
                     }
                     ProjectLoadError::BinaryDocNotFound { server_status: _ } => {
                         tracing::error!(
                             "What?!?! Binary docs didn't sync on a second try, but they did on the first try!!! Well, we can recover..."
                         );
                         // TODO: Actually recover
-                        return Ok(LoadSuccess {
+                        Ok(LoadSuccess {
                             found_locally: false,
                             found_on_provided_branch: false,
-                        });
+                        })
                     }
                 }
             }
-        };
+        }
     }
 
     /// Starting a project is a multi-step process. It looks like:
@@ -362,7 +362,7 @@ impl Project {
             let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
             Some(DocumentId::from_str(&id).map_err(|_| {
                 tracing::error!("Invalid metadata document ID! Not starting driver.");
-                return ProjectStartError::DocumentIdInvalid(id);
+                ProjectStartError::DocumentIdInvalid(id)
             })?)
         };
 
@@ -421,14 +421,14 @@ impl Project {
                             .create_project()
                             .await
                             .map_err(|_| ProjectStartError::Unknown)?;
-                        return Ok((
+                        Ok((
                             driver,
                             Default::default(),
                             LoadSuccess {
                                 found_locally: true,
                                 found_on_provided_branch: false,
                             },
-                        ));
+                        ))
                     } else {
                         let success = Self::try_and_retry_load(
                             &mut driver,
@@ -445,7 +445,7 @@ impl Project {
                                 tracing::error!("Couldn't get local changes!");
                                 ProjectStartError::Unknown
                             })?;
-                        return Ok((driver, local_changes, success));
+                        Ok((driver, local_changes, success))
                     }
                 }),
             )
@@ -468,7 +468,7 @@ impl Project {
 
         *self.driver.blocking_lock() = Some(driver);
 
-        if local_changes.len() > 0 {
+        if !local_changes.is_empty() {
             // we can't start the sync until we confirm or reject the local changes
             // the one exception: if we found the project locally AND it was automatically loaded, we can automatically checkin the changes.
             if mode == CreateMode::AutoLoadedProject && load_success.found_locally {
@@ -549,7 +549,7 @@ impl Project {
                 let driver = driver.lock_owned().await;
                 let res = f(driver).await;
                 tracing::trace!("Finishing block on {name_clone}!");
-                return res;
+                res
             }))
             .unwrap()
     }

@@ -63,10 +63,10 @@ impl FromStr for HistoryRefPath {
     fn from_str(path: &str) -> Result<Self, Self::Err> {
         let path = path
             .strip_prefix(HistoryRef::BACKSTITCH_SCHEME_PREFIX)
-            .ok_or_else(|| "Invalid path")?;
+            .ok_or("Invalid path")?;
         let (history_ref_part, path) = path
             .split_once(HistoryRefPath::REF_DIVIDER)
-            .ok_or_else(|| "Invalid path")?;
+            .ok_or("Invalid path")?;
         // `simplify_path()` ends up mangling the uri identifier (e.g. `res://foo.gd` -> `res:/foo.gd`) so we need to check for that
         // TODO: remove this when this PR is merged and we rebase on that: (https://github.com/godotengine/godot/pull/115660)
         let path = if let Some(pos) = path.find(":/") {
@@ -77,11 +77,7 @@ impl FromStr for HistoryRefPath {
                 && &path[pos + 2..pos + 3] != "/"
             {
                 // otherwise fix the path
-                format!(
-                    "{}://{}",
-                    uri_scheme.to_string(),
-                    path[pos + 2..].to_string()
-                )
+                format!("{}://{}", uri_scheme, &path[pos + 2..])
             } else {
                 path.to_string()
             }

@@ -44,18 +44,15 @@ impl FileContent {
     ) -> std::io::Result<blake3::Hash> {
         // Write the content based on its type
         let Some(buf) = content.as_bytes() else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to write file",
-            ));
+            return Err(std::io::Error::other("Failed to write file"));
         };
         let hash = content.to_hash();
 
         // ensure the directory exists
-        if let Some(dir) = path.parent() {
-            if !dir.exists() {
-                tokio::fs::create_dir_all(dir).await?;
-            }
+        if let Some(dir) = path.parent()
+            && !dir.exists()
+        {
+            tokio::fs::create_dir_all(dir).await?;
         }
         // Open the file with the appropriate mode
         let mut file = if path.exists() {
@@ -67,10 +64,7 @@ impl FileContent {
         };
         let result = file.write_all(&buf);
         if result.is_err() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to write file",
-            ));
+            return Err(std::io::Error::other("Failed to write file"));
         }
         Ok(hash)
     }
@@ -125,32 +119,32 @@ impl FileContent {
 
         if structured_content.is_some() {
             let scene: GodotScene = GodotScene::hydrate_at(doc, path, heads)
-                .or_else(|e| {
+                .map_err(|e| {
                     tracing::error!("Error hydrating scene: {:?}", e);
-                    Result::Err(e)
+                    e
                 })
                 .unwrap();
             return Ok(FileContent::Scene(scene));
         }
 
         // try to read file as text
-        let content = doc.get_at(&file_entry, "content", &heads);
+        let content = doc.get_at(&file_entry, "content", heads);
 
         match content {
             Ok(Some((automerge::Value::Object(ObjType::Text), content))) => {
-                match doc.text_at(content, &heads) {
+                match doc.text_at(content, heads) {
                     Ok(text) => {
                         return Ok(FileContent::String(text.to_string()));
                     }
                     Err(e) => {
-                        return Err(Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("failed to read text file {:?}: {:?}", path, e),
-                        )));
+                        return Err(Err(io::Error::other(format!(
+                            "failed to read text file {:?}: {:?}",
+                            path, e
+                        ))));
                     }
                 }
             }
-            _ => match doc.get_string_at(&file_entry, "content", &heads) {
+            _ => match doc.get_string_at(&file_entry, "content", heads) {
                 Some(s) => {
                     return Ok(FileContent::String(s.to_string()));
                 }
@@ -161,13 +155,12 @@ impl FileContent {
         }
         // ... otherwise, check the url
         let linked_file_content = doc
-            .get_string_at(&file_entry, "url", &heads)
-            .map(|url| parse_automerge_url(&url))
-            .flatten();
+            .get_string_at(&file_entry, "url", heads)
+            .and_then(|url| parse_automerge_url(&url));
         if linked_file_content.is_some() {
             return Err(Ok(linked_file_content.unwrap()));
         }
-        Err(Err(io::Error::new(io::ErrorKind::Other, "Failed to url!")))
+        Err(Err(io::Error::other("Failed to url!")))
     }
 
     pub fn is_text(&self) -> bool {

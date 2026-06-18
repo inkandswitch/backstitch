@@ -86,6 +86,8 @@ async fn test_persistence_across_reloads() {
     // Drop and reload
     drop(index);
 
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
     let index2 = FileSystemIndex::new(&index_path).await.unwrap();
     let hash2 = index2.get_hash(&file_path).await.unwrap();
 

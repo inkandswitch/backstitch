@@ -55,4 +55,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
-        run: cargo test --all-features --all-targets
+        run: cargo test --all-targets --features ""

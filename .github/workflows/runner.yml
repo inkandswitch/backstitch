@@ -27,6 +27,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-validation:
+    name: 🔍 Rust Validation
+    uses: ./.github/workflows/rust_validation.yml
+
   editor-builds:
     name: 🤖 Build Godot for All Platforms
     uses: ./.github/workflows/all_editor_builds.yml

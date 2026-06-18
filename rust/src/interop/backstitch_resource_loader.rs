@@ -7,7 +7,8 @@ use std::str::FromStr;
 use godot::builtin::{GString, PackedStringArray, StringName, VarDictionary, Variant};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{
-    ClassDb, ConfigFile, IResourceFormatLoader, IResourceFormatSaver, ProjectSettings, Resource, ResourceFormatLoader, ResourceFormatSaver, ResourceLoader, ResourceUid
+    ClassDb, ConfigFile, IResourceFormatLoader, IResourceFormatSaver, ProjectSettings, Resource,
+    ResourceFormatLoader, ResourceFormatSaver, ResourceLoader, ResourceUid,
 };
 use godot::global::Error;
 use godot::prelude::*;
@@ -89,7 +90,6 @@ impl BackstitchResourceLoader {
         Ok((content, import_content))
     }
 
-
     fn get_temp_path(history_ref_path: &HistoryRefPath, override_ext: Option<&str>) -> PathBuf {
         let path = history_ref_path
             .path
@@ -122,20 +122,14 @@ impl BackstitchResourceLoader {
     ) -> Result<(), Error> {
         let temp_text;
         let buf: &[u8] = match content {
-			FileContent::String(text) => {
-				text.as_bytes()
-			}
-			FileContent::Binary(data) => {
-				data
-			}
+            FileContent::String(text) => text.as_bytes(),
+            FileContent::Binary(data) => data,
             FileContent::Scene(scene) => {
                 // ext_resource path to the backstitch path at the same history ref and sets UIDs to -1
                 // (None) so Godot loads by path via this loader.
-                temp_text = Some(scene.serialize_with_ext_resource_override(Some(history_ref), true));
-				temp_text.as_ref().unwrap().as_bytes()
-            }
-            FileContent::Deleted => {
-                return Err(Error::ERR_FILE_NOT_FOUND);
+                temp_text =
+                    Some(scene.serialize_with_ext_resource_override(Some(history_ref), true));
+                temp_text.as_ref().unwrap().as_bytes()
             }
         };
         let mut file = match File::create(&temp_path) {
@@ -157,7 +151,7 @@ impl BackstitchResourceLoader {
         import_file.parse(import_file_content);
         let importer = import_file.get_value("remap", "importer");
         let keys: PackedStringArray = import_file.get_section_keys("params");
-        let mut params: VarDictionary = vdict!{};
+        let mut params: VarDictionary = vdict! {};
         for key in keys.as_slice().iter() {
             params.set(key.to_variant(), import_file.get_value("params", key));
         }
@@ -189,7 +183,7 @@ impl BackstitchResourceLoader {
             return None;
         }
         let resource = ClassDb::singleton().instantiate(&StringName::from("TextFile"));
-        if resource.is_nil(){
+        if resource.is_nil() {
             tracing::error!("Error instantiating TextFile");
             return None;
         }
@@ -210,7 +204,10 @@ impl BackstitchResourceLoader {
 #[godot_api]
 impl IResourceFormatLoader for BackstitchResourceLoader {
     fn init(base: Base<ResourceFormatLoader>) -> Self {
-        Self { base, fake_importer: FakeImporter::default() }
+        Self {
+            base,
+            fake_importer: FakeImporter::default(),
+        }
     }
 
     fn get_recognized_extensions(&self) -> PackedStringArray {
@@ -340,7 +337,12 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
     ) -> Variant {
         // _original_path should match the path passed to load() because the resource loader should fail to remap the path due to the `backstitch` prefix.
         // If it doesn't, log it so we know our assumptions were wrong.
-        debug_assert!(_original_path == path, "Original path {} does not match path {}, we should never get here!", _original_path, path);
+        debug_assert!(
+            _original_path == path,
+            "Original path {} does not match path {}, we should never get here!",
+            _original_path,
+            path
+        );
         let cache_mode = CacheMode::try_from_ord(cache_mode_ord).unwrap_or(CacheMode::IGNORE);
         let path_str = path.to_string();
         let history_ref_path = match HistoryRefPath::from_str(&path_str) {
@@ -360,14 +362,15 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 }
             };
 
-        if content.is_deleted() {
-            tracing::error!("File is deleted at ref {} path {}", history_ref_path.ref_, history_ref_path.path);
-            return Variant::nil();
-        }
         let mut maybe_import = import_file_content.is_some();
         if !maybe_import {
             let extensions = ResourceLoader::singleton().get_recognized_extensions_for_type("");
-            let ext = Path::new(&history_ref_path.path).extension().unwrap_or_default().to_string_lossy().to_string().to_lowercase();
+            let ext = Path::new(&history_ref_path.path)
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+                .to_lowercase();
             if !extensions.contains(&GString::from(&ext)) && !content.is_scene() {
                 maybe_import = true;
             }
@@ -376,21 +379,32 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         if maybe_import {
             let (_importer, _params) = match import_file_content {
                 Some(FileContent::String(import_file_content)) => {
-                    let (importer, params) = self.get_importer_and_params_from_import_file_content(&import_file_content);
+                    let (importer, params) =
+                        self.get_importer_and_params_from_import_file_content(&import_file_content);
                     (Some(importer.to_string()), params)
-                },
-                _ => (None, vdict!{}),
-            };    
-            if self.fake_importer.recognize(&history_ref_path.path, _importer.as_deref()) {
+                }
+                _ => (None, vdict! {}),
+            };
+            if self
+                .fake_importer
+                .recognize(&history_ref_path.path, _importer.as_deref())
+            {
                 let content_bytes = match &content {
                     FileContent::String(t) => t.as_bytes(),
                     FileContent::Binary(bytes) => bytes.as_slice(),
                     _ => {
-                        tracing::error!("Content is not a string or binary, we should never get here");
+                        tracing::error!(
+                            "Content is not a string or binary, we should never get here"
+                        );
                         return Variant::nil();
                     }
                 };
-                let resource = self.fake_importer.import_file(&history_ref_path.to_string(), _importer.as_deref(), content_bytes, &_params);
+                let resource = self.fake_importer.import_file(
+                    &history_ref_path.to_string(),
+                    _importer.as_deref(),
+                    content_bytes,
+                    &_params,
+                );
                 if let Err(e) = resource {
                     if content.is_text() {
                         let resource = Self::get_content_as_textfile_resource(&content);
@@ -422,7 +436,6 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 return Variant::nil();
             }
         };
-
 
         let temp_path_godot =
             GString::from(&temp_path.to_string_lossy().to_string()).simplify_path();

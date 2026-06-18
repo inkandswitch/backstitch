@@ -9,15 +9,16 @@ use crate::{
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
             human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
-        project::Project,
+        project::{CreateMode, Project},
         project_api::{
-            BranchViewModel, ChangeViewModel, DiffViewModel, ProjectViewModel, SyncStatus,
+            BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
+            SyncStatus,
         },
     },
 };
@@ -35,27 +36,68 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) -> Result<(), String> {
+    fn new_project(&mut self) -> Result<(), ProjectStartError> {
         if self.has_project() {
             return Ok(());
         }
-        return self.start();
+        return self.start(CreateMode::NewProject);
     }
 
-    fn load_project(&mut self, id: &DocumentId) -> Result<(), String> {
+    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
         if self.has_project() {
             return Ok(());
         }
         BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
-        return self.start();
+        self.start(if autostart {
+            CreateMode::AutoLoadedProject
+        } else {
+            CreateMode::ManuallyLoadedProject
+        })?;
+        Ok(())
     }
 
+    fn local_changes(&self) -> Vec<ChangedFile> {
+        self.local_changes.clone()
+    }
+
+    fn checkin_local_changes(&mut self) {
+        let branch = self.initial_branch.clone();
+        let res: Result<(), ProjectStartError> =
+            self.with_driver_blocking("Checkin local changes", |driver| async move {
+                let driver = driver.as_ref().ok_or(ProjectStartError::Unknown)?;
+                driver
+                    .commit_local_changes(branch.as_ref())
+                    .await
+                    .map_err(|_| ProjectStartError::Unknown)?;
+                Ok(())
+            });
+
+        // TODO: Do we want to give up and propagate this to the user, and clear the project?
+        // This could turn into a discard, depending on the error. Idk what it'd be though
+        match res {
+            Ok(_) => {}
+            Err(_) => tracing::error!(
+                "Unknown error while checking in local changes. Proceeding with start."
+            ),
+        }
+
+        match self.finalize_start() {
+            Ok(_) => {}
+            Err(_) => tracing::error!("Unknown error while finalizing the project start."),
+        }
+    }
+
+    fn discard_local_changes(&mut self) {
+        match self.finalize_start() {
+            Ok(_) => {}
+            Err(_) => tracing::error!("Unknown error while finalizing the project start."),
+        }
+    }
     fn clear_project(&mut self) {
         if !self.has_project() {
             return;
         }
         self.stop();
-        BackstitchConfigAccessor::set_user_value("user_name", "");
         BackstitchConfigAccessor::set_project_value("project_doc_id", "");
         BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
     }
@@ -232,12 +274,12 @@ impl ProjectViewModel for Project {
 
         let Some((info, ref_)) =
             self.with_driver_blocking("Print sync debug", |driver| async move {
-                let info = driver.as_ref()?.get_connection_info().await?;
-                let ref_ = driver
-                    .as_ref()?
-                    .get_branch_db()
-                    .get_checked_out_ref()
-                    .await?;
+                let d = driver.as_ref()?;
+                let info = d.get_connection_info().await?;
+                let branch_db = d.get_branch_db();
+                let r#ref = branch_db.get_checked_out_ref().await?;
+                // don't use checked out ref, because that might be updated too late! we care about what's synced here, not what's checked out
+                let ref_ = branch_db.get_latest_ref_on_branch(r#ref.branch()).await?;
                 Some((info, ref_))
             })
         else {
@@ -251,6 +293,13 @@ impl ProjectViewModel for Project {
             return SyncStatus::Unknown;
         };
         let is_connected = info.last_received.is_some();
+
+        tracing::trace!(
+            "last_acked_heads: {:?}, current heads: {:?}",
+            status.last_acked_heads,
+            ref_.heads()
+        );
+
         if status
             .last_acked_heads
             .as_ref()
@@ -556,22 +605,33 @@ impl ProjectViewModel for Project {
     }
 
     fn add_server(&self, server: String) {
-        if server == "" { return; }
+        if server == "" {
+            return;
+        }
         let mut servers = self.get_available_servers();
         servers.push(server);
         BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
     }
 
     fn remove_server(&self, server: String) {
-        if server == "" { return; }
+        if server == "" {
+            return;
+        }
         let mut servers = self.get_available_servers();
         servers.retain(|s| s != &server && s != "");
         BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
     }
 
     fn get_available_servers(&self) -> Vec<String> {
-        let servers = BackstitchConfigAccessor::get_project_value("available_servers", "alpha.backstitch.dev:8085");
-        return servers.split(",").filter(|s| *s != "").map(|s| s.to_string()).collect();
+        let servers = BackstitchConfigAccessor::get_project_value(
+            "available_servers",
+            "alpha.backstitch.dev:8085",
+        );
+        return servers
+            .split(",")
+            .filter(|s| *s != "")
+            .map(|s| s.to_string())
+            .collect();
     }
 }
 

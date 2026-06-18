@@ -1,6 +1,4 @@
-use std::collections::{HashMap, HashSet};
-
-use automerge::{Automerge, ObjType, ROOT, ReadDoc};
+use automerge::{Automerge, ObjId, ObjType, ROOT, ReadDoc, transaction::Transaction};
 use autosurgeon::Doc;
 use samod::DocHandle;
 
@@ -20,41 +18,42 @@ impl BranchDb {
     /// Returns a HistoryRef referring to the new heads. We may or may not have reconciled to the canonical doc at this point.
     pub async fn commit_fs_changes(
         &self,
-        files: Vec<(String, FileContent)>,
+        files: Vec<(String, Option<FileContent>)>,
         ref_: &HistoryRef,
         revert: Option<&HistoryRef>,
         is_checking_in: bool,
     ) -> Option<HistoryRef> {
-        tracing::info!("Attempting to commit changes...");
-        // Only commit files that have actually changed
-        // TODO: We may be able to use notify's compare file hash system instead? Or in addition to this?
-        let files = self.filter_changed_files(ref_, files).await;
+        tracing::info!("Attempting to commit {} changes...", files.len());
+
+        // TODO (Lilith): Once upon a time, we checked contentwise to make sure we're not committing empty changes.
+        // I don't think we need to do that anymore, but we need to test without it.
+
         let count = files.len();
         let username = self.username.lock().await.clone();
 
-        if count == 0 {
-            tracing::info!("No actual changes found; not committing.");
-            return None;
-        }
-
-        let mut binary_entries: Vec<(String, DocHandle)> = Vec::new();
-        let mut text_entries: Vec<(String, String)> = Vec::new();
-        let mut scene_entries: Vec<(String, GodotScene)> = Vec::new();
+        // TODO: we should have `FileSystemEvent` objects as parameters, and they should store a precomputed hash; then we can just pass them in here.
+        let mut binary_entries: Vec<(String, DocHandle, blake3::Hash)> = Vec::new();
+        let mut text_entries: Vec<(String, String, blake3::Hash)> = Vec::new();
+        let mut scene_entries: Vec<(String, GodotScene, blake3::Hash)> = Vec::new();
         let mut deleted_entries: Vec<String> = Vec::new();
 
         for (path, content) in files {
+            // This is fairly cheap from my estimation.
+            // If this becomes a bottleneck, we can reuse the previously computed hash by having callers provide file hashes.
+            // If we do this, though, we still have to compute scene hashes when putting things into Automerge.
+            let hash = content.as_ref().map(|c| c.to_hash());
             match content {
-                FileContent::Binary(content) => {
+                Some(FileContent::Binary(content)) => {
                     let handle = self.create_new_binary_doc(content).await;
-                    binary_entries.push((path, handle));
+                    binary_entries.push((path, handle, hash.unwrap()));
                 }
-                FileContent::String(content) => {
-                    text_entries.push((path, content));
+                Some(FileContent::String(content)) => {
+                    text_entries.push((path, content, hash.unwrap()));
                 }
-                FileContent::Scene(godot_scene) => {
-                    scene_entries.push((path, godot_scene));
+                Some(FileContent::Scene(godot_scene)) => {
+                    scene_entries.push((path, godot_scene, hash.unwrap()));
                 }
-                FileContent::Deleted => {
+                None => {
                     deleted_entries.push(path);
                 }
             }
@@ -74,13 +73,19 @@ impl BranchDb {
             return None;
         };
 
+        if d.get_heads() != *ref_.heads() {
+            tracing::warn!(
+                "Expected heads are different than current heads. The diffing will probably be wrong!"
+            );
+        }
+
         let mut tx = d.transaction();
 
         let mut changes: Vec<ChangedFile> = Vec::new();
         let files = tx.get_obj_id(ROOT, "files").unwrap();
 
         // write text entries to doc
-        for (path, content) in text_entries {
+        for (path, content, hash) in text_entries {
             // get existing file url or create new one
             let (file_entry, change_type) = match tx.get(&files, &path) {
                 Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
@@ -88,65 +93,75 @@ impl BranchDb {
                 }
                 _ => (
                     tx.put_object(&files, &path, ObjType::Map).unwrap(),
-                    ChangeType::Added,
+                    ChangeType::Created,
                 ),
             };
 
             changes.push(ChangedFile { path, change_type });
 
             // delete url in file entry if it previously had one
-            if let Ok(Some((_, _))) = tx.get(&file_entry, "url") {
-                let _ = tx.delete(&file_entry, "url");
-            }
+            let _ = tx.delete(&file_entry, "url");
 
             // delete structured content in file entry if it previously had one
-            if let Ok(Some((_, _))) = tx.get(&file_entry, "structured_content") {
-                let _ = tx.delete(&file_entry, "structured_content");
-            }
+            let _ = tx.delete(&file_entry, "structured_content");
 
             // either get existing text or create new text
             let content_key = match tx.get(&file_entry, "content") {
-                Ok(Some((automerge::Value::Object(ObjType::Text), content))) => content,
+                Ok(Some((automerge::Value::Object(ObjType::Text), content_key))) => content_key,
                 _ => tx
                     .put_object(&file_entry, "content", ObjType::Text)
                     .unwrap(),
             };
             let _ = tx.update_text(&content_key, &content);
+            let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
         }
 
         // write scene entries to doc
-        for (path, godot_scene) in scene_entries {
+        for (path, godot_scene, hash) in scene_entries {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
-                _ => ChangeType::Added,
+                _ => ChangeType::Created,
             };
 
             let scene_file = tx
                 .get_obj_id(&files, &path)
                 .unwrap_or_else(|| tx.put_object(&files, &path, ObjType::Map).unwrap());
+
+            // If this happens, it's a bug with the caller... but check, for debug purposes.
+            if let Some(old_hash) = Self::get_existing_hash(&tx, &scene_file) {
+                if old_hash == hash {
+                    tracing::error!(
+                        "Scene {} hash is the same as stored! Committing anyways.",
+                        path
+                    );
+                }
+            }
+
             autosurgeon::reconcile_prop(&mut tx, &scene_file, "structured_content", godot_scene)
                 .unwrap_or_else(|e| {
                     tracing::error!("error reconciling scene: {}", e);
                     panic!("error reconciling scene: {}", e);
                 });
+            let _ = tx.put(&scene_file, "hash", hash.as_bytes().to_vec());
             changes.push(ChangedFile { path, change_type });
         }
 
         // write binary entries to doc
-        for (path, binary_doc_handle) in binary_entries {
+        for (path, binary_doc_handle, hash) in binary_entries {
             // get the change flag
             let change_type = match tx.get(&files, &path) {
                 Ok(Some(_)) => ChangeType::Modified,
-                _ => ChangeType::Added,
+                _ => ChangeType::Created,
             };
 
-            let file_entry = tx.put_object(&files, &path, ObjType::Map);
+            let file_entry = tx.put_object(&files, &path, ObjType::Map).unwrap();
             let _ = tx.put(
-                file_entry.unwrap(),
+                &file_entry,
                 "url",
                 format!("automerge:{}", &binary_doc_handle.document_id()),
             );
+            let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
 
             changes.push(ChangedFile { path, change_type });
         }
@@ -155,7 +170,7 @@ impl BranchDb {
             let _ = tx.delete(&files, &path);
             changes.push(ChangedFile {
                 path,
-                change_type: ChangeType::Removed,
+                change_type: ChangeType::Deleted,
             });
         }
 
@@ -178,7 +193,11 @@ impl BranchDb {
         let new_heads = d.get_heads();
 
         if new_heads.get(0) != res.as_ref() {
-            tracing::error!("Document heads {:?} different from commit result {:?}!", new_heads, res);
+            tracing::error!(
+                "Document heads {:?} different from commit result {:?}!",
+                new_heads,
+                res
+            );
         }
 
         // Unlock state, then attempt a reconcile.
@@ -191,44 +210,28 @@ impl BranchDb {
         tracing::info!("Committed {} files.", count);
 
         if new_heads == *ref_.heads() {
-            tracing::error!("Document heads {:?} didn't change after committing!", new_heads);
+            tracing::error!(
+                "Document heads {:?} didn't change after committing!",
+                new_heads
+            );
         }
 
         return Some(HistoryRef::new(ref_.branch().clone(), new_heads));
     }
 
-    // Filter a list of files to those changed compared to a given ref.
-    async fn filter_changed_files(
-        &self,
-        ref_: &HistoryRef,
-        files: Vec<(String, FileContent)>,
-    ) -> Vec<(String, FileContent)> {
-        // Only load files matching those we've provided
-        let filter = files
-            .iter()
-            .map(|(path, _)| path.to_string())
-            .collect::<HashSet<String>>();
-
-        // Check our stored files
-        let stored_files = self
-            .get_files_at_ref(&ref_, &filter)
-            .await
-            .unwrap_or(HashMap::new());
-
-        // Filter out files that haven't actually changed
-        files
-            .into_iter()
-            .filter_map(|(path, content)| {
-                let path = path.to_string();
-                let stored_content = stored_files.get(&path);
-                if let Some(stored_content) = stored_content {
-                    if stored_content == &content {
-                        return None;
+    fn get_existing_hash(tx: &Transaction<'_>, obj_id: &ObjId) -> Option<blake3::Hash> {
+        if let Ok(hashes) = tx.get_all(obj_id, "hash") {
+            // If there are multiple hashes here, it means we can't rely on it and have to do a contentwise comparison.
+            if hashes.len() == 1 {
+                let hash = &hashes.get(0).unwrap().0;
+                if let Some(bytes) = hash.to_bytes() {
+                    if let Ok(hash) = blake3::Hash::from_slice(bytes) {
+                        return Some(hash);
                     }
                 }
-                Some((path, content))
-            })
-            .collect()
+            }
+        };
+        None
     }
 
     pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> DocHandle {

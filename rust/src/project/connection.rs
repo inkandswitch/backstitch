@@ -1,5 +1,7 @@
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use samod::{BackoffConfig, DialerHandle, Repo, Url};
+use thiserror::Error;
+use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 use crate::helpers::spawn_utils::spawn_named;
@@ -18,19 +20,25 @@ impl Drop for RemoteConnection {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum RemoteConnectionError {
+    #[error("unknown connection error")]
+    Unknown,
+}
+
 impl RemoteConnection {
     /// Starts a connection to the server.
-    pub async fn new(repo: Repo, server_url: Url) -> Option<Self> {
+    pub async fn new(repo: Repo, server_url: Url) -> Result<Self, RemoteConnectionError> {
         let handle = if server_url.scheme() == "ws" || server_url.scheme() == "wss" {
             repo.dial_websocket(server_url, BackoffConfig::default())
-                .ok()?
+                .map_err(|_| RemoteConnectionError::Unknown)?
         } else if server_url.scheme() == "tcp" {
-            repo.dial_tcp(server_url, BackoffConfig::default()).ok()?
+            repo.dial_tcp(server_url, BackoffConfig::default())
+                .map_err(|_| RemoteConnectionError::Unknown)?
         } else {
-            tracing::error!(
+            panic!(
                 "Could not initialize server connection; the URL {server_url} has an invalid scheme (must be tcp://, ws://, or wss://)"
             );
-            return None;
         };
 
         // run a subtask to cancel when requested
@@ -39,12 +47,23 @@ impl RemoteConnection {
             let handle = handle.clone();
             let token = token.clone();
             spawn_named("Remote connection", async move {
-                token.cancelled().await;
-                handle.close();
+                let mut events = handle.events();
+
+                loop {
+                    select! {
+                        event = events.next() => {
+                            tracing::debug!("Dialer event: {event:?}");
+                        }
+                        _ = token.cancelled() => {
+                            handle.close();
+                            break;
+                        }
+                    }
+                }
             });
         }
 
-        Some(Self {
+        Ok(Self {
             token,
             dialer: handle,
         })

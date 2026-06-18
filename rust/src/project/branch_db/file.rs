@@ -1,212 +1,246 @@
 use std::collections::{HashMap, HashSet};
 
-use automerge::{ObjId, ObjType, ROOT, ReadDoc};
+use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
+use autosurgeon::Doc;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use samod::DocumentId;
 
 use crate::{
-    fs::{file_utils::FileContent, file_utils::FileSystemEvent},
-    helpers::{doc_utils::SimpleDocReader, utils::get_changed_files},
-    project::branch_db::{BranchDb, HistoryRef},
+    fs::file_utils::FileContent,
+    helpers::{
+        doc_utils::SimpleDocReader,
+        utils::{ChangeType, CommitMetadata, commit_with_metadata},
+    },
+    project::{
+        branch_db::{BranchDb, HistoryRef},
+        fs::fs_traversal::FileSystemTraversal,
+    },
 };
 
 /// Methods related to getting file changes and file contents out of documents.
 impl BranchDb {
-    // Utility to check for shared history between refs
-    async fn shares_history(&self, earlier_ref: HistoryRef, later_ref: HistoryRef) -> bool {
-        let Ok(res) = self
-            .with_shadow_document(later_ref.branch(), async |d| {
-                d.get_obj_id_at(ROOT, "files", earlier_ref.heads()).is_some()
-                    && d.get_obj_id_at(ROOT, "files", later_ref.heads()).is_some()
+    /// Get the hash index of the file system at a given ref.
+    /// This gets stored hashes from the doc. In most cases, slow hash retreival is unnecessary.
+    /// The following circumstances will cause a slow hash retrieval:
+    /// 1. The document predates hash insertion
+    /// 2. There was a merge conflict, causing multiple hashes (all incorrect) to be available
+    /// 3. The hash is otherwise unavailable or missing from the document
+    // TODO: It would be smart, here, to re-insert computed hashes if they were missing or invalid.
+    // We're not doing that right now because I don't know the side effects; they could be bad.
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub async fn get_hash_index(&self, ref_: &HistoryRef) -> Option<HashMap<String, blake3::Hash>> {
+        // TODO (Lilith): Should we not use the shadow document here? The canonical might be stable,
+        // but I haven't thought through the consequences of using either here.
+
+        enum PendingHash {
+            Hash(blake3::Hash),
+            Linked(DocumentId),
+        }
+
+        let ref_clone = ref_.clone();
+        let hashes = self
+            .with_shadow_document(ref_.branch(), async move |d| {
+                let heads = ref_clone.heads();
+                let Some(files_id) = d.get_obj_id_at(ROOT, "files", heads) else {
+                    tracing::error!("files not found at ref {ref_clone}!");
+                    return None;
+                };
+
+                let entries: Vec<(String, ObjId)> = d
+                    .map_range_at(&files_id, .., heads)
+                    .filter_map(|item| {
+                        let id = item.id();
+                        // if it's a scalar for some reason, ignore this entry
+                        match item.value {
+                            ValueRef::Object(_) => Some((item.key.into_owned(), id)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+
+                // Using rayon for this, to parallelize the key retrieval from the document (not just hashing!!)
+                // Maps to a PendingHash() with either a hash value or a request to look for a linked doc for slow hashing.
+                // Also maps to a bool indicating whether to re-insert the computed hash after slow hashing (useful for old or broken docs).
+                Some(
+                    entries
+                        .into_par_iter()
+                        .filter_map(|(path, entry_id)| {
+                            // First, try and access the quick hash from the doc.
+                            let should_reinsert;
+                            if let Ok(hashes) = d.get_all_at(&entry_id, "hash", heads) {
+                                // If there are multiple hashes here, it means there are conflicts!
+                                // i.e. the hash might be totally invalid; we need to calculate it manually.
+                                if hashes.len() == 1 {
+                                    let hash = &hashes.get(0).unwrap().0;
+                                    if let Some(bytes) = hash.to_bytes() {
+                                        if let Ok(hash) = blake3::Hash::from_slice(bytes) {
+                                            return Some((path, (PendingHash::Hash(hash), false)));
+                                        } else {
+                                            tracing::error!("Couldn't read hash for {path}");
+                                            should_reinsert = true;
+                                        }
+                                    } else {
+                                        tracing::error!("Couldn't convert hash for {path}");
+                                        should_reinsert = true;
+                                    }
+                                } else if hashes.len() > 1 {
+                                    tracing::debug!("Multiple heads found {path}");
+                                    should_reinsert = false; // don't do this, I think it's unsafe because multiple clients would thrash on it
+                                } else {
+                                    tracing::debug!("No stored hash for {path}");
+                                    should_reinsert = true;
+                                }
+                            } else {
+                                tracing::debug!("Couldn't get hashes for {path}");
+                                should_reinsert = true; // I don't think this happens but might as well
+                            }
+
+                            // If there were any issues, fallback to the slow hash.
+                            tracing::debug!("Using slow hash for {path}");
+                            match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
+                                Ok(content) => {
+                                    tracing::debug!("Done logging {path}");
+                                    return Some((
+                                        path,
+                                        (PendingHash::Hash(content.to_hash()), should_reinsert),
+                                    ));
+                                }
+                                Err(res) => match res {
+                                    Ok(id) => {
+                                        tracing::debug!("Done logging {path}");
+                                        return Some((
+                                            path,
+                                            (PendingHash::Linked(id), should_reinsert),
+                                        ));
+                                    }
+                                    Err(error_msg) => {
+                                        tracing::error!("error: {:?}", error_msg);
+                                        return None;
+                                    }
+                                },
+                            };
+                        })
+                        .collect::<HashMap<String, (PendingHash, bool)>>(),
+                )
             })
             .await
-        else {
-            return false;
-        };
-        return res;
-    }
+            .ok()??;
 
-    /// Given two refs, checks to see if one is a direct descendant of another.
-    /// If it is, it returns the more up-to-date ref.
-    /// If not, it returns None.
-    async fn get_descendent_ref(
-        &self,
-        ref_a: &HistoryRef,
-        ref_b: &HistoryRef,
-    ) -> Option<HistoryRef> {
-        // If we can't compare them, they can't share a history
-        if !ref_a.is_valid() || !ref_b.is_valid() {
-            return None;
+        // Resolve binary files
+        let mut new_hashes = HashMap::new();
+        let mut reinserting = false;
+        for (path, (pending_hash, should_reinsert)) in hashes {
+            if self.should_ignore(&self.globalize_path(&path), false) {
+                continue;
+            }
+            if should_reinsert {
+                reinserting = true;
+            }
+            let hash = match pending_hash {
+                PendingHash::Hash(hash) => hash,
+                PendingHash::Linked(document_id) => {
+                    tracing::info!("Hashing linked file {document_id}");
+                    // It may be wise to do this in parallel too... but this shouldn't be a frequent case.
+                    let Some(content) = self.get_linked_file(&document_id).await else {
+                        tracing::error!("Could not get linked file for hashing {path}");
+                        continue;
+                    };
+                    content.to_hash()
+                }
+            };
+            new_hashes.insert(path, (hash, should_reinsert));
         }
-        if self.shares_history(ref_a.clone(), ref_b.clone()).await {
-            return Some(ref_b.clone());
-        }
-        if self.shares_history(ref_b.clone(), ref_a.clone()).await {
-            return Some(ref_a.clone());
-        }
-        None
-    }
-    // TODO (Lilith): During profiling, look at this method. It seems quite improvable.
-    // Here's my idea:
-    // In each branch doc, store an md5 hash of the file contents.
-    // Then, we can get a vector of changed files and their operations by comparing the two tracked_files
-    // using a single with_document call. With that, we can construct a filter to make the hydration lighter.
-    // That would significantly improve the slow diff. I'm not sure if that would be faster than the fast diff.
-    // (But if they're equivalent, not dealing with patches significantly simplifies code.)
 
-    // Afterwards, another possible improvement here:
-    // Instead of fetching the file content, we could just get the changed files.
-    // Then, later code could fetch the file content asynchronously.
+        if reinserting {
+            tracing::info!("Found broken hashes; reinserting");
+            let ref_clone = ref_.clone();
+            let username = self.username.lock().await.clone();
+            let new_hashes = new_hashes.clone();
+            self.with_shadow_document(ref_.branch(), async move |d| {
+                let Some(files_id) = d.get_obj_id_at(ROOT, "files", ref_clone.heads()) else {
+                    tracing::error!("files not found at ref {ref_clone}!");
+                    return;
+                };
+
+                let entries: Vec<(String, ObjId)> = d
+                    .map_range_at(&files_id, .., ref_clone.heads())
+                    .filter_map(|item| {
+                        let id = item.id();
+                        // if it's a scalar for some reason, ignore this entry
+                        match item.value {
+                            ValueRef::Object(_) => Some((item.key.into_owned(), id)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                let mut tx = d.transaction();
+                for (path, id) in entries {
+                    let Some((hash, should_reinsert)) = new_hashes.get(&path) else {
+                        continue;
+                    };
+                    if !should_reinsert {
+                        continue;
+                    }
+
+                    let _ = tx.put(id, "hash", hash.as_bytes().to_vec());
+                }
+
+                commit_with_metadata(
+                    tx,
+                    &CommitMetadata {
+                        username,
+                        branch_id: Some(ref_clone.branch().clone()),
+                        merge_metadata: None,
+                        reverted_to: None,
+                        changed_files: None,
+                        is_setup: Some(false),
+                    },
+                );
+            })
+            .await
+            .unwrap();
+        }
+
+        Some(
+            new_hashes
+                .into_iter()
+                .map(|(path, (hash, _))| (path, hash))
+                .collect(),
+        )
+    }
 
     /// Get a list of file operations between two points in Backstitch history.
-    /// If one ref exists in the history of another, we can do a fast automerge diff.
-    /// If they have diverged, we must do a slow file-wise diff.
-    #[tracing::instrument(skip_all)]
-    pub async fn get_changed_file_content_between_refs(
+    /// Returns paths in local res:// format.
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub async fn get_changed_files_between_refs(
         &self,
         old_ref: Option<&HistoryRef>,
         new_ref: &HistoryRef,
-        force_slow_diff: bool,
-    ) -> Option<Vec<FileSystemEvent>> {
+    ) -> Option<HashMap<String, ChangeType>> {
         tracing::info!("Getting changes between {:?} and {:?}", new_ref, old_ref);
         if !new_ref.is_valid() {
             tracing::warn!("new ref is empty, can't get changed files");
             return None;
         }
 
+        let new_index = self.get_hash_index(new_ref).await?;
+
+        // If the old heads are empty, we always return all content.
         if old_ref.is_none() || !old_ref.unwrap().is_valid() {
             tracing::info!("old heads empty, getting ALL files on branch");
 
-            // NOTE: This returns local res:// paths, we must globalize them before exporting them to FileSystemEvents
-            let files = self.get_files_at_ref(&new_ref, &HashSet::new()).await?;
-
             return Some(
-                files
+                new_index
                     .into_iter()
-                    .map(|(path, content)| match content {
-                        FileContent::Deleted => {
-                            FileSystemEvent::FileDeleted(self.globalize_path(&path))
-                        }
-                        _ => FileSystemEvent::FileCreated(self.globalize_path(&path), content),
-                    })
+                    .map(|(path, _)| (path, ChangeType::Created))
                     .collect(),
             );
         }
 
         let old_ref = old_ref.unwrap();
+        let old_index = self.get_hash_index(old_ref).await?;
 
-        let descendent_ref = self.get_descendent_ref(old_ref, new_ref).await;
-
-        if descendent_ref.is_none() || force_slow_diff {
-            // neither document is the descendent of the other, we can't do a fast diff,
-            // we need to do it the slow way; get the files from both docs
-            let old_files = self.get_files_at_ref(old_ref, &HashSet::new()).await?;
-            let new_files = self.get_files_at_ref(new_ref, &HashSet::new()).await?;
-
-            let mut events = Vec::new();
-            for (path, _) in old_files.iter() {
-                if !new_files.contains_key(path) {
-                    events.push(FileSystemEvent::FileDeleted(self.globalize_path(path)));
-                }
-            }
-            for (path, content) in new_files {
-                match content {
-                    FileContent::Deleted => {
-                        events.push(FileSystemEvent::FileDeleted(self.globalize_path(&path)));
-                        continue;
-                    }
-                    _ => {}
-                }
-                if !old_files.contains_key(&path) {
-                    events.push(FileSystemEvent::FileCreated(
-                        self.globalize_path(&path),
-                        content,
-                    ));
-                } else if &content != old_files.get(&path).unwrap() {
-                    events.push(FileSystemEvent::FileModified(
-                        self.globalize_path(&path),
-                        content,
-                    ));
-                }
-            }
-            return Some(events);
-        }
-
-        let descendent_ref = descendent_ref.unwrap();
-
-        // Get the patches from the later (descendant) ref
-        let old_heads = old_ref.heads().clone();
-        let new_heads = new_ref.heads().clone();
-        let (patches, old_file_set, curr_file_set) = self
-            .with_shadow_document(descendent_ref.branch(), async |d| {
-                let old_files_id: Option<ObjId> = d.get_obj_id_at(ROOT, "files", &old_heads);
-                let curr_files_id = d.get_obj_id_at(ROOT, "files", &new_heads);
-                let old_file_set = if old_files_id.is_none() {
-                    HashSet::<String>::new()
-                } else {
-                    d.keys_at(&old_files_id.unwrap(), &old_heads)
-                        .into_iter()
-                        .collect::<HashSet<String>>()
-                };
-                let curr_file_set = if curr_files_id.is_none() {
-                    HashSet::<String>::new()
-                } else {
-                    d.keys_at(&curr_files_id.unwrap(), &new_heads)
-                        .into_iter()
-                        .collect::<HashSet<String>>()
-                };
-                let patches = d.diff(&old_heads, &new_heads);
-                (patches, old_file_set, curr_file_set)
-            })
-            .await
-            .ok()?;
-
-        // Gather the information of what files changed from the patches.
-        let deleted_files: HashSet<_> = old_file_set.difference(&curr_file_set).cloned().collect();
-        let added_files: HashSet<_> = curr_file_set.difference(&old_file_set).cloned().collect();
-        let modified_files: HashSet<_> = if patches.len() == 0 {
-            HashSet::new()
-        } else {
-            get_changed_files(&patches)
-            .into_iter()
-            .filter(|f| !deleted_files.contains(f))
-            .filter(|f| !added_files.contains(f))
-            .collect()
-        };
-        let all_files: HashSet<_> = deleted_files
-            .iter()
-            .chain(added_files.iter())
-            .chain(modified_files.iter())
-            .cloned()
-            .collect();
-
-        // Valid diff, just no changes
-        if all_files.len() == 0 {
-            return Some(Vec::new());
-        }
-        // Get the files, then convert them into events using the information we gathered.
-        Some(
-            self.get_files_at_ref(new_ref, &all_files)
-                .await?
-                .into_iter()
-                .map(|(path, content)| match content {
-                    FileContent::Deleted => {
-                        FileSystemEvent::FileDeleted(self.globalize_path(&path))
-                    }
-                    _ if added_files.contains(&path) => {
-                        FileSystemEvent::FileCreated(self.globalize_path(&path), content)
-                    }
-                    _ if deleted_files.contains(&path) => {
-                        FileSystemEvent::FileDeleted(self.globalize_path(&path))
-                    }
-                    _ => FileSystemEvent::FileModified(self.globalize_path(&path), content),
-                })
-                .chain(
-                    deleted_files
-                        .iter()
-                        .map(|path| FileSystemEvent::FileDeleted(self.globalize_path(&path))),
-                )
-                .collect(),
-        )
+        Some(FileSystemTraversal::get_file_changes(old_index, new_index))
     }
 
     async fn get_linked_file(&self, doc_id: &DocumentId) -> Option<FileContent> {
@@ -236,13 +270,18 @@ impl BranchDb {
         .unwrap()
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn get_files_at_ref(
         &self,
         desired_ref: &HistoryRef,
         filters: &HashSet<String>,
     ) -> Option<HashMap<String, FileContent>> {
-        tracing::info!("Getting files at ref {:?}", desired_ref);
+        if filters.is_empty() {
+            tracing::debug!("Skipping get_files_at_ref; filters empty");
+            return None;
+        }
+        tracing::info!("Getting {:?} files at ref {:?}", filters.len(), desired_ref);
+        tracing::trace!("Filters: {:?}", filters);
         let mut files = HashMap::new();
         let mut linked_doc_ids = Vec::new();
 
@@ -252,19 +291,18 @@ impl BranchDb {
             .with_shadow_document(desired_ref.branch(), async |doc| {
                 let files_obj_id: ObjId = doc.get_at(ROOT, "files", desired_ref.heads()).ok()??.1;
                 for path in doc.keys_at(&files_obj_id, desired_ref.heads()) {
-                    if !filters.is_empty() && !filters.contains(&path) {
+                    if !filters.contains(&path) {
                         continue;
                     }
-                    let file_entry =
-                        match doc.get_at(&files_obj_id, &path, desired_ref.heads()) {
-                            Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
-                                file_entry
-                            }
-                            _ => {
-                                tracing::error!("failed to get file entry for {:?}", path);
-                                continue;
-                            }
-                        };
+                    let file_entry = match doc.get_at(&files_obj_id, &path, desired_ref.heads()) {
+                        Ok(Some((automerge::Value::Object(ObjType::Map), file_entry))) => {
+                            file_entry
+                        }
+                        _ => {
+                            tracing::error!("failed to get file entry for {:?}", path);
+                            continue;
+                        }
+                    };
 
                     match FileContent::hydrate_content_at(
                         file_entry,

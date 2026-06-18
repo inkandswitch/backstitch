@@ -80,6 +80,7 @@ class ActionMenuItems:
 	const DUMP_BRANCH = 1
 	const CLEAR_PROJECT = 2
 	const DEV_MODE = 3
+	const CLEAR_FS_CACHE = 4
 
 var task_modal: TaskModal = TaskModal.new()
 var item_context_menu_icon: Texture2D = preload("../icons/GuiTabMenuHlHorizontal.svg")
@@ -111,6 +112,12 @@ func _update_ui_on_state_change():
 			update_ui()
 	)
 
+func _update_ui_on_sync_change():
+	waiting_callables.append(
+		func():
+			update_sync_status()
+	)
+
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()
 
@@ -136,13 +143,14 @@ func _on_branch_checked_out():
 	task_modal.end_task("Loading Backstitch")
 	init()
 
-func _on_create_failed():
+func _on_create_failed(message: String):
 	branch_checked_out.disconnect(_on_branch_checked_out)
 	GodotProject.create_failed.disconnect(_on_create_failed)
 	task_modal.end_task("Loading Backstitch")
 
+	# TODO: Turn this into an actual annoying popup
 	var toaster = EditorInterface.get_editor_toaster()
-	toaster.push_toast("Couldn't start the project! Check your server URL.");
+	toaster.push_toast("Couldn't start the project! Reason: %s" % message);
 
 # Asks the user for their username, if there is none stored.
 # If they cancel or close, returns false. If the username is confirmed, returns true.
@@ -173,7 +181,9 @@ func _on_load_project_button_pressed():
 		return
 
 	GodotProject.load_project(doc_id);
-	await wait_for_checked_out_branch()
+	
+	if not _check_for_local_changes():
+		await wait_for_checked_out_branch()
 
 func update_init_panel():
 	var has_project = GodotProject.has_project()
@@ -185,7 +195,9 @@ func update_init_panel():
 	copy_project_id_button.disabled = !has_project
 	share_button.disabled = !(has_project && _share_available())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
-	_set_action_disabled(!has_project, ActionMenuItems.DUMP_BRANCH)
+	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
+	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
+	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
 
 
 func _share_available() -> bool:
@@ -237,6 +249,8 @@ func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
 
+	_setup_local_changes_dialog()
+
 	monkey_tester.enabled = false
 
 	# @Paul: I think somewhere besides the plugin sidebar gets instantiated. Is this something godot does?
@@ -284,6 +298,7 @@ func bind_listeners(godot_project):
 	%UserNameDialog.confirmed.connect(_on_user_name_confirmed)
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
+	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)
@@ -356,6 +371,8 @@ func _try_init():
 func _process(delta: float) -> void:
 	if is_part_of_edited_scene():
 		return
+
+	_check_for_local_changes()
 
 	var checked_out_branch = GodotProject.get_checked_out_branch()
 	if checked_out_branch && checked_out_branch.id != last_seen_branch:
@@ -682,6 +699,14 @@ func update_history_tree():
 	else:
 		history_saved_selection = null
 
+func _check_for_local_changes() -> bool:
+	if GodotProject.local_changes().size() == 0: return false
+	var dialog: AcceptDialog = %LocalChangesDialog
+	if dialog.visible: return true
+	_popup_local_changes_dialog()
+	return true
+
+
 func update_action_buttons():
 	if !GodotProject.has_project(): return
 	var main_branch = GodotProject.get_main_branch()
@@ -990,18 +1015,26 @@ func _on_action_menu_item_selected(id: int) -> void:
 			_on_reload_ui_button_pressed()
 			toaster.push_toast("Reloaded UI.")
 		ActionMenuItems.DEV_MODE:
-			var idx = action_menu_button.get_popup().get_item_index(id)
-			action_menu_button.get_popup().toggle_item_checked(idx)
-			var checked = action_menu_button.get_popup().is_item_checked(idx)
+			var popup := action_menu_button.get_popup()
+			var idx := popup.get_item_index(id)
+			popup.toggle_item_checked(idx)
+			var checked := action_menu_button.get_popup().is_item_checked(idx)
 			if monkey_tester.enabled && not checked:
 				print("MonkeyTester: disabling because developer mode is disabled")
 				monkey_tester.stop()
 			%MonkeyButton.visible = checked
+
+			_set_action_disabled(ActionMenuItems.DUMP_BRANCH, !GodotProject.has_project() || !checked)
+			_set_action_disabled(ActionMenuItems.CLEAR_FS_CACHE, !GodotProject.has_project() || !checked)
+			
 			toaster.push_toast("Developer mode enabled." if checked else "Developer mode disabled.")
 			update_ui()
 		ActionMenuItems.DUMP_BRANCH:
 			GodotProject.dump_current_branch()
 			toaster.push_toast("Dumped current branch state to res://.backstitch/.")
+		ActionMenuItems.CLEAR_FS_CACHE:
+			GodotProject.clear_fs_cache()
+			toaster.push_toast("Cleared File System Cache.")
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):
@@ -1011,3 +1044,39 @@ func _on_monkey_button_toggled(toggled_on: bool) -> void:
 
 func _on_monkey_tester_disabled_self(reason: String) -> void:
 	%MonkeyButton.button_pressed = false
+
+func _setup_local_changes_dialog() -> void:
+	var dialog: AcceptDialog = %LocalChangesDialog
+	dialog.add_button("Discard Local Changes", false, "discard_changes")
+	dialog.canceled.connect(_popup_local_changes_dialog)
+	dialog.custom_action.connect(_discard_changes)
+	dialog.confirmed.connect(_checkin_changes)
+
+	var tree: Tree = %LocalChanges
+	tree.set_column_title(0, "File")
+	tree.set_column_title(1, "Change")
+	tree.set_column_expand(0, true)
+	tree.set_column_expand(1, false)
+	tree.set_column_title_alignment(0, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
+	tree.set_column_title_alignment(1, HorizontalAlignment.HORIZONTAL_ALIGNMENT_LEFT)
+	tree.set_column_custom_minimum_width(1, 80)
+
+func _popup_local_changes_dialog() -> void:
+	%LocalChangesDialog.popup_centered()
+	var tree: Tree = %LocalChanges
+	tree.clear()
+	var local_changes = GodotProject.local_changes()
+	var root = tree.create_item()
+	for item in local_changes:
+		var i = tree.create_item(root)
+		i.set_text(0, item[0])
+		i.set_text(1, item[1])
+
+func _discard_changes(_action: String) -> void:
+	%LocalChangesDialog.hide()
+	GodotProject.discard_local_changes()
+
+func _checkin_changes() -> void:
+	%LocalChangesDialog.hide()
+	GodotProject.checkin_local_changes()
+	await wait_for_checked_out_branch()

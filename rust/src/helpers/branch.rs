@@ -4,6 +4,12 @@ use std::collections::HashMap;
 
 use crate::helpers::history_ref::HistoryRef;
 
+/// The current version of the branch doc schema.
+/// Bump this when making a breaking change to what we write into a branch doc.
+/// Version 0: initial version
+/// Version 1: file entries carry an md5 `hash` field; enables the fast hash-based slow diff.
+pub const BRANCH_DOC_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Reconcile, Hydrate, PartialEq)]
 pub struct FileEntry {
     pub content: Option<String>,

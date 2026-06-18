@@ -1,7 +1,8 @@
 use crate::{
-    diff::{differ::{ChangeType, Differ}, scene_differ::VariantValue}, fs::file_utils::FileContent, helpers::history_ref::HistoryRef
+    diff::{differ::Differ, scene_differ::VariantValue},
+    fs::file_utils::FileContent,
+    helpers::{history_ref::HistoryRef, utils::ChangeType},
 };
-
 
 #[derive(Clone, Debug)]
 pub struct BinaryResourceDiff {
@@ -32,10 +33,10 @@ impl Differ {
         &self,
         path: &str,
         change_type: ChangeType,
-        old_content: &FileContent,
-        new_content: &FileContent,
+        old_content: Option<&FileContent>,
+        new_content: Option<&FileContent>,
         before: &HistoryRef,
-        after: &HistoryRef
+        after: &HistoryRef,
     ) -> BinaryResourceDiff {
         BinaryResourceDiff::new(
             path.to_string(),
@@ -48,17 +49,18 @@ impl Differ {
     async fn get_resource(
         &self,
         path: &str,
-        _content: &FileContent,
+        _content: Option<&FileContent>,
         ref_: &HistoryRef,
     ) -> Option<VariantValue> {
-        if matches!(_content, FileContent::Deleted) {
+        if _content.is_none() {
             return None;
         }
-
-        match self.start_load_ext_resource(&path, ref_).await{
+        match self.start_load_ext_resource(&path, ref_).await {
             Ok(load_path) => Some(VariantValue::LazyLoadData(path.to_string(), load_path)),
-            Err(e) => Some(VariantValue::Variant(format!("\"<ExtResource {} load failed ({})>\"", path, e))),
+            Err(e) => Some(VariantValue::Variant(format!(
+                "\"<ExtResource {} load failed ({})>\"",
+                path, e
+            ))),
         }
-
     }
 }

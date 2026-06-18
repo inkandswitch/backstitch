@@ -2,21 +2,20 @@ use std::collections::HashSet;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
 use samod::DocumentId;
-use tracing::instrument;
 
 use crate::{
-    fs::file_utils::{FileContent, FileSystemEvent},
+    fs::file_utils::FileContent,
     helpers::{
         branch::Branch,
         doc_utils::SimpleDocReader,
         history_ref::HistoryRef,
-        utils::{CommitMetadata, MergeMetadata, commit_with_metadata},
+        utils::{ChangeType, CommitMetadata, MergeMetadata, commit_with_metadata},
     },
     project::branch_db::BranchDb,
 };
 
 impl BranchDb {
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn create_merge_preview_branch(
         &self,
         source: &DocumentId,
@@ -144,9 +143,6 @@ impl BranchDb {
             return None;
         };
 
-        let changed_files = self
-            .get_changed_file_content_between_refs(Some(&current_ref), ref_, true)
-            .await?;
         let handle = self.repo.create(Automerge::new()).await.ok()?;
         let handle_clone = handle.clone();
 
@@ -169,19 +165,32 @@ impl BranchDb {
         })
         .await;
 
+        let changed_files = self
+            .get_changed_files_between_refs(Some(&current_ref), ref_)
+            .await?;
+
+        tracing::debug!("Revert preview changed_files: {:?}", changed_files);
+
+        let mut changed_contents: std::collections::HashMap<String, FileContent> = self
+            .get_files_at_ref(ref_, &changed_files.keys().cloned().collect())
+            .await?;
         let changed_files = changed_files
             .into_iter()
-            .map(|event| match event {
-                FileSystemEvent::FileCreated(path, content) => (self.localize_path(&path), content),
-                FileSystemEvent::FileModified(path, content) => {
-                    (self.localize_path(&path), content)
-                }
-                FileSystemEvent::FileDeleted(path) => {
-                    (self.localize_path(&path), FileContent::Deleted)
-                }
+            .filter_map(|(path, change)| {
+                Some(match change {
+                    ChangeType::Created | ChangeType::Modified => {
+                        let content = changed_contents.remove(&path)?;
+                        (path, Some(content))
+                    }
+                    ChangeType::Deleted => (path, None),
+                })
             })
-            .collect::<Vec<(String, FileContent)>>();
+            .collect::<Vec<(String, Option<FileContent>)>>();
 
+        tracing::debug!(
+            "Revert preview changed_files: {:?}",
+            changed_files.iter().map(|(f, _)| f).collect::<Vec<_>>()
+        );
         // This is a weird hack -- we need the branch sync state to exist NOW to commit our revert...
         // ... not whenever document_watcher decides it's time.
         // We pretend there's 0 linked docs, because we're forking off a shadow doc for the preview, which had BETTER

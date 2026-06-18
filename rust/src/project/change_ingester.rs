@@ -10,6 +10,7 @@ use tokio::{
     select,
     sync::{Mutex, Notify, watch},
 };
+use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -58,7 +59,7 @@ impl ChangeIngester {
 
         let inner_clone = inner.clone();
         spawn_named("Change ingester", async move {
-            let peer_stream = inner_clone.peer_watcher.subscribe();
+            let peer_stream = WatchStream::new(inner_clone.peer_watcher.subscribe());
             tokio::pin!(peer_stream);
 
             let reconcile_stream = inner_clone.branch_db.subscribe_doc_changes();
@@ -117,7 +118,14 @@ impl ChangeIngesterInner {
             // since we're past the duration with no other requests, the counter resets.
             *last_ingest = (now, 0);
         }
-        self.changes_tx.send_replace(self.get_changes().await);
+        let new_changes = self.get_changes().await;
+        self.changes_tx.send_if_modified(|old_changes| {
+            if *old_changes == new_changes {
+                return false;
+            }
+            *old_changes = new_changes;
+            return true;
+        });
         last_ingest.1 += 1;
     }
 
@@ -154,7 +162,7 @@ impl ChangeIngesterInner {
     }
 
     /// Gets the changes from the current branch and returns it.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn get_changes(&self) -> Vec<CommitInfo> {
         let checked_out = self.branch_db.get_checked_out_ref_mut();
         let checked_out = checked_out.read().await;
@@ -163,7 +171,7 @@ impl ChangeIngesterInner {
             return Vec::new();
         };
 
-        tracing::debug!("ingesting on ref: {:?}", checked_out);
+        tracing::trace!("ingesting on ref: {:?}", checked_out);
 
         // This is the last heads the server has seen. Refers to the canonical
         // document, NOT the shadow document.
@@ -264,7 +272,8 @@ impl ChangeIngesterInner {
                 .await
                 .unwrap_or("Invalid data".to_string());
             let commit_info = CommitInfo {
-                synced: (i as i32) <= synced_until_index && !intersecting_hashes.contains(&change.hash),
+                synced: (i as i32) <= synced_until_index
+                    && !intersecting_hashes.contains(&change.hash),
                 summary,
                 ..change
             };

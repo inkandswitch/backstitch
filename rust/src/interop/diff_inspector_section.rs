@@ -1,8 +1,9 @@
-use godot::builtin::{Color, GString, Rect2, StringName, Variant, Vector2};
+use godot::builtin::{Color, GString, Rect2, StringName, Vector2};
 use godot::classes::notify::ContainerNotification;
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
-    Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent, InputEventMouseButton, Object, StyleBoxFlat, Texture2D, Timer, VBoxContainer
+    Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
+    InputEventMouseButton, Object, StyleBoxFlat, Texture2D, Timer, VBoxContainer,
 };
 use godot::global::{HorizontalAlignment, MouseButton, PropertyHint};
 use godot::prelude::*;
@@ -52,8 +53,7 @@ impl DiffInspectorSection {
         }
         let mouse_pos = self.base().get_local_mouse_position();
 
-        let entered = self.foldable && self.get_header_rect()
-            .contains_point(mouse_pos);
+        let entered = self.foldable && self.get_header_rect().contains_point(mouse_pos);
 
         if !entered {
             return;
@@ -62,10 +62,8 @@ impl DiffInspectorSection {
         self.entered = true;
         let section = self.section.clone();
 
-        self.base_mut().emit_signal(
-            "section_mouse_entered",
-            &[section.to_variant()],
-        );
+        self.base_mut()
+            .emit_signal("section_mouse_entered", &[section.to_variant()]);
 
         self.base_mut().queue_redraw();
     }
@@ -83,37 +81,40 @@ impl DiffInspectorSection {
         self.entered = false;
         let section = self.section.clone();
 
-        self.base_mut().emit_signal(
-            "section_mouse_exited",
-            &[section.to_variant()],
-        );
+        self.base_mut()
+            .emit_signal("section_mouse_exited", &[section.to_variant()]);
 
         self.base_mut().queue_redraw();
     }
-	#[func]
-	pub fn instance_property_diff(object: Gd<Object>, path: String, wide: bool) -> Option<Gd<EditorProperty>> {
-
-		let list = object.get_property_list();
-		for property in list.iter_shared() {
-			let name = property.get("name");
-			if name.is_some() && name.unwrap().to::<String>() == path {
-				let property_type = VariantType::from_ord(property.get("type")?.to::<i64>() as i32);
-				let property_hint= PropertyHint::from_ord(property.get("hint")?.to::<i64>() as i32);
-				let property_hint_string = property.get("hint_string")?.to::<GString>();
-				let property_usage = property.get("usage")?.to::<i64>() as u32;
-				return EditorInspector::instantiate_property_editor_ex(
-					&object,
-					property_type,
-					&path,
-					property_hint,
-					&property_hint_string,
-					property_usage)
-					.wide(wide).done();
-			}
-		}
-		None
-	}
-
+    #[func]
+    pub fn instance_property_diff(
+        object: Gd<Object>,
+        path: String,
+        wide: bool,
+    ) -> Option<Gd<EditorProperty>> {
+        let list = object.get_property_list();
+        for property in list.iter_shared() {
+            let name = property.get("name");
+            if name.is_some() && name.unwrap().to::<String>() == path {
+                let property_type = VariantType::from_ord(property.get("type")?.to::<i64>() as i32);
+                let property_hint =
+                    PropertyHint::from_ord(property.get("hint")?.to::<i64>() as i32);
+                let property_hint_string = property.get("hint_string")?.to::<GString>();
+                let property_usage = property.get("usage")?.to::<i64>() as u32;
+                return EditorInspector::instantiate_property_editor_ex(
+                    &object,
+                    property_type,
+                    &path,
+                    property_hint,
+                    &property_hint_string,
+                    property_usage,
+                )
+                .wide(wide)
+                .done();
+            }
+        }
+        None
+    }
 
     #[func]
     pub fn setup(
@@ -397,9 +398,8 @@ impl IContainer for DiffInspectorSection {
         let exited = base.callable("on_mouse_exited");
         base.connect("mouse_entered", &entered);
         base.connect("mouse_exited", &exited);
-
     }
-    
+
     fn init(base: Base<Container>) -> Self {
         let vbox = VBoxContainer::new_alloc();
         let mut dropping_unfold_timer = Timer::new_alloc();
@@ -720,10 +720,10 @@ impl DiffInspectorSection {
 
         let available = self.base().get_size().x - (margin_start + margin_end);
 
-		// TODO: Currently not able to use this due to the way that we construct the child controls.
+        // TODO: Currently not able to use this due to the way that we construct the child controls.
         // Draw count (if folded)
         // let folded = self.foldable && !self.unfolded;
-		// let child_count = self.base().get_child_count() - 1; // -1 for the vertical seperator
+        // let child_count = self.base().get_child_count() - 1; // -1 for the vertical seperator
         // if folded && child_count > 0 {
         //     let font = self
         //         .base()

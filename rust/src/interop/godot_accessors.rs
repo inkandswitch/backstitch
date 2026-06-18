@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use godot::obj::{Singleton};
+use godot::obj::Singleton;
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{ClassDb, EditorInterface, Object},
@@ -51,7 +51,6 @@ pub struct BackstitchEditorAccessor {}
 
 #[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
-
     pub fn is_editor_importing() -> bool {
         return EditorInterface::singleton()
             .get_resource_filesystem()

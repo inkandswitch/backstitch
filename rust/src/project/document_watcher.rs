@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
     helpers::{
@@ -15,7 +11,10 @@ use automerge::{ROOT, ReadDoc};
 use autosurgeon::hydrate;
 use futures::{FutureExt, StreamExt};
 use samod::{DocHandle, DocumentId, Repo};
-use tokio::{select, sync::{Mutex, Semaphore}};
+use tokio::{
+    select,
+    sync::{Mutex, Semaphore, watch},
+};
 use tokio_util::sync::CancellationToken;
 
 /// Tracks branch and metadata documents from an Automerge repo, updating BranchDB when the state changes.
@@ -23,14 +22,31 @@ use tokio_util::sync::CancellationToken;
 pub struct DocumentWatcher {
     inner: Arc<DocumentWatcherInner>,
 }
+#[derive(Debug, Clone, PartialEq)]
+pub enum BranchIngestState {
+    Pending,
+    Ingested,
+    Failed,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IngestWaitError {
+    #[error("this branch hasn't been tracked by the document watcher yet, so we can't wait on it.")]
+    NotTracked,
+    #[error("this branch timed out when waiting for the ingest.")]
+    TimedOut,
+    #[error("this branch can't be tracked by the document watcher for unknown reasons.")]
+    Unknown,
+}
 
 #[derive(Debug, Clone)]
 struct DocumentWatcherInner {
     repo: Repo,
     branch_db: BranchDb,
-    tracked_branches: Arc<Mutex<HashSet<DocumentId>>>,
+    tracked_branches: Arc<Mutex<HashMap<DocumentId, watch::Sender<BranchIngestState>>>>,
     token: CancellationToken,
-    find_limit: Arc<Semaphore>
+    find_limit: Arc<Semaphore>,
+    poll_time: u64,
 }
 
 impl Drop for DocumentWatcher {
@@ -41,13 +57,19 @@ impl Drop for DocumentWatcher {
 
 impl DocumentWatcher {
     /// Spawns the [DocumentWatcher], creating parallel tasks for the metadata document tracking and subsequent tasks for any child documents.
-    pub async fn new(repo: Repo, branch_db: BranchDb, metadata_handle: DocHandle) -> Self {
+    pub async fn new(
+        repo: Repo,
+        branch_db: BranchDb,
+        metadata_handle: DocHandle,
+        poll_time: u64,
+    ) -> Self {
         let inner = Arc::new(DocumentWatcherInner {
             branch_db,
             repo,
             tracked_branches: Default::default(),
             token: CancellationToken::new(),
-            find_limit: Arc::new(Semaphore::new(50))
+            find_limit: Arc::new(Semaphore::new(50)),
+            poll_time,
         });
 
         let inner_clone = inner.clone();
@@ -64,26 +86,90 @@ impl DocumentWatcher {
 
         return Self { inner };
     }
+
+    /// Subscribe to a one-shot document ingestion. If the document has already ingested, immediately resolves.
+    /// Doesn't look for binary docs -- those could still be broken (they're *allowed* to be... it's just bad.)
+    /// Branches aren't allowed to be broken at all.
+    pub async fn wait_for_branch_ingest(&self, branch: &DocumentId) -> Result<(), IngestWaitError> {
+        let mut rx: watch::Receiver<BranchIngestState> = {
+            let branches = self.inner.tracked_branches.lock().await;
+            let tx = branches.get(branch).ok_or(IngestWaitError::NotTracked)?;
+            let rx = tx.subscribe();
+            rx
+        };
+        let mut current = rx.borrow_and_update().clone();
+        while current == BranchIngestState::Pending {
+            rx.changed().await.map_err(|_| IngestWaitError::Unknown)?;
+            current = rx.borrow_and_update().clone();
+        }
+        match current {
+            BranchIngestState::Pending => Err(IngestWaitError::Unknown), // this shouldn't happen
+            BranchIngestState::Ingested => Ok(()),
+            BranchIngestState::Failed => Err(IngestWaitError::TimedOut),
+        }
+    }
 }
 
 impl DocumentWatcherInner {
-    // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
-    async fn track_branch_document(&self, id: DocumentId) {
+    async fn poll_document(
+        repo: &Repo,
+        id: &DocumentId,
+        timeout: u64,
+        find_limit: Arc<Semaphore>,
+    ) -> Option<DocHandle> {
         // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
         // Permissive announce policies on the server fix it because the server is allowed to check with peers before
         // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
         // So, we need to call find() over and over until it is available on the server... then we can ingest.
-        // Alex wants to add Repo::query(), that returns an ongoing query for a document rather than a future. Then, we can
-        // improve this significantly.
-        let handle = loop {
-            tracing::info!("Polling for branch document {id}");
-            if let Some(handle) = self.repo.find(id.clone()).await.unwrap() {
-                break handle;
+        // Alex wants to add a search API: https://github.com/alexjg/samod/pull/95
+        // Once that search API is complete, we can instead timeout like usual instead of spamming find().
+        let mut time = 0u64;
+        let duration = 500u64;
+        loop {
+            tracing::trace!("Polling for document {id}, for {timeout}ms");
+            let acquired = find_limit.acquire().await.unwrap();
+            let handle = repo.find(id.clone()).await.unwrap();
+            drop(acquired);
+            if let Some(handle) = handle {
+                tracing::debug!("Found document {id}");
+                break Some(handle);
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tracing::debug!("Didn't find document {id}");
+            time += duration;
+            if time > timeout {
+                break None;
+            }
+            let _ = tokio::time::sleep(Duration::from_millis(duration)).await;
+        }
+    }
+
+    // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
+    async fn track_branch_document(&self, id: DocumentId) {
+        let handle = select! {
+            _ = self.token.cancelled() => return,
+            handle = Self::poll_document(&self.repo, &id, self.poll_time, self.find_limit.clone()) => handle
         };
-        
+
+        let Some(handle) = handle else {
+            tracing::error!(
+                "Could not find branch document {id}, even after polling! Notfiying waiters with negative result."
+            );
+
+            let mut branches = self.tracked_branches.lock().await;
+            let Some(tx) = branches.get_mut(&id) else {
+                panic!("Document not in branch state!");
+            };
+            tx.send_replace(BranchIngestState::Failed);
+            return;
+        };
+
         self.ingest_branch_document(handle.clone()).await;
+        let mut branches = self.tracked_branches.lock().await;
+        let Some(tx) = branches.get_mut(&id) else {
+            panic!("Document not in branch state!");
+        };
+        tx.send_replace(BranchIngestState::Ingested);
+        drop(branches);
 
         let mut stream = handle.changes();
         loop {
@@ -127,18 +213,21 @@ impl DocumentWatcherInner {
         if branch_db.has_binary_doc(&doc_id).await {
             return;
         }
+        tracing::trace!("Tracking binary doc {doc_id}");
+        let poll_time = self.poll_time;
+        let token = self.token.clone();
         tokio::task::spawn(async move {
-            let acquired = semaphore.acquire().await.unwrap();
-            let handle = repo.find(doc_id.clone()).await;
-            drop(acquired);
-            // this may trigger a reconciliation for a shadow doc
-            branch_db
-                .ingest_binary_doc(doc_id, handle.ok().flatten())
-                .await;
+            select! {
+                _ = token.cancelled() => {}
+                handle = Self::poll_document(&repo, &doc_id, poll_time, semaphore) => {
+                    // this may trigger a reconciliation for a shadow doc
+                    branch_db.ingest_binary_doc(doc_id, handle).await;
+                }
+            }
         });
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ingest_branch_document(&self, handle: DocHandle) {
         let h = handle.clone();
         let (heads, linked_docs) = tokio::task::spawn_blocking(move || {
@@ -190,7 +279,7 @@ impl DocumentWatcherInner {
             .await;
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ingest_metadata_document(&self, handle: DocHandle) {
         // TODO: Stop tracking removed branches
         // Find added branches, and begin tracking them
@@ -208,8 +297,11 @@ impl DocumentWatcherInner {
         // check if there are new branches that haven't loaded yet
         let mut tracked_branches = self.tracked_branches.lock().await;
         for (branch_id, _) in meta.branches.iter() {
-            if !tracked_branches.contains(branch_id) {
-                tracked_branches.insert(branch_id.clone());
+            if !tracked_branches.contains_key(branch_id) {
+                tracked_branches.insert(
+                    branch_id.clone(),
+                    watch::Sender::new(BranchIngestState::Pending),
+                );
                 let this = self.clone();
                 let id = branch_id.clone();
                 spawn_named(&format!("Document tracker: {:?}", branch_id), async move {

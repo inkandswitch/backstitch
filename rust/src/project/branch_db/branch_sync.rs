@@ -1,36 +1,49 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use automerge::{Automerge, ChangeHash};
 use futures::{Stream, StreamExt};
 use samod::{DocHandle, DocumentId};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
-    project::branch_db::BranchDb,
+    project::branch_db::{BranchDb, CanonicalBranchStatus, ShadowDocWaitError},
 };
 
 #[derive(Debug)]
 pub(super) struct BranchSyncState {
     pub shadow_doc: Option<Automerge>,
+    shadow_doc_init_tx: watch::Sender<bool>,
     pub canonical_doc: DocHandle,
     /// The most up-to-date heads we've seen on the canonical doc
     pub last_tracked: Vec<ChangeHash>,
     /// The last heads on the canonical doc that we reconciled from
     pub last_reconciled: Vec<ChangeHash>,
-    pub waiting_binary_docs: HashSet<DocumentId>,
+    /// The binary docs on the canonical doc
+    pub canonical_binary_docs: HashMap<DocumentId, BinaryDocStatus>,
     // TODO (Lilith): Figure out a way to reconcile fully synced heads prior to the most recent unsynced heads, if needed.
+}
+
+#[derive(PartialEq, Debug)]
+pub enum BinaryDocStatus {
+    Pending,
+    Failed,
+    Ok,
 }
 
 impl BranchSyncState {
     pub fn new(handle: DocHandle) -> Self {
         Self {
             shadow_doc: None,
+            shadow_doc_init_tx: watch::Sender::new(false),
             canonical_doc: handle,
             last_reconciled: Vec::new(),
             last_tracked: Vec::new(),
-            waiting_binary_docs: HashSet::new(),
+            canonical_binary_docs: Default::default(),
         }
     }
 }
@@ -45,7 +58,7 @@ impl BranchDb {
     pub async fn get_checked_out_ref(&self) -> Option<HistoryRef> {
         return self.checked_out_ref.read().await.clone();
     }
-    
+
     pub fn subscribe_doc_changes(&self) -> impl Stream<Item = ()> {
         let s = self.branch_change_tx.subscribe();
         return BroadcastStream::new(s).filter_map(async |f| f.ok());
@@ -78,6 +91,61 @@ impl BranchDb {
         !shadow_doc.get_heads().is_empty()
     }
 
+    pub async fn clear_branch_states(&self) {
+        let mut branch_sync_states = self.branch_sync_states.lock().await;
+        let mut binary_states = self.binary_states.lock().await;
+        branch_sync_states.clear();
+        binary_states.clear();
+    }
+
+    pub async fn canonical_branch_status(&self, id: &DocumentId) -> CanonicalBranchStatus {
+        let states = self.branch_sync_states.lock().await;
+        // branch isn't loaded if we haven't tracked its sync state yet!
+        let Some(state) = states.get(id) else {
+            return CanonicalBranchStatus::BranchNotIngested;
+        };
+        let state = state.lock().await;
+
+        if state
+            .canonical_binary_docs
+            .iter()
+            .any(|(_, v)| v == &BinaryDocStatus::Failed)
+        {
+            return CanonicalBranchStatus::BinaryDocNotFound;
+        }
+
+        if state
+            .canonical_binary_docs
+            .iter()
+            .any(|(_, v)| v == &BinaryDocStatus::Pending)
+        {
+            return CanonicalBranchStatus::Pending;
+        }
+
+        return CanonicalBranchStatus::Healthy;
+    }
+
+    pub async fn wait_for_shadow_doc(&self, branch: &DocumentId) -> Result<(), ShadowDocWaitError> {
+        let mut rx = {
+            let states = self.branch_sync_states.lock().await;
+            let state = states
+                .get(branch)
+                .ok_or(ShadowDocWaitError::BranchNotIngested)?;
+            let state = state.lock().await;
+            state.shadow_doc_init_tx.subscribe()
+        };
+
+        let current = rx.borrow_and_update().clone();
+        if current {
+            return Ok(());
+        }
+        rx.changed()
+            .await
+            .map_err(|_| ShadowDocWaitError::Unknown)?;
+
+        Ok(())
+    }
+
     /// Returns true if a binary doc is fully loaded onto the BranchDb.
     /// This will return true even if the binary doc failed to load... That's so we don't hang forever waiting for nonexistent docs.
     /// But that introduces problems, like server disconnections causing a file checkout! We need to figure out expected failure behavior.
@@ -90,6 +158,7 @@ impl BranchDb {
         tracing::debug!("Ingesting binary doc {id}...");
         let mut binary_states = self.binary_states.lock().await;
         if handle.is_none() {
+            // If this happens it could trigger a delete... but that's going to have to be OK.
             tracing::error!(
                 "Could not fetch binary document {:?}! Notifying waiters anyways.",
                 id
@@ -103,10 +172,14 @@ impl BranchDb {
             let mut state = state_arc.lock().await;
 
             // if we were waiting on this doc, we may be able to reconcile
-            if state.waiting_binary_docs.remove(&id) {
+            if let Some(status) = state.canonical_binary_docs.get_mut(&id) {
                 tracing::debug!(
                     "Ingested binary doc {id} for branch {branch_id}; attempting reconcile"
                 );
+                *status = match handle {
+                    Some(_) => BinaryDocStatus::Ok,
+                    None => BinaryDocStatus::Failed,
+                };
                 drop(state);
                 self.try_reconcile_branch(state_arc.clone()).await;
             }
@@ -132,14 +205,18 @@ impl BranchDb {
         let mut state = state_arc.lock().await;
 
         // update the linked docs of the sync state
-        state.waiting_binary_docs = linked_docs;
+        state.canonical_binary_docs = linked_docs
+            .into_iter()
+            .map(|id| match binary_states.get(&id) {
+                Some(Some(_)) => (id, BinaryDocStatus::Ok),
+                Some(None) => (id, BinaryDocStatus::Failed),
+                None => (id, BinaryDocStatus::Pending),
+            })
+            .collect();
         state.last_tracked = heads;
-        for (id, _) in binary_states.iter() {
-            state.waiting_binary_docs.remove(id);
-        }
 
         // if we're already synced, we can definitely reconcile
-        if state.waiting_binary_docs.is_empty() {
+        if Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
             // no double lock allowed!
             drop(state);
             self.try_reconcile_branch(state_arc.clone()).await;
@@ -161,13 +238,21 @@ impl BranchDb {
         return asorted == bsorted;
     }
 
+    fn resolved_all_canonical_binary_docs(
+        binary_docs: &HashMap<DocumentId, BinaryDocStatus>,
+    ) -> bool {
+        binary_docs
+            .iter()
+            .all(|(_, status)| *status != BinaryDocStatus::Pending)
+    }
+
     pub(super) async fn try_reconcile_branch(&self, sync_state: Arc<Mutex<BranchSyncState>>) {
         let doc_change_tx = self.branch_change_tx.clone();
         tokio::task::spawn_blocking(move || {
             // this is quite weird, but we want to be holding the state mutex this entire method.
             let mut state = sync_state.blocking_lock();
 
-            if !state.waiting_binary_docs.is_empty() {
+            if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
                 tracing::debug!("Could not reconcile because we're still waiting on binary docs.");
                 return;
             }
@@ -220,6 +305,7 @@ impl BranchDb {
             state.last_reconciled = new_heads.clone();
             state.last_tracked = new_heads;
             tracing::debug!("Reconcile completed.");
+            let _ = state.shadow_doc_init_tx.send_replace(true);
             let _ = doc_change_tx.send(());
         })
         .await

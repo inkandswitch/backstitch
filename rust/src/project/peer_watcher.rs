@@ -1,7 +1,6 @@
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use samod::{ConnectionInfo, Repo};
 use tokio::{select, sync::watch};
-use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 
 use crate::helpers::spawn_utils::spawn_named;
@@ -20,7 +19,7 @@ impl Drop for PeerWatcher {
 
 impl PeerWatcher {
     pub fn new(repo_handle: Repo) -> Self {
-        let (tx, rx) = watch::channel(None);
+        let (tx, _rx) = watch::channel(None);
         let tx_clone = tx.clone();
         let repo_handle_clone = repo_handle.clone();
         let token = CancellationToken::new();
@@ -35,10 +34,15 @@ impl PeerWatcher {
                         // Currently, we only ever have 1 peer: the server.
                         // Therefore, this code expects that the server is the first and only peer, if it's connected.
                         // When we move to more peers, we'll need to figure out a way to identify the server here.
-                        if let Some(info) = peers.first() {
-                            let old_info = rx.borrow().clone();
-                            _ = tx_clone.send(Some(Self::update_server_info(old_info, info.clone()).await));
-                        }
+                        let info = peers.into_iter().next();
+                        _ = tx_clone.send_if_modified(|old_info| {
+                            // this clone probably sucks, maybe fix this
+                            let old = old_info.clone();
+                            let new_info = Self::update_server_info(old, info);
+                            let changed = new_info != *old_info;
+                            *old_info = new_info;
+                            changed
+                        });
                     }
                 }
             }
@@ -50,20 +54,23 @@ impl PeerWatcher {
         }
     }
 
-    pub fn subscribe(&self) -> impl Stream<Item = Option<ConnectionInfo>> {
-        return WatchStream::new(self.server_info_tx.subscribe());
+    pub fn subscribe(&self) -> watch::Receiver<Option<ConnectionInfo>> {
+        self.server_info_tx.subscribe()
     }
 
     pub fn get_server_info(&self) -> Option<ConnectionInfo> {
         return self.server_info_tx.subscribe().borrow().clone();
     }
 
-    async fn update_server_info(
+    fn update_server_info(
         old_info: Option<ConnectionInfo>,
-        new_info: ConnectionInfo,
-    ) -> ConnectionInfo {
+        new_info: Option<ConnectionInfo>,
+    ) -> Option<ConnectionInfo> {
+        let Some(new_info) = new_info else {
+            return None;
+        };
         if old_info.is_none() {
-            return new_info;
+            return Some(new_info);
         }
         let mut info = old_info.unwrap();
         info.last_received = new_info.last_received;
@@ -86,6 +93,6 @@ impl PeerWatcher {
             }
             info.docs.insert(doc_id.clone(), new_doc_state.clone());
         }
-        info
+        Some(info)
     }
 }

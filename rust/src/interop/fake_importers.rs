@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use godot::classes::audio_stream_wav::LoopMode;
 use godot::classes::class_macros::private::virtuals::Os::{
-    Array, Encoding, PackedByteArray, Rect2i, VarDictionary, Vector2i, vdict
+    Array, Encoding, PackedByteArray, Rect2i, VarDictionary, Vector2i, vdict,
 };
 use godot::classes::text_server::{
     FixedSizeScaleMode, FontAntialiasing, Hinting, SubpixelPositioning,
@@ -182,7 +182,8 @@ impl FakeResourceImporter for FakeResourceImporterTexture {
         content: &[u8],
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        let image = load_image_from_buffer(path, content, get_or_default(&params, "svg/scale", 1.0))?;
+        let image =
+            load_image_from_buffer(path, content, get_or_default(&params, "svg/scale", 1.0))?;
         // parameters aren't particularly relevant here
         let texture = ImageTexture::create_from_image(&image)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
@@ -327,9 +328,7 @@ impl FakeResourceImporter for FakeResourceImporterLayeredTexture {
 
 impl FakeResourceImporterMP3 {
     fn get_mp3_from_buffer(content: &[u8]) -> Result<Gd<AudioStreamMp3>, godot::global::Error> {
-        let Some(mp3) =
-            AudioStreamMp3::load_from_buffer(&PackedByteArray::from(content))
-        else {
+        let Some(mp3) = AudioStreamMp3::load_from_buffer(&PackedByteArray::from(content)) else {
             return Err(godot::global::Error::ERR_INVALID_PARAMETER);
         };
         Ok(mp3)
@@ -403,9 +402,7 @@ impl FakeResourceImporter for FakeResourceImporterOggVorbis {
 
 impl FakeResourceImporterWAV {
     fn get_wav_from_buffer(content: &[u8]) -> Result<Gd<AudioStreamWav>, godot::global::Error> {
-        let Some(wav) =
-            AudioStreamWav::load_from_buffer(&PackedByteArray::from(content))
-        else {
+        let Some(wav) = AudioStreamWav::load_from_buffer(&PackedByteArray::from(content)) else {
             return Err(godot::global::Error::ERR_INVALID_PARAMETER);
         };
         Ok(wav)
@@ -522,7 +519,8 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
 
         let antialiasing: i32 = get_or_default(&params, "antialiasing", 0);
         let generate_mipmaps: bool = get_or_default(&params, "generate_mipmaps", false);
-        let disable_embedded_bitmaps: bool = get_or_default(&params, "disable_embedded_bitmaps", false);
+        let disable_embedded_bitmaps: bool =
+            get_or_default(&params, "disable_embedded_bitmaps", false);
         let msdf: bool = get_or_default(&params, "multichannel_signed_distance_field", false);
         let px_range: i32 = get_or_default(&params, "msdf_pixel_range", 0);
         let px_size: i32 = get_or_default(&params, "msdf_size", 0);
@@ -532,7 +530,8 @@ impl FakeResourceImporter for FakeResourceImporterDynamicFont {
         let allow_system_fallback: bool = get_or_default(&params, "allow_system_fallback", false);
         let hinting: i32 = get_or_default(&params, "hinting", 0);
         let subpixel_positioning: i32 = get_or_default(&params, "subpixel_positioning", 0);
-        let keep_rounding_remainders: bool = get_or_default(&params, "keep_rounding_remainders", false);
+        let keep_rounding_remainders: bool =
+            get_or_default(&params, "keep_rounding_remainders", false);
         let oversampling: f32 = get_or_default(&params, "oversampling", 0.0);
         // TODO: This means that we need to make sure that the config file loads the fonts from the correct backstitch reference, but we don't currently do that;
         // this is unlikely to be an issue, since we're just doing this for the diff, but something to keep in mind.
@@ -610,8 +609,7 @@ impl FakeResourceImporter for FakeResourceImporterSVG {
         content: &[u8],
         params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        let contents =
-            GString::try_from_bytes(content, Encoding::Utf8).unwrap_or_default();
+        let contents = GString::try_from_bytes(content, Encoding::Utf8).unwrap_or_default();
         let mut texture = DpiTexture::create_from_string(&contents)
             .ok_or(godot::global::Error::ERR_INVALID_PARAMETER)?;
         let base_scale: f32 = get_or_default(&params, "base_scale", 1.0);

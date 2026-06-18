@@ -1,4 +1,8 @@
+use std::path::Path;
+
 use super::*;
+use tokio::fs::File;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 const INDEX_TEST: &str = r#"[gd_scene format=4 uid="uid://g64l65moc1sx"]
 
@@ -33,8 +37,7 @@ fn round_trip_scene_test(source: &str, name: &str) -> Result<GodotScene, String>
     assert_eq!(scene.nodes.len(), node_count, "node count mismatch");
     assert_eq!(scene.nodes.len(), round_trip.nodes.len());
     let diff = if source != serialized {
-        let text_diff =
-            TextDiff::create(name, source, &serialized, ChangeType::Modified);
+        let text_diff = TextDiff::create(name, source, &serialized, ChangeType::Modified);
         text_diff.print_colorized();
         text_diff.to_unified()
     } else {
@@ -263,8 +266,9 @@ tile_set = ExtResource("1_8drhf")
 [editable path="Player"]
 "#;
 
-use crate::diff::differ::ChangeType;
 use crate::diff::text_differ::TextDiff;
+use crate::fs::file_utils::FileContent;
+use crate::helpers::utils::ChangeType;
 
 #[test]
 fn test_complete_scene() {
@@ -447,4 +451,351 @@ fn test_instance_inside_another_instance_scene() {
 #[test]
 fn test_deeper() {
     let _ = round_trip_scene_test(DEPEERRRR, "deeper").unwrap();
+}
+
+const FILLING_BARREL: &str = r#"[gd_scene format=3 uid="uid://y8ha8abfyap2"]
+
+[ext_resource type="Script" uid="uid://be17wk85qlu28" path="res://scenes/game_elements/props/filling_barrel/components/filling_barrel.gd" id="1_md0e3"]
+[ext_resource type="Texture2D" uid="uid://brranfy51i56n" path="res://scenes/quests/lore_quests/quest_003/2_ink_drinker_levels/components/barrel_glow/barrel_glow.png" id="3_8hqam"]
+[ext_resource type="SpriteFrames" uid="uid://dlsq0ke41s1yh" path="res://scenes/game_elements/props/filling_barrel/components/filling_barrel_sprite_frames.tres" id="3_o1oxn"]
+[ext_resource type="AudioStream" uid="uid://6tgopt072bfq" path="res://scenes/game_elements/props/filling_barrel/components/fill.wav" id="4_6inx0"]
+[ext_resource type="AudioStream" uid="uid://s7ne07cx0j72" path="res://scenes/game_elements/props/filling_barrel/components/complete.wav" id="5_3gtj0"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ho6qg"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(0, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ig56r"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(128, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ompl8"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(256, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0a20k"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(384, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_2evyj"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(512, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_i2u8c"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(640, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fc6b6"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(768, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_haw5m"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(896, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_j04m1"]
+atlas = ExtResource("3_8hqam")
+region = Rect2(1024, 0, 128, 128)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_ftrfy"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ho6qg")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ig56r")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ompl8")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_0a20k")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_2evyj")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_i2u8c")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fc6b6")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_haw5m")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_j04m1")
+}],
+"loop": true,
+"name": &"glowing",
+"speed": 10.0
+}]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_8tegq"]
+size = Vector2(52, 52)
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_3vyb7"]
+height = 42.0
+
+[sub_resource type="Animation" id="Animation_tu5xq"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnimatedSprite2D:scale")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath(".:modulate")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("AnimatedSprite2D:position")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(0, -21)]
+}
+
+[sub_resource type="Animation" id="Animation_6inx0"]
+resource_name = "completed"
+length = 3.5
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnimatedSprite2D:scale")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 2.5),
+"transitions": PackedFloat32Array(0.5, 0.5),
+"update": 0,
+"values": [Vector2(1, 1), Vector2(3, 3)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath(".:modulate")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 2.5),
+"transitions": PackedFloat32Array(0.5, 0.5),
+"update": 0,
+"values": [Color(1, 1, 1, 1), Color(1, 1, 1, 0)]
+}
+tracks/2/type = "audio"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("AudioStreamPlayer2D2")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"clips": [{
+"end_offset": 0.0,
+"start_offset": 0.0,
+"stream": ExtResource("5_3gtj0")
+}],
+"times": PackedFloat32Array(0)
+}
+tracks/2/use_blend = true
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("AnimatedSprite2D:position")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 2.49083),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector2(0, -21), Vector2(0, -148.002)]
+}
+
+[sub_resource type="Animation" id="Animation_fs5vc"]
+resource_name = "increment"
+length = 0.8
+tracks/0/type = "audio"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AudioStreamPlayer2D")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"clips": [{
+"end_offset": 0.0,
+"start_offset": 0.0,
+"stream": ExtResource("4_6inx0")
+}],
+"times": PackedFloat32Array(0)
+}
+tracks/0/use_blend = true
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("AnimatedSprite2D:position")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.2, 0.4, 0.8),
+"transitions": PackedFloat32Array(-2, -2, -2, -2),
+"update": 0,
+"values": [Vector2(0, -21), Vector2(0, -17), Vector2(0, -30.5), Vector2(0, -21)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("AnimatedSprite2D:scale")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.2, 0.4, 0.8),
+"transitions": PackedFloat32Array(-2, -2, -2, -2),
+"update": 0,
+"values": [Vector2(1, 1), Vector2(1.3125, 0.859375), Vector2(0.90625, 1.30469), Vector2(1, 1)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_vr013"]
+_data = {
+&"RESET": SubResource("Animation_tu5xq"),
+&"completed": SubResource("Animation_6inx0"),
+&"increment": SubResource("Animation_fs5vc")
+}
+
+[node name="FillingBarrel" type="StaticBody2D" unique_id=1861594411 groups=["filling_barrels"]]
+collision_layer = 16
+collision_mask = 0
+script = ExtResource("1_md0e3")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1489807708]
+unique_name_in_owner = true
+position = Vector2(0, -21)
+sprite_frames = ExtResource("3_o1oxn")
+animation = &"filling"
+
+[node name="BarrelGlow" type="AnimatedSprite2D" parent="." unique_id=2080917791]
+visible = false
+sprite_frames = SubResource("SpriteFrames_ftrfy")
+animation = &"glowing"
+frame_progress = 0.55175865
+offset = Vector2(0, -21)
+
+[node name="HitBox" type="StaticBody2D" parent="." unique_id=1847617565]
+unique_name_in_owner = true
+position = Vector2(2, -18)
+collision_layer = 0
+collision_mask = 256
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HitBox" unique_id=426954511]
+position = Vector2(-2, 5)
+shape = SubResource("RectangleShape2D_8tegq")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=320042935]
+unique_name_in_owner = true
+rotation = -1.5708
+shape = SubResource("CapsuleShape2D_3vyb7")
+
+[node name="AudioStreamPlayer2D" type="AudioStreamPlayer2D" parent="." unique_id=960362575]
+bus = &"SFX"
+
+[node name="AudioStreamPlayer2D2" type="AudioStreamPlayer2D" parent="." unique_id=608144705]
+bus = &"SFX"
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=665647794]
+unique_name_in_owner = true
+libraries/ = SubResource("AnimationLibrary_vr013")
+speed_scale = 2.0
+"#;
+
+#[tokio::test]
+async fn test_hash_stable() {
+    let scenes = [
+        INDEX_TEST,
+        COMPLEX_SCENE,
+        DUPE_INSTANCE_NODE_SCENE,
+        COMPLEX_DUPE_INSTANCE_NODE_SCENE,
+        INSTANCE_INSIDE_ANOTHER_INSTANCE_SCENE,
+        DEPEERRRR,
+        FILLING_BARREL,
+    ];
+
+    for scene in scenes {
+        let content = FileContent::from_string(scene);
+
+        let hash1 = content.to_hash();
+
+        let FileContent::Scene(parsed_scene) = content else {
+            panic!("Scene isn't a Godot scene");
+        };
+
+        let hash2 = blake3::hash(parsed_scene.serialize().as_bytes());
+        let hash3 = blake3::hash(
+            parse_scene(&parsed_scene.serialize())
+                .unwrap()
+                .serialize()
+                .as_bytes(),
+        );
+        let hash4 = blake3::hash(scene.as_bytes());
+
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash1, hash3);
+        assert_eq!(hash1, hash4);
+
+        let path = &std::env::temp_dir().join("testscene.tscn");
+        write_file(path, scene).await;
+        assert_eq!(hash1, compute_hash(path).await.unwrap());
+
+        let mut doc = Automerge::new();
+        {
+            let mut tx = doc.transaction();
+            autosurgeon::reconcile_prop(&mut tx, automerge::ROOT, "scene", parsed_scene).unwrap();
+            tx.commit();
+        }
+        {
+            let hydrated = GodotScene::hydrate(&doc, &automerge::ROOT, "scene".into()).unwrap();
+            assert_eq!(hash1, blake3::hash(hydrated.serialize().as_bytes()));
+        }
+    }
+}
+
+async fn write_file(path: &Path, string: &str) {
+    let mut file = File::create(path).await.unwrap();
+    file.write_all(string.as_bytes()).await.unwrap();
+}
+
+// todo: this sucks and is just a copy of the method from fs_index. Should figure out a way to unify hashing tests.
+async fn compute_hash(path: &Path) -> io::Result<blake3::Hash> {
+    let mut file = File::open(path).await?;
+    let mut hasher = blake3::Hasher::new();
+
+    let mut buffer = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buffer).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    Ok(hasher.finalize())
 }

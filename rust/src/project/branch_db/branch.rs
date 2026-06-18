@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
-use automerge::Automerge;
+use automerge::{Automerge, ROOT, transaction::Transactable};
 use autosurgeon::{hydrate, reconcile};
 use samod::{DocHandle, DocumentId};
-use tracing::instrument;
 
 use crate::{
     helpers::{
-        branch::{Branch, BranchesMetadataDoc, GodotProjectDoc},
+        branch::{BRANCH_DOC_VERSION, Branch, BranchesMetadataDoc, GodotProjectDoc},
         utils::{CommitMetadata, commit_with_metadata},
     },
     project::branch_db::{BranchDb, HistoryRef},
@@ -40,6 +39,7 @@ impl BranchDb {
                         state: HashMap::new(),
                     },
                 );
+                let _ = tx.put(ROOT, "version", BRANCH_DOC_VERSION as i64);
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
@@ -106,7 +106,7 @@ impl BranchDb {
         metadata_handle_clone
     }
 
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn add_branch_to_meta(&self, branch: Branch) {
         let meta_handle = {
             let meta = self.metadata_state.lock().await;
@@ -175,7 +175,7 @@ impl BranchDb {
 
     // delete branch isn't fully implemented right now deletes are not propagated to the frontend
     // right now this is just useful to clean up merge preview branches
-    #[instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn delete_branch(&self, branch: &DocumentId) {
         self.remove_branch_from_meta(branch.clone()).await;
     }

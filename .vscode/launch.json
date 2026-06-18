@@ -96,7 +96,26 @@
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "preLaunchTask": "Build: Prepare moddable-platformer (Debug)"
-        },        
+        },    
+        {
+            "name": "Windows: Launch threadbare (dev)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "",
+            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
+            "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
+            "args": [
+                "-e",
+                "--path",
+                "${workspaceFolder}/build/threadbare",
+            ],
+            "visualizerFile": "${workspaceFolder}/build/godot/platform/windows/godot.natvis",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "preLaunchTask": "Build: Prepare threadbare (Debug)"
+        },      
         {
             "name": "macOS: Launch moddable-platformer",
             "type": "cppdbg",

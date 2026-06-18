@@ -1,6 +1,6 @@
+use godot::builtin::{Array, GString, StringName, VarDictionary};
+use godot::classes::{EditorInterface, RichTextLabel, Theme};
 use godot::prelude::*;
-use godot::classes::{RichTextLabel, EditorInterface, Theme};
-use godot::builtin::{VarDictionary, Array, GString, StringName};
 
 #[derive(GodotClass)]
 #[class(base=Object)]
@@ -87,11 +87,11 @@ impl TextDifferView {
     pub fn get_text_diff_view(diff: VarDictionary, split_view: bool) -> Option<Gd<RichTextLabel>> {
         let editor_interface = EditorInterface::singleton();
         let editor_theme = editor_interface.get_editor_theme();
-		if editor_theme.is_none() {
-			godot_error!("Editor theme is none");
-			return None;
-		}
-		let editor_theme = editor_theme.unwrap();
+        if editor_theme.is_none() {
+            godot_error!("Editor theme is none");
+            return None;
+        }
+        let editor_theme = editor_theme.unwrap();
 
         // Parse dictionary into structured format
         let diff_file = DiffFile::from_dict(&diff)?;
@@ -99,32 +99,55 @@ impl TextDifferView {
         let mut rich_text_label = RichTextLabel::new_alloc();
 
         // Add file header
-        let doc_bold_font = editor_theme.get_font(&StringName::from("doc_bold"), &StringName::from("EditorFonts"))?;
-        let accent_color = editor_theme.get_color(&StringName::from("accent_color"), &StringName::from("Editor"));
+        let doc_bold_font = editor_theme.get_font(
+            &StringName::from("doc_bold"),
+            &StringName::from("EditorFonts"),
+        )?;
+        let accent_color = editor_theme.get_color(
+            &StringName::from("accent_color"),
+            &StringName::from("Editor"),
+        );
 
         rich_text_label.push_font(&doc_bold_font);
         rich_text_label.push_color(accent_color);
-		if diff_file.old_file != diff_file.new_file {
-			rich_text_label.add_text(&format!("File: {} -> {}", diff_file.old_file, diff_file.new_file));
-		} else {
-			rich_text_label.add_text(&format!("File: {}", diff_file.new_file));
-		}
+        if diff_file.old_file != diff_file.new_file {
+            rich_text_label.add_text(&format!(
+                "File: {} -> {}",
+                diff_file.old_file, diff_file.new_file
+            ));
+        } else {
+            rich_text_label.add_text(&format!("File: {}", diff_file.new_file));
+        }
         rich_text_label.pop();
         rich_text_label.pop();
 
-        let status_source_font = editor_theme.get_font(&StringName::from("status_source"), &StringName::from("EditorFonts"))?;
+        let status_source_font = editor_theme.get_font(
+            &StringName::from("status_source"),
+            &StringName::from("EditorFonts"),
+        )?;
         rich_text_label.push_font(&status_source_font);
 
         for hunk in &diff_file.diff_hunks {
             rich_text_label.newline();
-            let hunk_header = format!("[center]@@ {},{} {},{} @@[/center]", hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines);
+            let hunk_header = format!(
+                "[center]@@ {},{} {},{} @@[/center]",
+                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+            );
             rich_text_label.append_text(&hunk_header);
             rich_text_label.newline();
 
             if split_view {
-                Self::display_diff_split_view(&mut rich_text_label, &hunk.diff_lines, &editor_theme);
+                Self::display_diff_split_view(
+                    &mut rich_text_label,
+                    &hunk.diff_lines,
+                    &editor_theme,
+                );
             } else {
-                Self::display_diff_unified_view(&mut rich_text_label, &hunk.diff_lines, &editor_theme);
+                Self::display_diff_unified_view(
+                    &mut rich_text_label,
+                    &hunk.diff_lines,
+                    &editor_theme,
+                );
             }
 
             rich_text_label.newline();
@@ -195,10 +218,18 @@ impl TextDifferView {
         rich_text_label.set_table_column_expand(2, true);
         rich_text_label.set_table_column_expand(5, true);
 
-        let error_color = theme.get_color(&StringName::from("error_color"), &StringName::from("Editor"));
-        let success_color = theme.get_color(&StringName::from("success_color"), &StringName::from("Editor"));
-        let font_color = theme.get_color(&StringName::from("font_color"), &StringName::from("Label"));
-        let white = font_color * Color::from_rgb(1.0, 1.0, 1.0) * Color::from_rgba(1.0, 1.0, 1.0, 0.6);
+        let error_color = theme.get_color(
+            &StringName::from("error_color"),
+            &StringName::from("Editor"),
+        );
+        let success_color = theme.get_color(
+            &StringName::from("success_color"),
+            &StringName::from("Editor"),
+        );
+        let font_color =
+            theme.get_color(&StringName::from("font_color"), &StringName::from("Label"));
+        let white =
+            font_color * Color::from_rgb(1.0, 1.0, 1.0) * Color::from_rgba(1.0, 1.0, 1.0, 0.6);
 
         for diff_line in parsed_diff {
             let has_change = diff_line.status != " ";
@@ -272,9 +303,16 @@ impl TextDifferView {
         rich_text_label.push_table(4);
         rich_text_label.set_table_column_expand(3, true);
 
-        let error_color = theme.get_color(&StringName::from("error_color"), &StringName::from("Editor"));
-        let success_color = theme.get_color(&StringName::from("success_color"), &StringName::from("Editor"));
-        let font_color = theme.get_color(&StringName::from("font_color"), &StringName::from("Label"));
+        let error_color = theme.get_color(
+            &StringName::from("error_color"),
+            &StringName::from("Editor"),
+        );
+        let success_color = theme.get_color(
+            &StringName::from("success_color"),
+            &StringName::from("Editor"),
+        );
+        let font_color =
+            theme.get_color(&StringName::from("font_color"), &StringName::from("Label"));
         let default_color = font_color * Color::from_rgba(1.0, 1.0, 1.0, 0.6);
 
         for diff_line in diff_lines {
@@ -360,4 +398,3 @@ struct ParsedDiffLine {
     new_text: String,
     status: String,
 }
-

@@ -1,5 +1,5 @@
-use std::{fmt::Display, str::FromStr};
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, str::FromStr};
 
 use crate::helpers::history_ref::HistoryRef;
 

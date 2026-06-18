@@ -1,11 +1,11 @@
+mod backstitch_config;
+mod backstitch_resource_loader;
+mod diff_inspector_section;
+mod extension;
+mod fake_importers;
 pub mod godot_accessors;
+mod godot_diffs;
 pub mod godot_helpers;
 mod godot_project;
-mod extension;
-mod backstitch_config;
-mod godot_diffs;
-mod text_differ_view;
-mod diff_inspector_section;
 mod lazy_load_token;
-mod backstitch_resource_loader;
-mod fake_importers;
+mod text_differ_view;

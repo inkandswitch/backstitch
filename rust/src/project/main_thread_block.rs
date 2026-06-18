@@ -1,7 +1,8 @@
 use std::sync::{
-    Arc, atomic::{AtomicU32, Ordering}
+    Arc,
+    atomic::{AtomicU32, Ordering},
 };
-use tokio::sync::{Semaphore};
+use tokio::sync::Semaphore;
 
 #[cfg(test)]
 mod test;
@@ -40,7 +41,7 @@ impl MainThreadBlock {
 
         MainThreadGuard {
             lock: self.clone(),
-            permit: Some(permit)
+            permit: Some(permit),
         }
     }
 

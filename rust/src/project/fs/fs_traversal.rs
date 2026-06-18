@@ -65,12 +65,12 @@ impl FileSystemTraversal {
             .await
     }
 
-    pub fn get_file_changes<K: AsRef<Path>>(
+    pub fn get_file_changes<K>(
         before: HashMap<K, blake3::Hash>,
         after: HashMap<K, blake3::Hash>,
     ) -> HashMap<K, ChangeType>
     where
-        K: Eq + std::hash::Hash + Clone,
+        K: AsRef<Path> + Eq + std::hash::Hash + Clone,
     {
         let mut changes = HashMap::new();
 

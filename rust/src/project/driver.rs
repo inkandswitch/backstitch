@@ -17,7 +17,7 @@ use futures::StreamExt;
 use futures::future::join_all;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -114,8 +114,8 @@ impl Driver {
         "**/.*",
     ];
 
-    fn build_gitignore(project_dir: &PathBuf) -> Gitignore {
-        let mut gitignore = GitignoreBuilder::new(project_dir.clone());
+    fn build_gitignore(project_dir: &Path) -> Gitignore {
+        let mut gitignore = GitignoreBuilder::new(project_dir);
         let _err = gitignore.case_insensitive(true);
         let _err = gitignore.add(project_dir.join(".gitignore"));
         let _err = gitignore.add(project_dir.join(".backstitchignore"));
@@ -782,9 +782,9 @@ impl DriverInner {
                 .into_iter()
                 .flatten()
                 .map(|(path, change_type, content)| match change_type {
-                    ChangeType::Created => FileSystemEvent::FileCreated(path, content.unwrap()),
-                    ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
-                    ChangeType::Modified => FileSystemEvent::FileModified(path, content.unwrap()),
+                    ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
+                    ChangeType::Deleted => FileSystemEvent::Deleted(path),
+                    ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
                 })
                 .collect();
 

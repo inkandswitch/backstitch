@@ -140,7 +140,7 @@ pub trait ProjectViewModel {
 
     fn get_current_ref(&self) -> Option<HistoryRef>;
     /// Get the file at a given history reference.
-    fn get_file_at_ref(&self, path: &String, ref_: &HistoryRef) -> Option<FileContent>;
+    fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent>;
     /// Get the files at a given history reference, with optional filters.
     fn get_files_at_ref(
         &self,

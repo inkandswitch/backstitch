@@ -11,4 +11,4 @@ mod change_ingester;
 mod driver;
 mod main_thread_block;
 mod peer_watcher;
-pub mod project;
+pub mod project_base;

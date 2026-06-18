@@ -6,8 +6,8 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project::{GodotProjectSignal, Project};
 use crate::project::project_api::{BranchViewModel, ProjectViewModel};
+use crate::project::project_base::{GodotProjectSignal, Project};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;
@@ -67,9 +67,10 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                     {
                         // check that one of the children is a Tree
                         let children = vbox_container.get_children();
-                        if let Some(_) = children
+                        if children
                             .iter_shared()
                             .find(|c| c.get_class().to_string() == "Tree")
+                            .is_some()
                         {
                             return true;
                         }
@@ -470,7 +471,7 @@ impl GodotProject {
         for event in events {
             let mut file_created = false;
             let (abs_path, content) = match event {
-                FileSystemEvent::FileCreated(path, content) => {
+                FileSystemEvent::Created(path, content) => {
                     pending_editor_update.added_files.insert(
                         ProjectSettings::singleton()
                             .localize_path(&path.to_string_lossy().to_string())
@@ -479,8 +480,8 @@ impl GodotProject {
                     file_created = true;
                     (path, content)
                 }
-                FileSystemEvent::FileModified(path, content) => (path, content),
-                FileSystemEvent::FileDeleted(path) => {
+                FileSystemEvent::Modified(path, content) => (path, content),
+                FileSystemEvent::Deleted(path) => {
                     pending_editor_update.deleted_files.insert(
                         ProjectSettings::singleton()
                             .localize_path(&path.to_string_lossy().to_string())
@@ -567,7 +568,7 @@ impl GodotProject {
         self.project.get_current_ref()
     }
 
-    pub fn get_file_at_ref(&self, path: &String, ref_: &HistoryRef) -> Option<FileContent> {
+    pub fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent> {
         self.project.get_file_at_ref(path, ref_)
     }
 

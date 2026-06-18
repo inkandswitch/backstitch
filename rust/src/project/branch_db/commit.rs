@@ -51,7 +51,7 @@ impl BranchDb {
                     text_entries.push((path, content, hash.unwrap()));
                 }
                 Some(FileContent::Scene(godot_scene)) => {
-                    scene_entries.push((path, godot_scene, hash.unwrap()));
+                    scene_entries.push((path, *godot_scene, hash.unwrap()));
                 }
                 None => {
                     deleted_entries.push(path);

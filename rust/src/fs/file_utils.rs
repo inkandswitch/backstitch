@@ -16,16 +16,17 @@ use crate::parser::godot_parser::{GodotScene, parse_scene, recognize_scene};
 pub enum FileContent {
     String(String),
     Binary(Vec<u8>),
-    Scene(GodotScene),
+    // Box here keeps FileContent a tiny enum; everything is heap
+    Scene(Box<GodotScene>),
 }
 
 // TODO: remove this; very little code actually uses this. It's only actually used in godot_project;
 // everything else is to support that legacy code.
 #[derive(Debug)]
 pub enum FileSystemEvent {
-    FileCreated(PathBuf, FileContent),
-    FileModified(PathBuf, FileContent),
-    FileDeleted(PathBuf),
+    Created(PathBuf, FileContent),
+    Modified(PathBuf, FileContent),
+    Deleted(PathBuf),
 }
 
 impl FileContent {
@@ -76,11 +77,9 @@ impl FileContent {
     pub fn from_string(string: impl ToString + AsRef<str>) -> FileContent {
         // check if the file is a scene or a tres
         if recognize_scene(string.as_ref()) {
-            let scene = parse_scene(string.as_ref());
-            if scene.is_ok() {
-                return FileContent::Scene(scene.unwrap());
-            } else if let Err(e) = scene {
-                tracing::error!("Error parsing scene: {:?}", e);
+            match parse_scene(string.as_ref()) {
+                Ok(scene) => return FileContent::Scene(Box::new(scene)),
+                Err(e) => tracing::error!("Error parsing scene: {:?}", e),
             }
         }
         FileContent::String(string.to_string())
@@ -124,7 +123,7 @@ impl FileContent {
                     e
                 })
                 .unwrap();
-            return Ok(FileContent::Scene(scene));
+            return Ok(FileContent::Scene(Box::new(scene)));
         }
 
         // try to read file as text
@@ -157,24 +156,10 @@ impl FileContent {
         let linked_file_content = doc
             .get_string_at(&file_entry, "url", heads)
             .and_then(|url| parse_automerge_url(&url));
-        if linked_file_content.is_some() {
-            return Err(Ok(linked_file_content.unwrap()));
+        if let Some(content) = linked_file_content {
+            return Err(Ok(content));
         }
         Err(Err(io::Error::other("Failed to url!")))
-    }
-
-    pub fn is_text(&self) -> bool {
-        match self {
-            FileContent::String(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_scene(&self) -> bool {
-        match self {
-            FileContent::Scene(_) => true,
-            _ => false,
-        }
     }
 }
 

@@ -290,10 +290,7 @@ impl FakeResourceImporter for FakeResourceImporterLayeredTexture {
                 .get("mipmaps/limit")
                 .map(|s| s.to::<i32>())
                 .unwrap_or(-1);
-            let has_mipmaps = match mipmap_limit {
-                0 => false,
-                _ => true,
-            };
+            let has_mipmaps = mipmap_limit != 0;
             let mut tex_3d: Gd<ImageTexture3D> = ImageTexture3D::new_gd();
             let err = tex_3d.create(
                 image.get_format(),

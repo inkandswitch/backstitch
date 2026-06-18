@@ -15,11 +15,11 @@ use crate::{
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
-        project::{CreateMode, Project},
         project_api::{
             BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
             SyncStatus,
         },
+        project_base::{Project, ProjectCreateMode},
     },
 };
 
@@ -40,7 +40,7 @@ impl ProjectViewModel for Project {
         if self.has_project() {
             return Ok(());
         }
-        self.start(CreateMode::NewProject)
+        self.start(ProjectCreateMode::New)
     }
 
     fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
@@ -49,9 +49,9 @@ impl ProjectViewModel for Project {
         }
         BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
         self.start(if autostart {
-            CreateMode::AutoLoadedProject
+            ProjectCreateMode::AutoLoaded
         } else {
-            CreateMode::ManuallyLoadedProject
+            ProjectCreateMode::ManuallyLoaded
         })?;
         Ok(())
     }
@@ -353,20 +353,15 @@ impl ProjectViewModel for Project {
     fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
         let id = id.clone();
 
-        let Some((state, mut children)) =
+        let (state, mut children) =
             self.with_driver_blocking("Get branch", |driver| async move {
                 tracing::trace!("Getting branch state...");
                 let branch_db = driver.as_ref()?.get_branch_db();
-                let Some(state) = branch_db.get_branch_state(&id).await else {
-                    return None;
-                };
+                let state = branch_db.get_branch_state(&id).await?;
                 tracing::trace!("Getting branch children...");
                 let children = branch_db.get_branch_children(&id).await;
                 Some((state, children))
-            })
-        else {
-            return None;
-        };
+            })?;
 
         children.sort_by(|a, b| {
             let a_state = self.get_branch(a);
@@ -426,8 +421,6 @@ impl ProjectViewModel for Project {
     }
 
     fn get_default_diff(&self) -> Option<impl DiffViewModel> {
-        let heads_before;
-
         let (branch_state, heads_after) =
             self.with_driver_blocking("Get default diff", |driver| async move {
                 let branch_db = driver.as_ref()?.get_branch_db();
@@ -448,13 +441,13 @@ impl ProjectViewModel for Project {
             return None;
         }
 
-        if self.is_merge_preview_branch_active() {
-            heads_before = branch_state.merge_into.as_ref()?.heads();
+        let heads_before = if self.is_merge_preview_branch_active() {
+            branch_state.merge_into.as_ref()?.heads()
         }
         // revert preview and regular branch both use forked_at
         else {
-            heads_before = branch_state.forked_from.as_ref()?.heads();
-        }
+            branch_state.forked_from.as_ref()?.heads()
+        };
 
         // generate the summary
         let title;
@@ -539,8 +532,8 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn get_file_at_ref(&self, path: &String, ref_: &HistoryRef) -> Option<FileContent> {
-        let path = path.clone();
+    fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent> {
+        let path = path.to_string();
         let ref_ = ref_.clone();
         self.with_driver_blocking("Get file at ref", |driver| async move {
             let files = driver

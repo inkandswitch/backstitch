@@ -247,10 +247,7 @@ impl BranchDb {
             .await
             .get(doc_id)
             .cloned()
-            .flatten();
-        let Some(handle) = handle else {
-            return None;
-        };
+            .flatten()?;
 
         tokio::task::spawn_blocking(move || {
             handle.with_document(|d| match d.get(ROOT, "content") {

@@ -173,8 +173,8 @@ impl BackstitchEditorAccessor {
             }
             EditorInterface::singleton().reload_scene_from_path(scene);
         }
-        if current_scene.is_some() {
-            EditorInterface::singleton().reload_scene_from_path(current_scene.as_ref().unwrap());
+        if let Some(current_scene) = &current_scene {
+            EditorInterface::singleton().reload_scene_from_path(current_scene);
         }
     }
 
@@ -219,7 +219,7 @@ impl EditorFilesystemAccessor {
             .unwrap_or(false)
     }
 
-    pub fn reimport_files(files: &Vec<String>) {
+    pub fn reimport_files(files: &[String]) {
         let files_packed = files
             .iter()
             .map(GString::from)

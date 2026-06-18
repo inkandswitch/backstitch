@@ -66,9 +66,7 @@ impl PeerWatcher {
         old_info: Option<ConnectionInfo>,
         new_info: Option<ConnectionInfo>,
     ) -> Option<ConnectionInfo> {
-        let Some(new_info) = new_info else {
-            return None;
-        };
+        let new_info = new_info?;
         if old_info.is_none() {
             return Some(new_info);
         }

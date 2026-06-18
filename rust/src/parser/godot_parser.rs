@@ -35,6 +35,7 @@ fn hydrate_nodes<D: ReadDoc>(
             .map(|(k, v)| (NodeId::from_str(&k).unwrap(), v))
             .collect();
         let keys: Vec<NodeId> = map.keys().cloned().collect();
+        let re = Regex::new(r"(.*?)(\d+)$").unwrap();
         // Because Godot stores parents by path and not ID, we gotta dedupe names within children
         for id in keys {
             let parent_id = match map.get(&id).and_then(|n| n.parent_id.clone()) {
@@ -51,7 +52,6 @@ fn hydrate_nodes<D: ReadDoc>(
             // Performant in cases of only 1 duplicate; not very performant for multiple dupes.
             // But still probably OK, since we're only ever performing a single regex per inner loop.
             let mut found = true;
-            let re = Regex::new(r"(.*?)(\d+)$").unwrap();
             while found {
                 found = false;
                 let found_node = map.get(&id).unwrap();
@@ -669,7 +669,7 @@ impl GodotScene {
         self.nodes.get(node_id)
     }
 
-    pub fn get_ext_resource_path(&self, ext_resource_id: &String) -> Option<String> {
+    pub fn get_ext_resource_path(&self, ext_resource_id: &str) -> Option<String> {
         let ext_resource_id = ext_resource_id
             .trim_start_matches("ExtResource(\"")
             .trim_end_matches("\")");
@@ -701,7 +701,7 @@ fn parse_int32_array(string: &str) -> Vec<i32> {
 }
 
 #[inline]
-fn serialize_int32_array(array: &Vec<i32>) -> String {
+fn serialize_int32_array(array: &[i32]) -> String {
     format!(
         "PackedInt32Array({})",
         array
@@ -727,8 +727,8 @@ pub fn recognize_scene(source: &str) -> bool {
         let trimmed = line.trim();
         if !trimmed.starts_with(";") && !trimmed.is_empty() {
             // check if the line starts with "[gd_resource" or "[gd_scene"
-            if trimmed.starts_with("[") {
-                let line_after_bracket = &trimmed[1..].trim();
+            if let Some(line_after_bracket) = trimmed.strip_prefix("[") {
+                let line_after_bracket = line_after_bracket.trim();
                 if line_after_bracket.starts_with("gd_resource")
                     || line_after_bracket.starts_with("gd_scene")
                 {

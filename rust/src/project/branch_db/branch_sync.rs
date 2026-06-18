@@ -230,9 +230,9 @@ impl BranchDb {
 
     // we may need to do an unordered comparison for heads across docs
     // todo: we may want to factor this out to a better Heads struct to handle correct comparison always
-    fn are_heads_equivalent(a: &Vec<ChangeHash>, b: &Vec<ChangeHash>) -> bool {
-        let mut asorted = a.clone();
-        let mut bsorted = b.clone();
+    fn are_heads_equivalent(a: &[ChangeHash], b: &[ChangeHash]) -> bool {
+        let mut asorted = a.to_vec();
+        let mut bsorted = b.to_vec();
         asorted.sort();
         bsorted.sort();
         asorted == bsorted

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use automerge::{Automerge, ChangeMetadata};
 use samod::DocumentId;
@@ -13,7 +13,7 @@ impl BranchDb {
     /// Turns a filesytem path into a project-local res:// path.
     /// Local paths are represented with a [String], while global paths are represented with a [PathBuf].
     /// This is because local paths are a URL, not a filesystem path.
-    pub fn localize_path(&self, path: &PathBuf) -> String {
+    pub fn localize_path(&self, path: &Path) -> String {
         let path = path.to_string_lossy().replace("\\", "/");
         let project_dir = self.project_dir.to_string_lossy().replace("\\", "/");
         if path.starts_with(&project_dir) {
@@ -32,8 +32,8 @@ impl BranchDb {
     /// This is because local paths are a URL, not a filesystem path.
     pub fn globalize_path(&self, path: &String) -> PathBuf {
         // trim the project_dir from the front of the path
-        if path.starts_with("res://") {
-            self.project_dir.clone().join(&path["res://".len()..])
+        if let Some(path) = path.strip_prefix("res://") {
+            self.project_dir.clone().join(path)
         } else {
             PathBuf::from(path)
         }

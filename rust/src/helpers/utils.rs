@@ -100,7 +100,7 @@ pub struct DiffWrapper {
     pub title: String,
 }
 
-pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
+pub fn summarize_changes(author: &str, changes: &[ChangedFile]) -> String {
     let added = get_summary_text(changes, ChangeType::Created, None);
     let removed = get_summary_text(changes, ChangeType::Deleted, None);
     let modified = get_summary_text(changes, ChangeType::Modified, Some("edited"));
@@ -119,7 +119,7 @@ pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
 }
 
 fn get_summary_text(
-    changes: &Vec<ChangedFile>,
+    changes: &[ChangedFile],
     operation: ChangeType,
     display_operation: Option<&str>,
 ) -> String {

@@ -117,6 +117,7 @@ impl DiffInspectorSection {
     }
 
     #[func]
+    #[allow(clippy::too_many_arguments)]
     pub fn setup(
         &mut self,
         p_section: GString,

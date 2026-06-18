@@ -74,11 +74,7 @@ impl BackstitchResourceLoader {
             .ok_or(Error::ERR_FILE_NOT_FOUND)?
             .to_owned();
         let import_content = contents.get(&import_path);
-        let mut import_content = if import_content.is_none() {
-            None
-        } else {
-            Some(import_content.unwrap().to_owned())
-        };
+        let mut import_content = import_content.map(|i| i.to_owned());
         if import_content.is_none() {
             let current_ref = GodotProject::get_singleton().bind().get_current_ref();
             if let Some(current_ref) = current_ref {
@@ -178,7 +174,7 @@ impl BackstitchResourceLoader {
 
     fn get_content_as_textfile_resource(content: &FileContent) -> Option<Gd<Resource>> {
         // For some reason, TextFile isn't bound in Rust, so we instantiate it manually.
-        if !content.is_text() && !content.is_scene() {
+        if !matches!(content, FileContent::String(_) | FileContent::Scene(_)) {
             tracing::error!("Do not try to save a non-text or scene file as a TextFile");
             return None;
         }
@@ -371,7 +367,9 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 .to_string_lossy()
                 .to_string()
                 .to_lowercase();
-            if !extensions.contains(&GString::from(&ext)) && !content.is_scene() {
+            if !extensions.contains(&GString::from(&ext))
+                && !matches!(content, FileContent::Scene(_))
+            {
                 maybe_import = true;
             }
         }
@@ -406,7 +404,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                     &_params,
                 );
                 if let Err(e) = resource {
-                    if content.is_text() {
+                    if matches!(content, FileContent::String(_)) {
                         let resource = Self::get_content_as_textfile_resource(&content);
                         return resource.unwrap_or_default().to_variant();
                     }

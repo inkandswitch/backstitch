@@ -20,10 +20,10 @@ use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OwnedMutexGuard, watch};
 
 #[derive(Debug, PartialEq, Clone)]
-pub(super) enum CreateMode {
-    NewProject,
-    ManuallyLoadedProject,
-    AutoLoadedProject,
+pub(super) enum ProjectCreateMode {
+    New,
+    ManuallyLoaded,
+    AutoLoaded,
 }
 
 /// Manages the state and operations of a Backstitch project within Godot.
@@ -344,7 +344,7 @@ impl Project {
     ///   connected, and start the sync loop.
     ///
     /// If we're creating a new project, instead of loading, we can skip most of this!
-    pub(super) fn start(&mut self, mode: CreateMode) -> Result<(), ProjectStartError> {
+    pub(super) fn start(&mut self, mode: ProjectCreateMode) -> Result<(), ProjectStartError> {
         tracing::info!("Creating with mode: {:?}", mode);
         if self.driver.blocking_lock().is_some() {
             tracing::error!("Driver is already started!");
@@ -356,7 +356,7 @@ impl Project {
 
         // If the metadata ID is not a valid document ID, give up.
         // Not relevant for new projects.
-        let metadata_id = if mode == CreateMode::NewProject {
+        let metadata_id = if mode == ProjectCreateMode::New {
             None
         } else {
             let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
@@ -366,7 +366,7 @@ impl Project {
             })?)
         };
 
-        let saved_branch_id = if mode == CreateMode::NewProject {
+        let saved_branch_id = if mode == ProjectCreateMode::New {
             None
         } else {
             match Some(BackstitchConfigAccessor::get_project_value(
@@ -416,7 +416,7 @@ impl Project {
 
                     // We've created the driver. Before connecting, we need to load the doc and handle local changes.
                     // If we're making a new project, we don't have to worry about that.
-                    if mode_clone == CreateMode::NewProject {
+                    if mode_clone == ProjectCreateMode::New {
                         driver
                             .create_project()
                             .await
@@ -471,7 +471,7 @@ impl Project {
         if !local_changes.is_empty() {
             // we can't start the sync until we confirm or reject the local changes
             // the one exception: if we found the project locally AND it was automatically loaded, we can automatically checkin the changes.
-            if mode == CreateMode::AutoLoadedProject && load_success.found_locally {
+            if mode == ProjectCreateMode::AutoLoaded && load_success.found_locally {
                 self.checkin_local_changes();
             }
             return Ok(());

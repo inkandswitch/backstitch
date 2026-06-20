@@ -740,7 +740,7 @@ async fn test_hash_stable() {
     ];
 
     for scene in scenes {
-        let content = FileContent::from_string(scene);
+        let content = FileContent::from_string(scene, "");
 
         let hash1 = content.to_hash();
 

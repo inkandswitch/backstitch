@@ -200,7 +200,7 @@ impl SyncFileSystemToAutomerge {
                 tokio::fs::read(&path).await.map(|data| {
                     (
                         self.branch_db.localize_path(&path),
-                        Some(FileContent::from_buf(data)),
+                        Some(FileContent::from_buf(data, path.to_str().unwrap_or(""))),
                     )
                 })
             })

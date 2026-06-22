@@ -467,10 +467,10 @@ impl GodotProject {
     }
 
     pub fn safe_to_update_godot(&self) -> bool {
-        return !(EditorFilesystemAccessor::is_scanning()
+        !(EditorFilesystemAccessor::is_scanning()
             || self.was_scanning
             || BackstitchEditorAccessor::is_editor_importing()
-            || BackstitchEditorAccessor::unsaved_files_open());
+            || BackstitchEditorAccessor::unsaved_files_open())
     }
 
     fn process_godot_updates(&self, events: Vec<FileSystemEvent>) -> PendingEditorUpdate {

@@ -160,7 +160,7 @@ impl BackstitchEditorAccessor {
             std::thread::sleep(Duration::from_millis(100));
             fs.notify(godot::classes::notify::NodeNotification::PROCESS)
         }
-        return timed_out;
+        timed_out
     }
 
     pub fn refresh_after_source_change() -> bool {
@@ -204,7 +204,7 @@ impl BackstitchEditorAccessor {
 /// Allows Rust code to access the Godot EditorFilesystem API
 pub struct EditorFilesystemAccessor {}
 
-#[allow(dead_code)] // entire API might not be used yet
+#[allow(dead_code)]// entire API might not be used yet
 impl EditorFilesystemAccessor {
     pub fn is_scanning() -> bool {
         EditorInterface::singleton()

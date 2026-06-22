@@ -221,9 +221,7 @@ func _end_task(name: String) -> void:
 func start_task(name: String, description: String = "", steps: int = -1, indeterminate: bool = true, can_cancel: bool = false):
 	if description == "":
 		description = name
-	self.queued_calls.append(func():
-		self._add_task(name, description, steps, indeterminate, can_cancel)
-	)
+	self._add_task(name, description, steps, indeterminate, can_cancel)
 
 func task_step(name: String, state: String, step: int):
 	self.queued_calls.append(func():
@@ -238,9 +236,8 @@ func end_task(name: String):
 # do_task is a helper function that adds a task to the queue and waits for it to finish
 # don't use this if you need to wait for the task to finish, use start task and end task manually instead
 func do_task(name: String, task: Callable):
+	self._add_task(name, name, -1, true, false)
 	self.queued_calls.append(func():
-		self._add_task(name, name, -1, true, false)
-
 		self.queued_calls.append(func():
 			await task.call()
 

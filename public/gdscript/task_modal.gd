@@ -131,6 +131,7 @@ func _on_cancel_pressed() -> void:
 		task.cancel()
 
 func _init() -> void:
+	self.visible = false
 	self.always_on_top = true
 	self.exclusive = true
 	self.transient = false

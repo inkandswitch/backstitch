@@ -293,7 +293,7 @@ icon = ExtResource("8_s0dyv")
 unique_name_in_owner = true
 custom_minimum_size = Vector2(1, 1)
 layout_mode = 2
-text = "The Alpha Test Server is experimental and potentially unstable. Don't store any sensitive data. "
+text = "The Alpha Test Server is experimental and potentially unstable. We reserve the right to wipe the server at any time. Don't store any sensitive data."
 autowrap_mode = 2
 
 [node name="HSeparator" type="HSeparator" parent="VBoxContainer/PanelContainer/MarginContainer/InitPanelContainer/MarginContainer/VBoxContainer" unique_id=20965340]

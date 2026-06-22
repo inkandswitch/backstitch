@@ -170,6 +170,8 @@ impl SyncFileSystemToAutomerge {
         )
         .await;
 
+        tracing::info!("Successfully hashed {:?} files", current_files.len());
+
         let contents = self
             .get_file_contents(current_files.into_keys().collect())
             .await;

@@ -445,10 +445,12 @@ impl FakeResourceImporterBMFont {
         // save it to a temporary file
         let temp_path = get_temp_path(&PathBuf::from(path), Some("font"));
         write_content_to_temp_file(&temp_path, content)?;
-        match font_file.load_bitmap_font(temp_path.to_str().unwrap_or_default()) {
+        let result = match font_file.load_bitmap_font(temp_path.to_str().unwrap_or_default()) {
             godot::global::Error::OK => Ok(font_file),
             e => Err(e),
-        }
+        };
+        let _ = std::fs::remove_file(&temp_path);
+        result
     }
 }
 
@@ -490,10 +492,12 @@ impl FakeResourceImporterDynamicFont {
         let mut dynamic_font = FontFile::new_gd();
         let temp_path = get_temp_path(&PathBuf::from(path), Some("font"));
         write_content_to_temp_file(&temp_path, content)?;
-        match dynamic_font.load_dynamic_font(temp_path.to_str().unwrap_or_default()) {
+        let result = match dynamic_font.load_dynamic_font(temp_path.to_str().unwrap_or_default()) {
             godot::global::Error::OK => Ok(dynamic_font),
             e => Err(e),
-        }
+        };
+        let _ = std::fs::remove_file(&temp_path);
+        result
     }
 }
 

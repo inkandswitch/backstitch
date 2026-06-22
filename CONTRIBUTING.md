@@ -80,20 +80,14 @@ When you run `just launch`, the output generated files are copied to `build/`. T
 
 ### Understanding Backstitch's Architecture
 
-Backstitch is a **hybrid Godot Engine C++ module + GDExtension**, not a traditional plugin:
-
-- **Godot Engine C++ Module** (`editor/`) - Built INTO your custom Godot editor
-  - Automatically active when you launch the custom editor
-  - Registers the `BackstitchEditor` class
-  - Only here to provide editor functionality that is not currently exposed to GDExtensions
-    - Will eventually be removed once this functionality is upstreamed to Godot
+Backstitch is a **GDExtension**:
 
 - **GDExtension Component** (`public/` and `rust/`) - Actually runs the application
   - Contains the Rust plugin DLL/library
   - Contains public GDScript UI components
   - Located in your project's `addons/backstitch/` folder
 
-Because the C++ module is compiled directly into Godot (see [register_types.cpp:11-14](register_types.cpp#L11-L14)), Backstitch automatically initializes when the editor starts. The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
+The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
 
 **In summary:** When `just` builds Godot with Backstitch and symlinks the files to `addons/backstitch/`, the plugin is **always active** - you don't need to manually enable it in the Plugins menu. The Backstitch tab will appear automatically.
 

@@ -86,17 +86,27 @@ _clone repo_url directory checkout:
     else
         git -C "{{directory}}" remote add origin "git@github.com:{{repo_url}}"
     fi
-    
+
+    DEPTH_ARG="--depth=1"
+    # if this doesn't fail, then the repo has history
+    if git -C "{{directory}}" rev-parse --abbrev-ref HEAD >/dev/null 2>&1; then
+        if [[ $(git -C "{{directory}}" rev-parse --is-shallow-repository) = "false" ]]; then
+            DEPTH_ARG=""
+            echo "*************NO DEPTH*******************"
+        fi
+    fi
+
+
     # check if the HEAD is the same as the checkout
     if [[ $(git -C "{{directory}}" rev-parse --abbrev-ref HEAD) = "{{checkout}}" ]]; then
         # if `pull --ff-only` fails, try to reset the branch to the checkout ref at origin
-        if ! git -C "{{directory}}" pull --depth=1 --ff-only --quiet origin "{{checkout}}" >/dev/null 2>&1; then
+        if ! git -C "{{directory}}" pull $DEPTH_ARG --ff-only --quiet origin "{{checkout}}" >/dev/null 2>&1; then
             # don't do this if there are local changes
             if git -C "{{directory}}" status --porcelain | grep -q '^[^?][^ ]'; then
                 echo "\033[33m*** CLONE: {{directory}}: Local changes detected, skipping pull...\033[0m"
                 exit 0
             fi
-            git -C "{{directory}}" fetch --depth 1 origin {{checkout}}
+            git -C "{{directory}}" fetch $DEPTH_ARG origin {{checkout}}
             git -C "{{directory}}" reset --hard "origin/{{checkout}}"
         fi
         exit 0
@@ -105,7 +115,7 @@ _clone repo_url directory checkout:
     # try checkout, if we get an error fetch then try again.
     # this won't pull updates from the remote, but that's probably fine for now.
     # if we need to handle local changes, this will need to be refactored (to force reset?)
-    git -C "{{directory}}"  fetch --depth 1 origin {{checkout}}
+    git -C "{{directory}}"  fetch $DEPTH_ARG origin {{checkout}}
     if git -C "{{directory}}"  checkout "{{checkout}}" | grep -q '^fatal'; then
         git -C "{{directory}}"  checkout "{{checkout}}"
     fi

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use godot::obj::Singleton;
 use godot::{
     builtin::{GString, PackedStringArray},
-    classes::{ClassDb, EditorInterface, Object},
+    classes::{EditorInterface, Object},
     meta::ToGodot,
     obj::Gd,
 };
@@ -56,41 +56,6 @@ impl BackstitchEditorAccessor {
             .get_resource_filesystem()
             .map(|mut fs| fs.call("is_importing", &[]).to::<bool>())
             .unwrap_or(false)
-    }
-
-    // TODO: Remove the progress dialog stuff entirely and replace it with something else, like our own modal progress dialog
-    pub fn progress_add_task(task: &str, label: &str, steps: i32, can_cancel: bool) {
-        ClassDb::singleton().class_call_static(
-            "BackstitchEditor",
-            "progress_add_task",
-            &[
-                task.to_variant(),
-                label.to_variant(),
-                steps.to_variant(),
-                can_cancel.to_variant(),
-            ],
-        );
-    }
-
-    pub fn progress_task_step(task: &str, state: &str, step: i32, force_refresh: bool) {
-        ClassDb::singleton().class_call_static(
-            "BackstitchEditor",
-            "progress_task_step",
-            &[
-                task.to_variant(),
-                state.to_variant(),
-                step.to_variant(),
-                force_refresh.to_variant(),
-            ],
-        );
-    }
-
-    pub fn progress_end_task(task: &str) {
-        ClassDb::singleton().class_call_static(
-            "BackstitchEditor",
-            "progress_end_task",
-            &[task.to_variant()],
-        );
     }
 
     pub fn get_unsaved_scripts() -> PackedStringArray {

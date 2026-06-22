@@ -56,7 +56,7 @@ _clone repo_url directory checkout:
         if rmdir "{{directory}}"; then
             echo "Removed directory: {{directory}}"
         else
-            echo "Failed to clean directory: {{directory}}"
+            echo "\033[31m***CLONE: Failed to clean directory: {{directory}}\033[0m"
             exit 1
         fi
     fi
@@ -68,7 +68,7 @@ _clone repo_url directory checkout:
 
     # Require .git to exist
     if [[ ! -d "{{directory}}/.git" ]]; then
-        echo "Not a git repository: {{directory}}"
+        echo "\033[31m***CLONE: Not a git repository: {{directory}}\033[0m"
         exit 1
     fi
 
@@ -87,6 +87,21 @@ _clone repo_url directory checkout:
         git -C "{{directory}}" remote add origin "git@github.com:{{repo_url}}"
     fi
     
+    # check if the HEAD is the same as the checkout
+    if [[ $(git -C "{{directory}}" rev-parse --abbrev-ref HEAD) = "{{checkout}}" ]]; then
+        # if `pull --ff-only` fails, try to reset the branch to the checkout ref at origin
+        if ! git -C "{{directory}}" pull --depth=1 --ff-only --quiet origin "{{checkout}}" >/dev/null 2>&1; then
+            # don't do this if there are local changes
+            if git -C "{{directory}}" status --porcelain | grep -q '^[^?][^ ]'; then
+                echo "\033[33m*** CLONE: {{directory}}: Local changes detected, skipping pull...\033[0m"
+                exit 0
+            fi
+            git -C "{{directory}}" fetch --depth 1 origin {{checkout}}
+            git -C "{{directory}}" reset --hard "origin/{{checkout}}"
+        fi
+        exit 0
+    fi
+
     # try checkout, if we get an error fetch then try again.
     # this won't pull updates from the remote, but that's probably fine for now.
     # if we need to handle local changes, this will need to be refactored (to force reset?)
@@ -136,7 +151,7 @@ _link-godot skip_godot_clone="no":
     else
         echo "**** Skipping Godot clone... ****"
     fi
-    just _symlink "editor" "build/godot/modules/backstitch_editor"
+    rm -f "build/godot/modules/backstitch_editor"
 
 # Link the assets directory for our plugin
 _link-public: _make-plugin-dir

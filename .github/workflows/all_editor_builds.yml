@@ -72,11 +72,6 @@ jobs:
           repository: ${{ steps.dotenv.outputs.GODOT_REPO }}
           ref: ${{ steps.dotenv.outputs.GODOT_REF }}
 
-      - name: Copy editor directory
-        shell: bash
-        run: |
-          cp -R ../backstitch-tmp/editor modules/backstitch_editor
-
       - name: Select Xcode 16
         if: matrix.platform == 'macos'
         run: sudo xcode-select -s /Applications/Xcode_16.2.app

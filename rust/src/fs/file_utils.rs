@@ -74,18 +74,18 @@ impl FileContent {
         FileContent::write_file_content(path, self).await
     }
 
-    pub fn from_string(string: impl ToString + AsRef<str>) -> FileContent {
+    pub fn from_string(string: impl ToString + AsRef<str>, path: &str) -> FileContent {
         // check if the file is a scene or a tres
         if recognize_scene(string.as_ref()) {
             match parse_scene(string.as_ref()) {
                 Ok(scene) => return FileContent::Scene(Box::new(scene)),
-                Err(e) => tracing::error!("Error parsing scene: {:?}", e),
+                Err(e) => tracing::error!("Error parsing scene: {:?} Path: {path}", e),
             }
         }
         FileContent::String(string.to_string())
     }
 
-    pub fn from_buf(buf: Vec<u8>) -> FileContent {
+    pub fn from_buf(buf: Vec<u8>, path: &str) -> FileContent {
         // check the first 8000 bytes (or the entire file if it's less than 8000 bytes) for a null byte
         if is_buf_binary(&buf) {
             return FileContent::Binary(buf);
@@ -95,7 +95,7 @@ impl FileContent {
             return FileContent::Binary(buf);
         }
         let string = str.unwrap();
-        FileContent::from_string(string)
+        FileContent::from_string(string, path)
     }
 
     // TODO (Nikita): Make this stable on serialize from/to file.

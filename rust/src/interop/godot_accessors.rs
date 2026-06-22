@@ -172,7 +172,8 @@ impl BackstitchEditorAccessor {
         // }
         EditorInterface::singleton()
             .get_resource_filesystem()
-            .unwrap().scan_sources();
+            .unwrap()
+            .scan_sources();
         let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
         // TODO: when 4.7 is released, use the bound method instead
         script_editor.call("reload_open_files", &[]);

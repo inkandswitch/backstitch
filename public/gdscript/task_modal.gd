@@ -83,6 +83,12 @@ func _on_parent_visibility_changed() -> void:
 	if not self.get_parent() or not self.get_parent().visible:
 		_reparent_and_show()
 
+func _get_minimum_size() -> Vector2:
+	var ms: Vector2 = main.get_combined_minimum_size();
+	ms.x = max(500 * EditorInterface.get_editor_scale(), ms.x);
+	ms += main_border_size;
+	return ms
+
 func _reparent_and_show() -> void:
 	var current_window: Window = get_tree().root.get_last_exclusive_window()
 
@@ -103,21 +109,15 @@ func _reparent_and_show() -> void:
 			reparent(current_window)
 
 	if not is_inside_tree():
-		popup_exclusive_centered(current_window, center_panel.custom_minimum_size)
+		popup_exclusive_centered(current_window, _get_minimum_size())
 	else:
-		popup_centered(center_panel.custom_minimum_size)
-	self.transient = false
-	self.exclusive = true
-	self.always_on_top = true
+		popup_centered(_get_minimum_size())
+
 	if not current_window.visibility_changed.is_connected(_on_parent_visibility_changed):
 		current_window.visibility_changed.connect(_on_parent_visibility_changed)
 
 func _popup() -> void:
-	# if not 
-	var ms: Vector2 = main.get_combined_minimum_size();
-	ms.x = max(500 * EditorInterface.get_editor_scale(), ms.x);
-	ms += main_border_size;
-	center_panel.custom_minimum_size = ms
+	center_panel.custom_minimum_size = _get_minimum_size()
 
 	if self.is_node_ready():
 		_reparent_and_show()
@@ -131,6 +131,7 @@ func _on_cancel_pressed() -> void:
 		task.cancel()
 
 func _init() -> void:
+	self.visible = false
 	self.always_on_top = true
 	self.exclusive = true
 	self.transient = false
@@ -221,9 +222,7 @@ func _end_task(name: String) -> void:
 func start_task(name: String, description: String = "", steps: int = -1, indeterminate: bool = true, can_cancel: bool = false):
 	if description == "":
 		description = name
-	self.queued_calls.append(func():
-		self._add_task(name, description, steps, indeterminate, can_cancel)
-	)
+	self._add_task(name, description, steps, indeterminate, can_cancel)
 
 func task_step(name: String, state: String, step: int):
 	self.queued_calls.append(func():
@@ -238,9 +237,8 @@ func end_task(name: String):
 # do_task is a helper function that adds a task to the queue and waits for it to finish
 # don't use this if you need to wait for the task to finish, use start task and end task manually instead
 func do_task(name: String, task: Callable):
+	self._add_task(name, name, -1, true, false)
 	self.queued_calls.append(func():
-		self._add_task(name, name, -1, true, false)
-
 		self.queued_calls.append(func():
 			await task.call()
 

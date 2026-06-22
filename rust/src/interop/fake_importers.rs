@@ -233,7 +233,7 @@ impl FakeResourceImporterLayeredTexture {
             let x: i32 = get_or_default(params, "slices/horizontal", 1);
             let y: i32 = get_or_default(params, "slices/vertical", 1);
             (x, y)
-        } else if importer_name == "cube_array_texture" {
+        } else if importer_name == "cubemap_array_texture" {
             let (hslices, vslices) = Self::get_slice_arrangement(params);
             let layout: i32 = get_or_default(params, "slices/layout", 1);
             let amount: i32 = get_or_default(params, "slices/amount", 1);
@@ -263,8 +263,8 @@ impl FakeResourceImporter for FakeResourceImporterLayeredTexture {
         vec![
             "cubemap_texture",
             "2d_array_texture",
-            "cube_array_texture",
-            "texture3d",
+            "cubemap_array_texture",
+            "3d_texture",
         ]
     }
 
@@ -282,7 +282,7 @@ impl FakeResourceImporter for FakeResourceImporterLayeredTexture {
         let image = load_image_from_buffer(path, content, 1.0)?;
         let (x, y) = Self::get_width_and_height_from_params(importer_name, params);
         let slices = Self::get_image_slices_from_image(&image, x, y)?;
-        let tex: Gd<Resource> = if importer_name == "texture3d" {
+        let tex: Gd<Resource> = if importer_name == "3d_texture" {
             let width = image.get_width() / x;
             let height = image.get_height() / y;
             let depth = x * y;
@@ -453,7 +453,7 @@ impl FakeResourceImporterBMFont {
 
 impl FakeResourceImporter for FakeResourceImporterBMFont {
     fn get_recognized_importers(&self) -> Vec<&'static str> {
-        vec!["bmfont"]
+        vec!["font_data_bmfont"]
     }
 
     fn get_recognized_extensions(&self) -> Vec<&'static str> {
@@ -502,7 +502,7 @@ const DEFAULT_RECOGNIZED_FONT_EXTENSIONS: &[&str] =
     &["ttf", "ttc", "otf", "otc", "woff", "woff2", "pfb", "pfm"];
 impl FakeResourceImporter for FakeResourceImporterDynamicFont {
     fn get_recognized_importers(&self) -> Vec<&'static str> {
-        vec!["dynamic_font"]
+        vec!["font_data_dynamic"]
     }
 
     fn get_recognized_extensions(&self) -> Vec<&'static str> {
@@ -632,7 +632,7 @@ impl FakeResourceImporter for FakeResourceImporterSVG {
 
 impl FakeResourceImporter for FakeResourceImporterOBJ {
     fn get_recognized_importers(&self) -> Vec<&'static str> {
-        vec!["obj"]
+        vec!["wavefront_obj"]
     }
 
     fn get_recognized_extensions(&self) -> Vec<&'static str> {
@@ -655,7 +655,7 @@ const DEFAULT_RECOGNIZED_SCENE_EXTENSIONS: &[&str] =
     &["escn", "glb", "gltf", "fbx", "blend", "dae"];
 impl FakeResourceImporter for FakeResourceImporterScene {
     fn get_recognized_importers(&self) -> Vec<&'static str> {
-        vec!["scene"]
+        vec!["scene", "animation_library"]
     }
 
     fn get_recognized_extensions(&self) -> Vec<&'static str> {

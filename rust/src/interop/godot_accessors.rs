@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use godot::obj::Singleton;
 use godot::{
@@ -143,8 +144,36 @@ impl BackstitchEditorAccessor {
         }
     }
 
+    pub fn scan_fs_sync() -> bool {
+        let mut fs = EditorInterface::singleton()
+            .get_resource_filesystem()
+            .unwrap();
+        let time_start = Instant::now();
+        let ten_secs = Duration::from_secs(30);
+        fs.scan();
+        let mut timed_out = false;
+        while fs.is_scanning() {
+            if Instant::now() - time_start >= ten_secs {
+                timed_out = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            fs.notify(godot::classes::notify::NodeNotification::PROCESS)
+        }
+        timed_out
+    }
+
     pub fn refresh_after_source_change() -> bool {
-        EditorFilesystemAccessor::scan_changes();
+        // TODO: This isn't necessary and doesn't prevent gdscript crashes, and it significanly slows down syncing
+        // We should probably have a way to force a full scan if we need to, i.e. on a project start or a branch-checkout
+        // if Self::scan_fs_sync() {
+        //     tracing::warn!("Scanning filesystem timed out!");
+        //     return false;
+        // }
+        EditorInterface::singleton()
+            .get_resource_filesystem()
+            .unwrap()
+            .scan_sources();
         let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
         // TODO: when 4.7 is released, use the bound method instead
         script_editor.call("reload_open_files", &[]);

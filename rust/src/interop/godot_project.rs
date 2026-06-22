@@ -181,6 +181,7 @@ pub struct GodotProject {
     pending_editor_update: PendingEditorUpdate,
     reload_project_settings_callable: Option<Callable>,
     deferred_start: i32,
+    was_scanning: bool,
 }
 
 // new API
@@ -465,6 +466,13 @@ impl GodotProject {
         self.project.clear_fs_cache();
     }
 
+    pub fn safe_to_update_godot(&self) -> bool {
+        !(EditorFilesystemAccessor::is_scanning()
+            || self.was_scanning
+            || BackstitchEditorAccessor::is_editor_importing()
+            || BackstitchEditorAccessor::unsaved_files_open())
+    }
+
     fn process_godot_updates(&self, events: Vec<FileSystemEvent>) -> PendingEditorUpdate {
         let mut pending_editor_update = PendingEditorUpdate::default();
         let mut files_changed = Vec::new();
@@ -595,6 +603,7 @@ impl INode for GodotProject {
             pending_editor_update: PendingEditorUpdate::default(),
             reload_project_settings_callable: None,
             deferred_start: -1,
+            was_scanning: false,
         }
     }
 
@@ -628,6 +637,12 @@ impl INode for GodotProject {
         // Perform typical plugin operations here.
     }
 
+    fn physics_process(&mut self, _delta: f64) {
+        // The EditorFileSystem currently can get into a state where it's neither scanning but a scan will never finish this frame due re-entrancy from poor design.
+        // It finishes on the next `process()` call, so if it's scanning during `physics_process()`, we need to wait for the next physics frame to say it's done.
+        self.was_scanning = EditorFilesystemAccessor::is_scanning();
+    }
+
     #[instrument(target = "backstitch_rust_core::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
     fn process(&mut self, _delta: f64) {
         if self.deferred_start > 0 {
@@ -648,7 +663,7 @@ impl INode for GodotProject {
         if !self.project.has_project() {
             return;
         }
-        let (updates, signals) = self.project.process(_delta);
+        let (updates, signals) = self.project.process(_delta, self.safe_to_update_godot());
         if !updates.is_empty() {
             self.pending_editor_update
                 .merge(self.process_godot_updates(updates));
@@ -754,7 +769,7 @@ impl GodotProjectPlugin {
         if !p.pending_editor_update.any_changes() {
             return false;
         }
-        if !Project::safe_to_update_godot() {
+        if !p.safe_to_update_godot() {
             return false;
         }
         self.base_mut().set_process(false);

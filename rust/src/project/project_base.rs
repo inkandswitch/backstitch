@@ -4,9 +4,7 @@ use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
 use crate::helpers::utils::{ChangedFile, CommitInfo};
-use crate::interop::godot_accessors::{
-    BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
-};
+use crate::interop::godot_accessors::BackstitchConfigAccessor;
 use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::{ProjectStartError, ProjectViewModel};
@@ -125,13 +123,6 @@ impl Project {
         self.with_driver_blocking("Clear FS Cache", |driver| async move {
             let _ = driver.as_ref().unwrap().get_fs_index().clear_cache();
         })
-    }
-
-    // Do not run this on anything except the main thread!
-    pub fn safe_to_update_godot() -> bool {
-        !(EditorFilesystemAccessor::is_scanning()
-            || BackstitchEditorAccessor::is_editor_importing()
-            || BackstitchEditorAccessor::unsaved_files_open())
     }
 
     pub fn get_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
@@ -555,7 +546,11 @@ impl Project {
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn process(&mut self, _delta: f64) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
+    pub fn process(
+        &mut self,
+        _delta: f64,
+        safe_to_update_godot: bool,
+    ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
         let fs_changes = {
             let mut driver_guard = self.driver.blocking_lock();
@@ -566,7 +561,7 @@ impl Project {
             driver_guard
                 .as_ref()
                 .unwrap()
-                .set_safe_to_update_editor(Self::safe_to_update_godot());
+                .set_safe_to_update_editor(safe_to_update_godot);
             let block = self.main_thread_block.clone();
             tracing::trace!("Blocking for dependents...");
             self.runtime

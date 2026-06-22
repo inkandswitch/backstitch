@@ -52,7 +52,8 @@ pub fn initialize_tracing() {
             EnvFilter::new("off")
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
-                .add_directive("backstitch_rust_core=debug".parse().unwrap()),
+                .add_directive("backstitch_rust_core=debug".parse().unwrap())
+                .add_directive("tracing_panic=info".parse().unwrap()),
             // .add_directive("samod=info".parse().unwrap())
             // .add_directive("samod_core=info".parse().unwrap()),
         );
@@ -64,7 +65,8 @@ pub fn initialize_tracing() {
             EnvFilter::new("info")
                 .add_directive("backstitch_rust_core=debug".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
-                .add_directive("samod_core=info".parse().unwrap()),
+                .add_directive("samod_core=info".parse().unwrap())
+                .add_directive("tracing_panic=info".parse().unwrap()),
         );
 
     #[cfg(feature = "tokio-console")]
@@ -83,6 +85,12 @@ pub fn initialize_tracing() {
         .with(stdout_layer)
         .with(file_layer)
         .try_init();
+
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        tracing_panic::panic_hook(panic_info);
+        hook(panic_info);
+    }));
 
     if let Err(e) = subscriber {
         tracing::error!("Failed to initialize tracing subscriber: {:?}", e);

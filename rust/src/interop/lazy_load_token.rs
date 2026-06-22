@@ -1,12 +1,17 @@
-use godot::{classes::{RefCounted, Resource, ResourceLoader, resource_loader::ThreadLoadStatus}, global, obj::Base, prelude::GodotClass};
 use godot::prelude::*;
+use godot::{
+    classes::{RefCounted, Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
+    global,
+    obj::Base,
+    prelude::GodotClass,
+};
 
 #[derive(GodotClass, Debug)]
 #[class(base=RefCounted)]
 pub struct LazyLoadToken {
-	base: Base<RefCounted>,
-	original_path: Option<String>,
-	path: String,
+    base: Base<RefCounted>,
+    original_path: Option<String>,
+    path: String,
     resource: Option<Gd<Resource>>,
     failed: bool,
 }
@@ -40,7 +45,9 @@ impl LazyLoadToken {
 impl LazyLoadToken {
     #[func]
     fn is_started(&self) -> bool {
-        if self.failed || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid() {
+        if self.failed
+            || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
+        {
             return true;
         }
         let status = ResourceLoader::singleton().load_threaded_get_status(&self.path);
@@ -52,7 +59,9 @@ impl LazyLoadToken {
 
     #[func]
     fn is_load_finished(&self) -> bool {
-        if self.failed || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid() {
+        if self.failed
+            || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
+        {
             return true;
         }
         let status = ResourceLoader::singleton().load_threaded_get_status(&self.path);
@@ -63,7 +72,7 @@ impl LazyLoadToken {
     }
 
     #[func]
-    pub fn start_load(&mut self){
+    pub fn start_load(&mut self) {
         if ResourceLoader::singleton().load_threaded_request(&self.path) != global::Error::OK {
             self.failed = true;
         }
@@ -77,7 +86,7 @@ impl LazyLoadToken {
             return self.resource.clone();
         }
         // NOTE: This always starts a load_threaded_request due to a race condition in gdext
-        // The only downside is that, with how we already started one in the differ, 
+        // The only downside is that, with how we already started one in the differ,
         // we will increment the load count twice and the resource will stick around in the cache
         // TODO: replace this with self.is_started() when gdext is fixed
         if !self.failed {
@@ -87,18 +96,20 @@ impl LazyLoadToken {
             return None;
         }
         let res: Option<Gd<Resource>> = ResourceLoader::singleton().load_threaded_get(&self.path);
-        if let Some(mut res) = res && res.is_instance_valid() {
-            if let Some(original_path) = self.original_path.as_ref() {
-                if &res.get_path().to_string() != original_path {
-                    res.set_path_cache(original_path);
-                }
+        if let Some(mut res) = res
+            && res.is_instance_valid()
+        {
+            if let Some(original_path) = self.original_path.as_ref()
+                && &res.get_path().to_string() != original_path
+            {
+                res.set_path_cache(original_path);
             }
             self.resource = Some(res);
         } else {
             godot_print!("Failed to load resource: {}", self.path);
             self.failed = true;
         }
-        return self.resource.clone();
+        self.resource.clone()
     }
 
     #[func]

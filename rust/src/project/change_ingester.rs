@@ -124,7 +124,7 @@ impl ChangeIngesterInner {
                 return false;
             }
             *old_changes = new_changes;
-            return true;
+            true
         });
         last_ingest.1 += 1;
     }
@@ -147,7 +147,7 @@ impl ChangeIngesterInner {
         if let Some(revert_info) = &meta?.reverted_to {
             let heads = revert_info
                 .iter()
-                .map(|s| (&s.to_string()[..7]).to_string())
+                .map(|s| s.to_string()[..7].to_string())
                 .collect::<Vec<String>>()
                 .join(", ");
             return Some(format!("↩ {author} reverted to {heads}"));
@@ -155,10 +155,10 @@ impl ChangeIngesterInner {
 
         // initial commit
         if change.is_setup() {
-            return Some(format!("Initialized repository"));
+            return Some("Initialized repository".to_string());
         }
 
-        return Some(summarize_changes(&author, meta?.changed_files.as_ref()?));
+        Some(summarize_changes(&author, meta?.changed_files.as_ref()?))
     }
 
     /// Gets the changes from the current branch and returns it.
@@ -205,16 +205,16 @@ impl ChangeIngesterInner {
         let mut shadow_hashes = HashSet::new();
         let mut canon_hashes = HashSet::new();
         for change in &changes {
-            shadow_hashes.insert(change.hash.clone());
+            shadow_hashes.insert(change.hash);
         }
         for change in &canonical_changes {
-            canon_hashes.insert(change.hash.clone());
+            canon_hashes.insert(change.hash);
         }
 
         // We need this to know whether the changes are actually synced.
         let intersecting_hashes = shadow_hashes
             .symmetric_difference(&canon_hashes)
-            .map(|h| h.clone())
+            .copied()
             .collect::<HashSet<ChangeHash>>();
 
         // Do the merge
@@ -234,7 +234,7 @@ impl ChangeIngesterInner {
                     metadata: c
                         .message
                         .as_ref()
-                        .and_then(|m| serde_json::from_str::<CommitMetadata>(&m).ok()),
+                        .and_then(|m| serde_json::from_str::<CommitMetadata>(m).ok()),
                     synced: false,           // set later
                     summary: "".to_string(), // set later
                 }

@@ -117,6 +117,7 @@ impl DiffInspectorSection {
     }
 
     #[func]
+    #[allow(clippy::too_many_arguments)]
     pub fn setup(
         &mut self,
         p_section: GString,
@@ -253,14 +254,12 @@ impl DiffInspectorSection {
             .get_theme_stylebox_ex(&StringName::from("indent_box"))
             .theme_type(&StringName::from("DiffInspectorSection"))
             .done();
-        if self.indent_depth > 0 {
-            if let Some(ref style) = section_indent_style {
-                if let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>() {
-                    section_indent += (style_flat.get_margin(Side::LEFT)
-                        + style_flat.get_margin(Side::RIGHT))
-                        as i32; // LEFT + RIGHT
-                }
-            }
+        if self.indent_depth > 0
+            && let Some(ref style) = section_indent_style
+            && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
+        {
+            section_indent +=
+                (style_flat.get_margin(Side::LEFT) + style_flat.get_margin(Side::RIGHT)) as i32; // LEFT + RIGHT
         }
 
         let header_width = self.base().get_size().x - section_indent as f32;
@@ -381,10 +380,11 @@ impl DiffInspectorSection {
     }
 
     fn as_sortable_control(node: Option<Gd<Node>>) -> Option<Gd<Control>> {
-        if let Some(Ok(control)) = node.map(|n| n.try_cast::<Control>()) {
-            if !control.is_set_as_top_level() && control.is_visible_in_tree() {
-                return Some(control);
-            }
+        if let Some(Ok(control)) = node.map(|n| n.try_cast::<Control>())
+            && !control.is_set_as_top_level()
+            && control.is_visible_in_tree()
+        {
+            return Some(control);
         }
         None
     }
@@ -416,11 +416,11 @@ impl IContainer for DiffInspectorSection {
             level: 1,
             type_name: String::from("changed"),
             unfolded: true,
-            vbox: vbox,
+            vbox,
             object: None,
             arrow_position: Vector2::ZERO,
             entered: false,
-            dropping_unfold_timer: dropping_unfold_timer,
+            dropping_unfold_timer,
             dropping: false,
             dropping_for_unfold: false,
             vbox_added: false,
@@ -481,13 +481,11 @@ impl IContainer for DiffInspectorSection {
             .get_theme_stylebox_ex(&StringName::from("indent_box"))
             .theme_type(&StringName::from("DiffInspectorSection"))
             .done();
-        if self.indent_depth > 0 {
-            if let Some(ref style) = section_indent_style {
-                if let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>() {
-                    ms.x += (style_flat.get_margin(Side::LEFT) + style_flat.get_margin(Side::RIGHT))
-                        as f32;
-                }
-            }
+        if self.indent_depth > 0
+            && let Some(ref style) = section_indent_style
+            && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
+        {
+            ms.x += style_flat.get_margin(Side::LEFT) + style_flat.get_margin(Side::RIGHT);
         }
 
         ms
@@ -524,14 +522,11 @@ impl IContainer for DiffInspectorSection {
                         } else {
                             self.fold();
                         }
-                        return;
                     } else {
                         self.accept_and_emit_box_clicked();
-                        return;
                     }
                 } else {
                     self.accept_and_emit_box_clicked();
-                    return;
                 }
             } else if !mb.is_pressed() {
                 self.base_mut().queue_redraw();
@@ -574,14 +569,12 @@ impl IContainer for DiffInspectorSection {
                     .get_theme_stylebox_ex(&StringName::from("indent_box"))
                     .theme_type(&StringName::from("DiffInspectorSection"))
                     .done();
-                if self.indent_depth > 0 {
-                    if let Some(ref style) = section_indent_style {
-                        if let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>() {
-                            inspector_margin_val += (style_flat.get_margin(Side::LEFT)
-                                + style_flat.get_margin(Side::RIGHT))
-                                as f32; // LEFT + RIGHT
-                        }
-                    }
+                if self.indent_depth > 0
+                    && let Some(ref style) = section_indent_style
+                    && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
+                {
+                    inspector_margin_val +=
+                        style_flat.get_margin(Side::LEFT) + style_flat.get_margin(Side::RIGHT); // LEFT + RIGHT
                 }
 
                 let size = self.base().get_size() - Vector2::new(inspector_margin_val, 0.0);
@@ -652,14 +645,12 @@ impl DiffInspectorSection {
             .get_theme_stylebox_ex(&StringName::from("indent_box"))
             .theme_type(&StringName::from("DiffInspectorSection"))
             .done();
-        if self.indent_depth > 0 {
-            if let Some(ref style) = section_indent_style {
-                if let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>() {
-                    section_indent += (style_flat.get_margin(Side::LEFT)
-                        + style_flat.get_margin(Side::RIGHT))
-                        as i32; // LEFT + RIGHT
-                }
-            }
+        if self.indent_depth > 0
+            && let Some(ref style) = section_indent_style
+            && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
+        {
+            section_indent +=
+                (style_flat.get_margin(Side::LEFT) + style_flat.get_margin(Side::RIGHT)) as i32; // LEFT + RIGHT
         }
 
         let header_width = self.base().get_size().x - section_indent as f32;
@@ -699,23 +690,23 @@ impl DiffInspectorSection {
             .done();
         let separation_val = separation as f32;
 
-        let mut margin_start = section_indent as f32 + outer_margin as f32;
-        let margin_end = outer_margin as f32;
+        let mut margin_start = section_indent as f32 + outer_margin;
+        let margin_end = outer_margin;
 
         // Draw arrow
         if let Some(arrow) = self.get_arrow() {
             if rtl {
-                self.arrow_position.x = self.base().get_size().x
-                    - ((margin_start as f32 + arrow.get_width() as f32) as f32);
+                self.arrow_position.x =
+                    self.base().get_size().x - (margin_start + arrow.get_width() as f32);
             } else {
-                self.arrow_position.x = margin_start as f32;
+                self.arrow_position.x = margin_start;
             }
-            self.arrow_position.y = (header_height as f32 - arrow.get_height() as f32) / 2.0;
-            let arrow_position = self.arrow_position.clone();
+            self.arrow_position.y = (header_height - arrow.get_height() as f32) / 2.0;
+            let arrow_position = self.arrow_position;
             self.base_mut()
                 .draw_texture_ex(&arrow, arrow_position)
                 .done();
-            margin_start += (arrow.get_width() as f32 + separation_val) as f32;
+            margin_start += arrow.get_width() as f32 + separation_val;
         }
 
         let available = self.base().get_size().x - (margin_start + margin_end);
@@ -898,28 +889,28 @@ impl DiffInspectorSection {
         }
 
         // Draw section indentation
-        if let Some(ref section_indent_style) = section_indent_style {
-            if section_indent > 0 {
-                let indent_rect = Rect2::new(
-                    Vector2::ZERO,
-                    Vector2::new(
-                        self.indent_depth as f32 * section_indent_size as f32,
-                        self.base().get_size().y,
-                    ),
-                );
-                let mut indent_pos = indent_rect.position;
-                if let Ok(style_flat) = section_indent_style.clone().try_cast::<StyleBoxFlat>() {
-                    if rtl {
-                        indent_pos.x = self.base().get_size().x
-                            - (section_indent as f32 + style_flat.get_margin(Side::RIGHT) as f32); // RIGHT
-                    } else {
-                        indent_pos.x = style_flat.get_margin(Side::LEFT) as f32; // LEFT
-                    }
+        if let Some(ref section_indent_style) = section_indent_style
+            && section_indent > 0
+        {
+            let indent_rect = Rect2::new(
+                Vector2::ZERO,
+                Vector2::new(
+                    self.indent_depth as f32 * section_indent_size as f32,
+                    self.base().get_size().y,
+                ),
+            );
+            let mut indent_pos = indent_rect.position;
+            if let Ok(style_flat) = section_indent_style.clone().try_cast::<StyleBoxFlat>() {
+                if rtl {
+                    indent_pos.x = self.base().get_size().x
+                        - (section_indent as f32 + style_flat.get_margin(Side::RIGHT)); // RIGHT
+                } else {
+                    indent_pos.x = style_flat.get_margin(Side::LEFT); // LEFT
                 }
-                let final_rect = Rect2::new(indent_pos, indent_rect.size);
-                self.base_mut()
-                    .draw_style_box(section_indent_style, final_rect);
             }
+            let final_rect = Rect2::new(indent_pos, indent_rect.size);
+            self.base_mut()
+                .draw_style_box(section_indent_style, final_rect);
         }
     }
 }

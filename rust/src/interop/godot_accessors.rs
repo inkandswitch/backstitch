@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use godot::obj::Singleton;
 use godot::{
     builtin::{GString, PackedStringArray},
-    classes::{ClassDb, EditorInterface, Object},
+    classes::{EditorInterface, Object},
     meta::ToGodot,
     obj::Gd,
 };
@@ -52,10 +52,10 @@ pub struct BackstitchEditorAccessor {}
 #[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
     pub fn is_editor_importing() -> bool {
-        return EditorInterface::singleton()
+        EditorInterface::singleton()
             .get_resource_filesystem()
-            .map(|mut fs| return fs.call("is_importing", &[]).to::<bool>())
-            .unwrap_or(false);
+            .map(|mut fs| fs.call("is_importing", &[]).to::<bool>())
+            .unwrap_or(false)
     }
 
     pub fn get_unsaved_scripts() -> PackedStringArray {
@@ -70,14 +70,14 @@ impl BackstitchEditorAccessor {
     }
 
     pub fn unsaved_files_open() -> bool {
-        if Self::get_unsaved_scripts().len() > 0 {
+        if !Self::get_unsaved_scripts().is_empty() {
             return true;
         }
         // TODO: when 4.7 is released, use the bound method instead
         let unsaved_scenes = EditorInterface::singleton()
             .call("get_unsaved_scenes", &[])
             .to::<PackedStringArray>();
-        if unsaved_scenes.len() > 0 {
+        if !unsaved_scenes.is_empty() {
             return true;
         }
         false
@@ -138,8 +138,8 @@ impl BackstitchEditorAccessor {
             }
             EditorInterface::singleton().reload_scene_from_path(scene);
         }
-        if current_scene.is_some() {
-            EditorInterface::singleton().reload_scene_from_path(current_scene.as_ref().unwrap());
+        if let Some(current_scene) = &current_scene {
+            EditorInterface::singleton().reload_scene_from_path(current_scene);
         }
     }
 
@@ -180,14 +180,14 @@ impl EditorFilesystemAccessor {
     pub fn is_scanning() -> bool {
         EditorInterface::singleton()
             .get_resource_filesystem()
-            .map(|fs| return fs.is_scanning())
+            .map(|fs| fs.is_scanning())
             .unwrap_or(false)
     }
 
-    pub fn reimport_files(files: &Vec<String>) {
+    pub fn reimport_files(files: &[String]) {
         let files_packed = files
             .iter()
-            .map(|f| GString::from(f))
+            .map(GString::from)
             .collect::<PackedStringArray>();
         EditorInterface::singleton()
             .get_resource_filesystem()

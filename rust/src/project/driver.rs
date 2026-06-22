@@ -17,7 +17,7 @@ use futures::StreamExt;
 use futures::future::join_all;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -114,8 +114,8 @@ impl Driver {
         "**/.*",
     ];
 
-    fn build_gitignore(project_dir: &PathBuf) -> Gitignore {
-        let mut gitignore = GitignoreBuilder::new(project_dir.clone());
+    fn build_gitignore(project_dir: &Path) -> Gitignore {
+        let mut gitignore = GitignoreBuilder::new(project_dir);
         let _err = gitignore.case_insensitive(true);
         let _err = gitignore.add(project_dir.join(".gitignore"));
         let _err = gitignore.add(project_dir.join(".backstitchignore"));
@@ -171,7 +171,7 @@ impl Driver {
 
         // Next, we make sure we're connected to the server
         // If the hang gets annoying when starting, we could set this to 1 to reduce it to a minimum.
-        if !Self::ensure_server_connection(&connection, 3).await {
+        if !Self::ensure_server_connection(connection, 3).await {
             tracing::error!(
                 "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
             );
@@ -190,9 +190,9 @@ impl Driver {
             return Ok(metadata_handle);
         }
 
-        return Err(ProjectLoadError::MetadataIdNotFound {
+        Err(ProjectLoadError::MetadataIdNotFound {
             server_status: ProjectLoadServerStatus::Connected,
-        });
+        })
     }
 
     async fn create_document_watcher(&mut self, metadata_handle: &DocHandle, poll_time: u64) {
@@ -522,7 +522,7 @@ impl Driver {
 
         let Some(branch_state) = self
             .get_branch_db()
-            .get_branch_state(&checked_out_ref.branch())
+            .get_branch_state(checked_out_ref.branch())
             .await
         else {
             return;
@@ -740,7 +740,7 @@ impl DriverInner {
                 match change_type {
                     ChangeType::Created | ChangeType::Modified => {
                         self.sync_automerge_to_fs
-                            .handle_file_update(&path, &content.as_ref().unwrap())
+                            .handle_file_update(&path, content.as_ref().unwrap())
                             .await?
                     }
                     ChangeType::Deleted => {
@@ -780,11 +780,11 @@ impl DriverInner {
             let results: Vec<FileSystemEvent> = join_all(futures)
                 .await
                 .into_iter()
-                .filter_map(|r| r)
+                .flatten()
                 .map(|(path, change_type, content)| match change_type {
-                    ChangeType::Created => FileSystemEvent::FileCreated(path, content.unwrap()),
-                    ChangeType::Deleted => FileSystemEvent::FileDeleted(path),
-                    ChangeType::Modified => FileSystemEvent::FileModified(path, content.unwrap()),
+                    ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
+                    ChangeType::Deleted => FileSystemEvent::Deleted(path),
+                    ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
                 })
                 .collect();
 
@@ -805,27 +805,25 @@ impl DriverInner {
         // - If the requested checkout is invalid or empty, use the branch from the currently checked out ref
         // - If we don't have anything currently checked out, default to main.
         let req_branch = requested_checkout.clone();
-        if let Some(requested_branch) = req_branch {
-            if let Some(latest) = self
+        if let Some(requested_branch) = req_branch
+            && let Some(latest) = self
                 .branch_db
                 .get_latest_ref_on_branch(&requested_branch)
                 .await
-            {
-                requested_checkout.take(); // clear it
-                return Some(latest);
-            }
+        {
+            requested_checkout.take(); // clear it
+            return Some(latest);
         }
 
         let current_ref = self.branch_db.get_checked_out_ref_mut();
         let current_ref = current_ref.read().await;
-        if let Some(current_ref) = current_ref.clone() {
-            if let Some(ref_) = self
+        if let Some(current_ref) = current_ref.clone()
+            && let Some(ref_) = self
                 .branch_db
                 .get_latest_ref_on_branch(current_ref.branch())
                 .await
-            {
-                return Some(ref_);
-            }
+        {
+            return Some(ref_);
         }
         if let Some(main_branch) = self.branch_db.get_main_branch().await {
             if let Some(ref_) = self.branch_db.get_latest_ref_on_branch(&main_branch).await {
@@ -839,6 +837,6 @@ impl DriverInner {
         tracing::error!(
             "No metadata doc checked out, or otherwise couldn't get main branch. Skipping checkout!"
         );
-        return None;
+        None
     }
 }

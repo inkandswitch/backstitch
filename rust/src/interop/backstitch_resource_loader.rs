@@ -74,11 +74,7 @@ impl BackstitchResourceLoader {
             .ok_or(Error::ERR_FILE_NOT_FOUND)?
             .to_owned();
         let import_content = contents.get(&import_path);
-        let mut import_content = if import_content.is_none() {
-            None
-        } else {
-            Some(import_content.unwrap().to_owned())
-        };
+        let mut import_content = import_content.map(|i| i.to_owned());
         if import_content.is_none() {
             let current_ref = GodotProject::get_singleton().bind().get_current_ref();
             if let Some(current_ref) = current_ref {
@@ -104,8 +100,8 @@ impl BackstitchResourceLoader {
                 .unwrap_or("res")
         };
         let temp_name = format!("backstitch_{}.{}", Uuid::new_v4(), ext);
-        let temp_path = std::env::temp_dir().join(&temp_name);
-        temp_path
+
+        std::env::temp_dir().join(&temp_name)
     }
 
     fn remove_temp_path(temp_path: &PathBuf) -> Result<(), Error> {
@@ -132,7 +128,7 @@ impl BackstitchResourceLoader {
                 temp_text.as_ref().unwrap().as_bytes()
             }
         };
-        let mut file = match File::create(&temp_path) {
+        let mut file = match File::create(temp_path) {
             Ok(f) => f,
             Err(_) => return Err(Error::ERR_CANT_CREATE),
         };
@@ -178,7 +174,7 @@ impl BackstitchResourceLoader {
 
     fn get_content_as_textfile_resource(content: &FileContent) -> Option<Gd<Resource>> {
         // For some reason, TextFile isn't bound in Rust, so we instantiate it manually.
-        if !content.is_text() && !content.is_scene() {
+        if !matches!(content, FileContent::String(_) | FileContent::Scene(_)) {
             tracing::error!("Do not try to save a non-text or scene file as a TextFile");
             return None;
         }
@@ -221,7 +217,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         // so when the classdb starts calling ResourceFormatLoader::get_recognized_extensions_for_type() for every type,
         // we end up polluting the extension list for all types when this is called.
         // This isn't called during loading if `recognize_path()` is implemented, so it's not necessary to implement it
-        return PackedStringArray::new();
+        PackedStringArray::new()
     }
 
     fn recognize_path(&self, path: GString, _type: StringName) -> bool {
@@ -229,7 +225,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
     }
 
     fn handles_type(&self, _type_name: StringName) -> bool {
-        return true; // handles everything
+        true // handles everything
     }
 
     fn get_resource_type(&self, path: GString) -> GString {
@@ -257,7 +253,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         if let FileContent::Scene(scn) = content {
             return GString::from(&scn.resource_type);
         }
-        return GString::new();
+        GString::new()
     }
 
     fn get_resource_script_class(&self, _path: GString) -> GString {
@@ -268,7 +264,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         if let FileContent::Scene(scn) = content {
             return GString::from(&scn.script_class.unwrap_or_default());
         }
-        return GString::new();
+        GString::new()
     }
 
     fn get_resource_uid(&self, path: GString) -> i64 {
@@ -282,7 +278,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         let has_custom_uid = !(ext == "gd" || ext == "cs" || ext == "gdextension");
 
         if !has_custom_uid {
-            history_ref_path.path = history_ref_path.path + ".uid";
+            history_ref_path.path += ".uid";
         }
         let content = match self.get_content_at_history_ref_path(&history_ref_path) {
             Ok(content) => content,
@@ -297,7 +293,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         if let FileContent::Scene(scn) = content {
             return ResourceUid::singleton().text_to_id(&scn.uid);
         }
-        return -1;
+        -1
     }
 
     fn get_dependencies(&self, _path: GString, _add_types: bool) -> PackedStringArray {
@@ -308,11 +304,11 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         if let FileContent::Scene(scn) = content {
             return PackedStringArray::from_iter(
                 scn.ext_resources
-                    .iter()
-                    .map(|(_id, ext_resource)| GString::from(&ext_resource.path)),
+                    .values()
+                    .map(|ext_resource| GString::from(&ext_resource.path)),
             );
         }
-        return PackedStringArray::new();
+        PackedStringArray::new()
     }
 
     fn rename_dependencies(&self, _path: GString, _renames: VarDictionary) -> Error {
@@ -321,7 +317,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
     }
 
     fn exists(&self, path: GString) -> bool {
-        return self.recognize_path(path, StringName::default());
+        self.recognize_path(path, StringName::default())
     }
 
     fn get_classes_used(&self, _path: GString) -> PackedStringArray {
@@ -371,7 +367,9 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 .to_string_lossy()
                 .to_string()
                 .to_lowercase();
-            if !extensions.contains(&GString::from(&ext)) && !content.is_scene() {
+            if !extensions.contains(&GString::from(&ext))
+                && !matches!(content, FileContent::Scene(_))
+            {
                 maybe_import = true;
             }
         }
@@ -406,7 +404,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                     &_params,
                 );
                 if let Err(e) = resource {
-                    if content.is_text() {
+                    if matches!(content, FileContent::String(_)) {
                         let resource = Self::get_content_as_textfile_resource(&content);
                         return resource.unwrap_or_default().to_variant();
                     }
@@ -512,7 +510,7 @@ impl IResourceFormatSaver for BackstitchResourceFormatSaver {
     }
 
     fn recognize_path(&self, _resource: Option<Gd<Resource>>, path: GString) -> bool {
-        return recognize_path(path);
+        recognize_path(path)
     }
 }
 

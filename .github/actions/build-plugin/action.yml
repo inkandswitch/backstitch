@@ -32,6 +32,7 @@ runs:
       shell: sh
       env:
         CI: 1
+        RUSTFLAGS: "-Dwarnings"
       if: ${{ inputs.arch != 'x86_64-apple-darwin'}}
       run: |
         just build-backstitch release ${{ inputs.arch }}
@@ -39,6 +40,7 @@ runs:
       shell: sh
       env:
         CI: 1
+        RUSTFLAGS: "-Dwarnings"
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
       run: |
         just build-backstitch release "all-apple-darwin"

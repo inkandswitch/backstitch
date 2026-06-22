@@ -12,9 +12,7 @@ where
     tokio::task::Builder::new()
         .name(name)
         .spawn(future.instrument(span))
-        .expect(&format!(
-            "Something went wrong trying to build the task {name}."
-        ))
+        .unwrap_or_else(|_| panic!("Something went wrong trying to build the task {name}."))
 }
 
 #[cfg(not(feature = "tokio-console"))]
@@ -38,9 +36,7 @@ where
     tokio::task::Builder::new()
         .name(name)
         .spawn_on(future.instrument(span), runtime)
-        .expect(&format!(
-            "Something went wrong trying to build the task {name}."
-        ))
+        .unwrap_or_else(|_| panic!("Something went wrong trying to build the task {name}."))
 }
 
 #[cfg(not(feature = "tokio-console"))]

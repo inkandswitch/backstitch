@@ -220,7 +220,7 @@ impl Differ {
     /// Generate a [SceneDiff] between the previous and current heads.
     pub(super) async fn get_scene_diff(
         &self,
-        path: &String,
+        path: &str,
         old_scene: Option<&GodotScene>,
         new_scene: Option<&GodotScene>,
         before: &HistoryRef,
@@ -269,7 +269,7 @@ impl Differ {
         }
 
         SceneDiff::new(
-            path.clone(),
+            path.to_owned(),
             match (old_scene, new_scene) {
                 (None, Some(_)) => ChangeType::Created,
                 (Some(_), None) => ChangeType::Deleted,
@@ -281,7 +281,7 @@ impl Differ {
 
     pub(super) async fn get_text_resource_diff(
         &self,
-        path: &String,
+        path: &str,
         old_scene: Option<&GodotScene>,
         new_scene: Option<&GodotScene>,
         before: &HistoryRef,
@@ -358,12 +358,13 @@ impl Differ {
                 after,
             )
             .await;
-        changed_main_resource
-            .as_mut()
-            .map(|s| s.script_class = script_class);
+
+        if let Some(s) = changed_main_resource.as_mut() {
+            s.script_class = script_class;
+        }
 
         TextResourceDiff::new(
-            path.clone(),
+            path.to_string(),
             resource_type,
             match (old_scene, new_scene) {
                 (None, Some(_)) => ChangeType::Created,
@@ -375,6 +376,7 @@ impl Differ {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn get_sub_resource_diff(
         &self,
         sub_resource_id: &str,
@@ -396,12 +398,12 @@ impl Differ {
         // Collect all properties from new and old scenes
         let mut props: HashSet<String> = HashSet::new();
         if let Some(node) = old_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
         if let Some(node) = new_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
@@ -429,6 +431,7 @@ impl Differ {
     }
 
     /// Generate a [NodeDiff] between two nodes.
+    #[allow(clippy::too_many_arguments)]
     async fn get_node_diff(
         &self,
         node_id: &NodeId,
@@ -455,12 +458,12 @@ impl Differ {
         // Collect all properties from new and old scenes
         let mut props: HashSet<String> = HashSet::new();
         if let Some(node) = old_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
         if let Some(node) = new_node {
-            for (key, _) in node.get_properties() {
+            for key in node.get_properties().keys() {
                 let _ = props.insert(key.to_string());
             }
         }
@@ -494,9 +497,9 @@ impl Differ {
             },
             // have to do something like this, because get_node_path panics if the node doesn't exist in the scene
             match (old_node, new_node) {
-                (None, Some(_)) => new_scene?.get_node_path(&node_id),
-                (Some(_), None) => old_scene?.get_node_path(&node_id),
-                (_, _) => new_scene?.get_node_path(&node_id),
+                (None, Some(_)) => new_scene?.get_node_path(node_id),
+                (Some(_), None) => old_scene?.get_node_path(node_id),
+                (_, _) => new_scene?.get_node_path(node_id),
             },
             new_class_name.or(old_class_name),
             changed_properties,
@@ -511,9 +514,7 @@ impl Differ {
         node: Option<&impl PropertyGetter>,
     ) -> Option<VariantStrValue> {
         // If this node never existed, don't provide a value.
-        let Some(node) = node else {
-            return None;
-        };
+        let node = node?;
         match node.get_property(prop) {
             Some(val) => Some(Self::get_varstr_value(val.get_value())),
             None => Some(VariantStrValue::DefaultValue(
@@ -525,6 +526,7 @@ impl Differ {
 
     /// Returns a [PropertyDiff] comparing the old property value versus the new one.
     /// Returns [None] if neither node is valid, or if the value has not meaningfully changed.
+    #[allow(clippy::too_many_arguments)]
     async fn get_property_diff(
         &self,
         prop: &str,
@@ -565,7 +567,7 @@ impl Differ {
             None => None,
         };
 
-        return Some(PropertyDiff::new(
+        Some(PropertyDiff::new(
             prop.to_string(),
             // We check for node add or remove intentionally, here, because otherwise we're just diffing a Modified prop against
             // the default value retrieved earlier.
@@ -576,7 +578,7 @@ impl Differ {
             },
             old,
             new,
-        ));
+        ))
     }
 
     /// Check deeply to see if a subresource has changed.
@@ -599,7 +601,7 @@ impl Differ {
             return true;
         }
 
-        for (path, _) in &old_resource.properties {
+        for path in old_resource.properties.keys() {
             if !new_resource.properties.contains_key(path) {
                 // prop removed
                 return true;
@@ -717,8 +719,8 @@ impl Differ {
         if is_script {
             return VariantValue::Variant("<Script changed>".to_string());
         }
-        let path;
-        match prop_value {
+
+        let path = match prop_value {
             VariantStrValue::Variant(variant) => {
                 return VariantValue::Variant(variant.clone());
             }
@@ -730,9 +732,7 @@ impl Differ {
                     sub_resource_id
                 ));
             }
-            VariantStrValue::ResourcePath(resource_path) => {
-                path = resource_path;
-            }
+            VariantStrValue::ResourcePath(resource_path) => resource_path,
             VariantStrValue::ExtResourceID(ext_resource_id) => {
                 let p = scene.and_then(|scene| {
                     scene
@@ -743,15 +743,15 @@ impl Differ {
                 let Some(p) = p else {
                     return VariantValue::Variant("\"<ExtResource not found>\"".to_string());
                 };
-                path = p;
+                p
             }
             VariantStrValue::DefaultValue(type_or_instance, prop) => {
                 return VariantValue::DefaultValue(type_or_instance.clone(), prop.clone());
             }
-        }
+        };
 
         match self
-            .start_load_ext_resource(&path, if is_old { before } else { after })
+            .start_load_ext_resource(path, if is_old { before } else { after })
             .await
         {
             Ok(load_path) => VariantValue::LazyLoadData(path.clone(), load_path),
@@ -811,6 +811,6 @@ impl Differ {
             }
         }
         // normal variant string
-        return VariantStrValue::Variant(prop_value);
+        VariantStrValue::Variant(prop_value)
     }
 }

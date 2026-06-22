@@ -206,7 +206,7 @@ impl BranchDb {
         )
         .await;
 
-        return Some(handle.document_id().clone());
+        Some(handle.document_id().clone())
     }
 
     pub async fn confirm_revert_preview_branch(&self, preview_branch: &DocumentId) {

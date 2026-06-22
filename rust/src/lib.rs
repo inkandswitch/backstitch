@@ -1,6 +1,6 @@
-mod helpers;
-mod fs;
-mod interop;
 mod diff;
-mod project;
+mod fs;
+mod helpers;
+mod interop;
 mod parser;
+mod project;

@@ -1,4 +1,10 @@
-use std::{sync::{Arc, atomic::{AtomicU32, Ordering}}, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 use tokio::time::sleep;
 
 use crate::project::main_thread_block::MainThreadBlock;

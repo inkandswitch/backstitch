@@ -15,11 +15,11 @@ use crate::{
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
-        project::{CreateMode, Project},
         project_api::{
             BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
             SyncStatus,
         },
+        project_base::{Project, ProjectCreateMode},
     },
 };
 
@@ -40,7 +40,7 @@ impl ProjectViewModel for Project {
         if self.has_project() {
             return Ok(());
         }
-        return self.start(CreateMode::NewProject);
+        self.start(ProjectCreateMode::New)
     }
 
     fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
@@ -49,9 +49,9 @@ impl ProjectViewModel for Project {
         }
         BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
         self.start(if autostart {
-            CreateMode::AutoLoadedProject
+            ProjectCreateMode::AutoLoaded
         } else {
-            CreateMode::ManuallyLoadedProject
+            ProjectCreateMode::ManuallyLoaded
         })?;
         Ok(())
     }
@@ -103,7 +103,7 @@ impl ProjectViewModel for Project {
     }
 
     fn has_user_name(&self) -> bool {
-        BackstitchConfigAccessor::get_user_value("user_name", "") != ""
+        !BackstitchConfigAccessor::get_user_value("user_name", "").is_empty()
     }
 
     fn get_user_name(&self) -> String {
@@ -234,7 +234,7 @@ impl ProjectViewModel for Project {
             return;
         };
 
-        if let Some(_) = &branch_state.reverted_to {
+        if branch_state.reverted_to.is_some() {
             self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
                 driver.as_ref()?.confirm_revert_preview_branch().await;
                 Some(())
@@ -263,7 +263,7 @@ impl ProjectViewModel for Project {
     }
 
     fn get_branch_history(&self) -> Vec<ChangeHash> {
-        self.history.clone().unwrap_or(Vec::new())
+        self.history.clone().unwrap_or_default()
     }
 
     fn get_sync_status(&self) -> SyncStatus {
@@ -317,7 +317,7 @@ impl ProjectViewModel for Project {
 
         let unsynced_count = self.changes.iter().filter(|(_hash, c)| !c.synced).count();
 
-        return SyncStatus::Disconnected(unsynced_count);
+        SyncStatus::Disconnected(unsynced_count)
     }
 
     fn print_sync_debug(&self) {
@@ -338,14 +338,14 @@ impl ProjectViewModel for Project {
         tracing::debug!("last received: {:?}", info.last_received);
         tracing::debug!("last sent: {:?}", info.last_sent);
 
-        if let Some(branch) = self.get_checked_out_branch_state() {
-            if let Some(status) = info.docs.get(&branch.id) {
-                tracing::debug!("\t{}:", branch.name);
-                tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
-                tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
-                tracing::debug!("\tlast sent: {:?}", status.last_sent);
-                tracing::debug!("\tlast sent: {:?}", status.last_received);
-            }
+        if let Some(branch) = self.get_checked_out_branch_state()
+            && let Some(status) = info.docs.get(&branch.id)
+        {
+            tracing::debug!("\t{}:", branch.name);
+            tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
+            tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
+            tracing::debug!("\tlast sent: {:?}", status.last_sent);
+            tracing::debug!("\tlast sent: {:?}", status.last_received);
         }
         tracing::debug!("=====================================");
     }
@@ -353,20 +353,15 @@ impl ProjectViewModel for Project {
     fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
         let id = id.clone();
 
-        let Some((state, mut children)) =
+        let (state, mut children) =
             self.with_driver_blocking("Get branch", |driver| async move {
                 tracing::trace!("Getting branch state...");
                 let branch_db = driver.as_ref()?.get_branch_db();
-                let Some(state) = branch_db.get_branch_state(&id).await else {
-                    return None;
-                };
+                let state = branch_db.get_branch_state(&id).await?;
                 tracing::trace!("Getting branch children...");
                 let children = branch_db.get_branch_children(&id).await;
                 Some((state, children))
-            })
-        else {
-            return None;
-        };
+            })?;
 
         children.sort_by(|a, b| {
             let a_state = self.get_branch(a);
@@ -426,8 +421,6 @@ impl ProjectViewModel for Project {
     }
 
     fn get_default_diff(&self) -> Option<impl DiffViewModel> {
-        let heads_before;
-
         let (branch_state, heads_after) =
             self.with_driver_blocking("Get default diff", |driver| async move {
                 let branch_db = driver.as_ref()?.get_branch_db();
@@ -448,13 +441,13 @@ impl ProjectViewModel for Project {
             return None;
         }
 
-        if self.is_merge_preview_branch_active() {
-            heads_before = branch_state.merge_into.as_ref()?.heads();
+        let heads_before = if self.is_merge_preview_branch_active() {
+            branch_state.merge_into.as_ref()?.heads()
         }
         // revert preview and regular branch both use forked_at
         else {
-            heads_before = branch_state.forked_from.as_ref()?.heads();
-        }
+            branch_state.forked_from.as_ref()?.heads()
+        };
 
         // generate the summary
         let title;
@@ -468,7 +461,7 @@ impl ProjectViewModel for Project {
             title = format!("Showing changes for {} -> {}", source_name, target_name);
         } else if self.is_revert_preview_branch_active() {
             let source_name = self
-                .get_branch(&branch_state.forked_from.as_ref()?.branch())?
+                .get_branch(branch_state.forked_from.as_ref()?.branch())?
                 .get_name();
             // assume reverted_to is always just 1 hash
             let short_heads = &branch_state.reverted_to?.heads().first()?.to_string()[..7];
@@ -478,7 +471,7 @@ impl ProjectViewModel for Project {
             );
         } else {
             let source_name = self
-                .get_branch(&branch_state.forked_from.as_ref()?.branch())?
+                .get_branch(branch_state.forked_from.as_ref()?.branch())?
                 .get_name();
             title = format!(
                 "Showing changes from {} -> {}",
@@ -539,8 +532,8 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn get_file_at_ref(&self, path: &String, ref_: &HistoryRef) -> Option<FileContent> {
-        let path = path.clone();
+    fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent> {
+        let path = path.to_string();
         let ref_ = ref_.clone();
         self.with_driver_blocking("Get file at ref", |driver| async move {
             let files = driver
@@ -605,7 +598,7 @@ impl ProjectViewModel for Project {
     }
 
     fn add_server(&self, server: String) {
-        if server == "" {
+        if server.is_empty() {
             return;
         }
         let mut servers = self.get_available_servers();
@@ -614,11 +607,11 @@ impl ProjectViewModel for Project {
     }
 
     fn remove_server(&self, server: String) {
-        if server == "" {
+        if server.is_empty() {
             return;
         }
         let mut servers = self.get_available_servers();
-        servers.retain(|s| s != &server && s != "");
+        servers.retain(|s| s != &server && !s.is_empty());
         BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
     }
 
@@ -627,11 +620,11 @@ impl ProjectViewModel for Project {
             "available_servers",
             "alpha.backstitch.dev:8085",
         );
-        return servers
+        servers
             .split(",")
-            .filter(|s| *s != "")
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
-            .collect();
+            .collect()
     }
 }
 
@@ -641,10 +634,10 @@ impl ChangeViewModel for CommitInfo {
     }
 
     fn get_username(&self) -> String {
-        if let Some(meta) = &self.metadata {
-            if let Some(author) = &meta.username {
-                return author.clone();
-            }
+        if let Some(meta) = &self.metadata
+            && let Some(author) = &meta.username
+        {
+            return author.clone();
         };
         "Anonymous".to_string()
     }
@@ -661,14 +654,14 @@ impl ChangeViewModel for CommitInfo {
         let Some(meta) = &self.metadata else {
             return false;
         };
-        return meta.merge_metadata.is_some();
+        meta.merge_metadata.is_some()
     }
 
     fn is_setup(&self) -> bool {
         let Some(meta) = &self.metadata else {
             return false;
         };
-        return meta.is_setup.unwrap_or(false);
+        meta.is_setup.unwrap_or(false)
     }
 
     fn get_exact_timestamp(&self) -> String {
@@ -709,11 +702,11 @@ impl BranchViewModel for BranchWrapper {
     }
 
     fn is_available(&self) -> bool {
-        !self.get_merge_into().is_some() && !self.get_reverted_to().is_some()
+        self.get_merge_into().is_none() && self.get_reverted_to().is_none()
     }
 
     fn get_reverted_to(&self) -> Option<ChangeHash> {
-        Some(self.state.reverted_to.as_ref()?.heads().first()?.clone())
+        Some(*self.state.reverted_to.as_ref()?.heads().first()?)
     }
 
     fn get_merge_into(&self) -> Option<DocumentId> {

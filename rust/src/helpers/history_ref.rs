@@ -39,7 +39,7 @@ impl HistoryRef {
     }
 
     pub fn is_valid(&self) -> bool {
-        return !self.heads.is_empty();
+        !self.heads.is_empty()
     }
 
     pub fn to_uri_scheme_prefix(&self) -> String {
@@ -99,7 +99,7 @@ impl FromStr for HistoryRef {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (doc_id, heads_part) = s
             .split_once(HistoryRef::BRANCH_DIVIDER)
-            .ok_or_else(|| "Invalid history ref string")?;
+            .ok_or("Invalid history ref string")?;
 
         let branch =
             DocumentId::from_str(doc_id).map_err(|_| "Invalid DocumentId in history ref string")?;

@@ -100,10 +100,10 @@ pub struct DiffWrapper {
     pub title: String,
 }
 
-pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
-    let added = get_summary_text(&changes, ChangeType::Created, None);
-    let removed = get_summary_text(&changes, ChangeType::Deleted, None);
-    let modified = get_summary_text(&changes, ChangeType::Modified, Some("edited"));
+pub fn summarize_changes(author: &str, changes: &[ChangedFile]) -> String {
+    let added = get_summary_text(changes, ChangeType::Created, None);
+    let removed = get_summary_text(changes, ChangeType::Deleted, None);
+    let modified = get_summary_text(changes, ChangeType::Modified, Some("edited"));
 
     let strings: Vec<String> = [added, removed, modified]
         .into_iter()
@@ -119,7 +119,7 @@ pub fn summarize_changes(author: &str, changes: &Vec<ChangedFile>) -> String {
 }
 
 fn get_summary_text(
-    changes: &Vec<ChangedFile>,
+    changes: &[ChangedFile],
     operation: ChangeType,
     display_operation: Option<&str>,
 ) -> String {
@@ -188,5 +188,5 @@ fn locale_from_system() -> Locale {
 pub fn exact_human_readable_timestamp(timestamp: i64) -> String {
     let dt = DateTime::from_timestamp(timestamp / 1000, 0);
     let datetime: DateTime<Local> = DateTime::from(dt.unwrap());
-    return datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
 }

@@ -29,7 +29,7 @@ fn round_trip_scene_test(source: &str, name: &str) -> Result<GodotScene, String>
         .lines()
         .filter(|line| line.trim().starts_with("[node"))
         .count();
-    let scene = parse_scene(&source.to_string()).expect("parse should succeed");
+    let scene = parse_scene(source).expect("parse should succeed");
     let serialized = scene.serialize();
     let round_trip =
         parse_scene(&serialized).expect("re-parse of serialized output should succeed");

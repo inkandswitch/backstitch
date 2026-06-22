@@ -71,7 +71,7 @@ impl BranchDb {
                                 // If there are multiple hashes here, it means there are conflicts!
                                 // i.e. the hash might be totally invalid; we need to calculate it manually.
                                 if hashes.len() == 1 {
-                                    let hash = &hashes.get(0).unwrap().0;
+                                    let hash = &hashes.first().unwrap().0;
                                     if let Some(bytes) = hash.to_bytes() {
                                         if let Ok(hash) = blake3::Hash::from_slice(bytes) {
                                             return Some((path, (PendingHash::Hash(hash), false)));
@@ -97,28 +97,25 @@ impl BranchDb {
 
                             // If there were any issues, fallback to the slow hash.
                             tracing::debug!("Using slow hash for {path}");
-                            match FileContent::hydrate_content_at(entry_id, &d, &path, heads) {
+                            match FileContent::hydrate_content_at(entry_id, d, &path, heads) {
                                 Ok(content) => {
                                     tracing::debug!("Done logging {path}");
-                                    return Some((
+                                    Some((
                                         path,
                                         (PendingHash::Hash(content.to_hash()), should_reinsert),
-                                    ));
+                                    ))
                                 }
                                 Err(res) => match res {
                                     Ok(id) => {
                                         tracing::debug!("Done logging {path}");
-                                        return Some((
-                                            path,
-                                            (PendingHash::Linked(id), should_reinsert),
-                                        ));
+                                        Some((path, (PendingHash::Linked(id), should_reinsert)))
                                     }
                                     Err(error_msg) => {
                                         tracing::error!("error: {:?}", error_msg);
-                                        return None;
+                                        None
                                     }
                                 },
-                            };
+                            }
                         })
                         .collect::<HashMap<String, (PendingHash, bool)>>(),
                 )
@@ -231,8 +228,8 @@ impl BranchDb {
 
             return Some(
                 new_index
-                    .into_iter()
-                    .map(|(path, _)| (path, ChangeType::Created))
+                    .into_keys()
+                    .map(|path| (path, ChangeType::Created))
                     .collect(),
             );
         }
@@ -250,10 +247,7 @@ impl BranchDb {
             .await
             .get(doc_id)
             .cloned()
-            .flatten();
-        let Some(handle) = handle else {
-            return None;
-        };
+            .flatten()?;
 
         tokio::task::spawn_blocking(move || {
             handle.with_document(|d| match d.get(ROOT, "content") {
@@ -306,7 +300,7 @@ impl BranchDb {
 
                     match FileContent::hydrate_content_at(
                         file_entry,
-                        &doc,
+                        doc,
                         &path,
                         desired_ref.heads(),
                     ) {

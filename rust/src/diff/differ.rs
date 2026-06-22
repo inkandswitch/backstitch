@@ -61,13 +61,10 @@ impl Differ {
         let history_ref_path = HistoryRefPath::make_path_string(ref_, path)
             .map_err(|_| "Invalid history ref path".to_string())?;
 
-        return match ResourceLoader::singleton().load_threaded_request(&history_ref_path) {
+        match ResourceLoader::singleton().load_threaded_request(&history_ref_path) {
             global::Error::OK => Ok(history_ref_path),
-            e => Err(format!(
-                "load_threaded_request failed ({})",
-                e.as_str().to_string()
-            )),
-        };
+            e => Err(format!("load_threaded_request failed ({})", e.as_str())),
+        }
     }
 
     /// Computes the diff between the two sets of heads.
@@ -130,7 +127,13 @@ impl Differ {
                 };
                 if resource_type == "PackedScene" {
                     let mut scene_diff = self
-                        .get_scene_diff(&path, old_scene, new_scene, before, after)
+                        .get_scene_diff(
+                            path,
+                            old_scene.map(|v| &**v),
+                            new_scene.map(|v| &**v),
+                            before,
+                            after,
+                        )
                         .await;
                     // For a scene diff, we need to do some extra work.
                     // Instanced scenes need their node type set properly for default values to work.
@@ -197,8 +200,14 @@ impl Differ {
                     diffs.push(Diff::Scene(scene_diff));
                 } else {
                     diffs.push(Diff::TextResourceDiff(
-                        self.get_text_resource_diff(&path, old_scene, new_scene, before, after)
-                            .await,
+                        self.get_text_resource_diff(
+                            path,
+                            old_scene.map(|v| &**v),
+                            new_scene.map(|v| &**v),
+                            before,
+                            after,
+                        )
+                        .await,
                     ));
                 }
             } else if matches!(old_file_content, Some(FileContent::Binary(_)))

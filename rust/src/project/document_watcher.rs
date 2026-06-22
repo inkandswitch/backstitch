@@ -84,7 +84,7 @@ impl DocumentWatcher {
             inner_clone.track_metadata_document(metadata_handle).await;
         });
 
-        return Self { inner };
+        Self { inner }
     }
 
     /// Subscribe to a one-shot document ingestion. If the document has already ingested, immediately resolves.
@@ -94,8 +94,8 @@ impl DocumentWatcher {
         let mut rx: watch::Receiver<BranchIngestState> = {
             let branches = self.inner.tracked_branches.lock().await;
             let tx = branches.get(branch).ok_or(IngestWaitError::NotTracked)?;
-            let rx = tx.subscribe();
-            rx
+
+            tx.subscribe()
         };
         let mut current = rx.borrow_and_update().clone();
         while current == BranchIngestState::Pending {
@@ -176,7 +176,7 @@ impl DocumentWatcherInner {
             select! {
                 _ = stream.next() => {
                     // collapse the rest of the stream, in case multiple futures are ready
-                    while let Some(_) = stream.next().now_or_never().flatten() {}
+                    while stream.next().now_or_never().flatten().is_some() {}
                     self.ingest_branch_document(handle.clone()).await;
                 },
                 _ = self.token.cancelled() => {
@@ -193,7 +193,7 @@ impl DocumentWatcherInner {
             select! {
                 _ = stream.next() => {
                     // collapse the rest of the stream, in case multiple futures are ready
-                    while let Some(_) = stream.next().now_or_never().flatten() {}
+                    while stream.next().now_or_never().flatten().is_some() {}
                     self.ingest_metadata_document(handle.clone()).await;
                 },
                 _ = self.token.cancelled() => {
@@ -269,7 +269,7 @@ impl DocumentWatcherInner {
         .await
         .unwrap();
 
-        for (_, doc) in &linked_docs {
+        for doc in linked_docs.values() {
             // spawn off a task to track the binary document
             self.track_binary_document(doc.clone()).await;
         }

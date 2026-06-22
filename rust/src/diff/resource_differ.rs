@@ -52,10 +52,8 @@ impl Differ {
         _content: Option<&FileContent>,
         ref_: &HistoryRef,
     ) -> Option<VariantValue> {
-        if _content.is_none() {
-            return None;
-        }
-        match self.start_load_ext_resource(&path, ref_).await {
+        _content?;
+        match self.start_load_ext_resource(path, ref_).await {
             Ok(load_path) => Some(VariantValue::LazyLoadData(path.to_string(), load_path)),
             Err(e) => Some(VariantValue::Variant(format!(
                 "\"<ExtResource {} load failed ({})>\"",

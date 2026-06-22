@@ -1,7 +1,8 @@
 use std::sync::{
-    Arc, atomic::{AtomicU32, Ordering}
+    Arc,
+    atomic::{AtomicU32, Ordering},
 };
-use tokio::sync::{Semaphore};
+use tokio::sync::Semaphore;
 
 #[cfg(test)]
 mod test;
@@ -40,7 +41,7 @@ impl MainThreadBlock {
 
         MainThreadGuard {
             lock: self.clone(),
-            permit: Some(permit)
+            permit: Some(permit),
         }
     }
 
@@ -57,7 +58,7 @@ impl MainThreadBlock {
         // Wait until all of them finish. We decrease the number of available permits by n each time via forgetting
         // in order to ensure we hit 0 permits at the end, so we don't accidentally allow done() through prematurely
         // next time.
-        self.done.acquire_many(n.into()).await.unwrap().forget();
+        self.done.acquire_many(n).await.unwrap().forget();
     }
 }
 

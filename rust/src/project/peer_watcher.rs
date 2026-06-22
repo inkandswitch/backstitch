@@ -66,9 +66,7 @@ impl PeerWatcher {
         old_info: Option<ConnectionInfo>,
         new_info: Option<ConnectionInfo>,
     ) -> Option<ConnectionInfo> {
-        let Some(new_info) = new_info else {
-            return None;
-        };
+        let new_info = new_info?;
         if old_info.is_none() {
             return Some(new_info);
         }
@@ -82,11 +80,11 @@ impl PeerWatcher {
                 if new_doc_state
                     .last_acked_heads
                     .as_ref()
-                    .is_some_and(|h| h.len() == 0)
+                    .is_some_and(|h| h.is_empty())
                     && old_doc_state
                         .last_acked_heads
                         .as_ref()
-                        .is_some_and(|h| h.len() > 0)
+                        .is_some_and(|h| !h.is_empty())
                 {
                     continue;
                 }

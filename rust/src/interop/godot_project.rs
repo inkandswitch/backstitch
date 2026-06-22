@@ -6,8 +6,8 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project::{GodotProjectSignal, Project};
 use crate::project::project_api::{BranchViewModel, ProjectViewModel};
+use crate::project::project_base::{GodotProjectSignal, Project};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;
@@ -67,9 +67,10 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                     {
                         // check that one of the children is a Tree
                         let children = vbox_container.get_children();
-                        if let Some(_) = children
+                        if children
                             .iter_shared()
                             .find(|c| c.get_class().to_string() == "Tree")
+                            .is_some()
                         {
                             return true;
                         }
@@ -145,15 +146,15 @@ impl PendingEditorUpdate {
 
     /// Returns true if there are any added or deleted files
     fn added_or_deleted_files(&self) -> bool {
-        self.added_files.len() > 0 || self.deleted_files.len() > 0
+        !self.added_files.is_empty() || !self.deleted_files.is_empty()
     }
 
     /// Returns true if there are any file changes to process
     fn any_changes(&self) -> bool {
-        self.scripts_to_reload.len() > 0
-            || self.scenes_to_reload.len() > 0
-            || self.reimport_files.len() > 0
-            || self.uids_to_add.len() > 0
+        !self.scripts_to_reload.is_empty()
+            || !self.scenes_to_reload.is_empty()
+            || !self.reimport_files.is_empty()
+            || !self.uids_to_add.is_empty()
             || self.added_or_deleted_files()
     }
 
@@ -212,7 +213,11 @@ impl GodotProject {
 
     #[func]
     fn set_server(&self, server: String) {
-        let server = if server == "" { None } else { Some(server) };
+        let server = if server.is_empty() {
+            None
+        } else {
+            Some(server)
+        };
         self.project.set_server(server)
     }
 
@@ -267,14 +272,14 @@ impl GodotProject {
 
     #[func]
     fn load_project(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id) {
-            if let Err(e) = self.project.load_project(&id, false) {
-                tracing::error!("Error regular starting {:?}", e);
-                self.base_mut().call_deferred(
-                    "emit_signal",
-                    &["create_failed".to_variant(), e.to_string().to_variant()],
-                );
-            }
+        if let Ok(id) = DocumentId::from_str(&id)
+            && let Err(e) = self.project.load_project(&id, false)
+        {
+            tracing::error!("Error regular starting {:?}", e);
+            self.base_mut().call_deferred(
+                "emit_signal",
+                &["create_failed".to_variant(), e.to_string().to_variant()],
+            );
         }
     }
 
@@ -466,7 +471,7 @@ impl GodotProject {
         for event in events {
             let mut file_created = false;
             let (abs_path, content) = match event {
-                FileSystemEvent::FileCreated(path, content) => {
+                FileSystemEvent::Created(path, content) => {
                     pending_editor_update.added_files.insert(
                         ProjectSettings::singleton()
                             .localize_path(&path.to_string_lossy().to_string())
@@ -475,8 +480,8 @@ impl GodotProject {
                     file_created = true;
                     (path, content)
                 }
-                FileSystemEvent::FileModified(path, content) => (path, content),
-                FileSystemEvent::FileDeleted(path) => {
+                FileSystemEvent::Modified(path, content) => (path, content),
+                FileSystemEvent::Deleted(path) => {
                     pending_editor_update.deleted_files.insert(
                         ProjectSettings::singleton()
                             .localize_path(&path.to_string_lossy().to_string())
@@ -537,17 +542,15 @@ impl GodotProject {
                         .to_string()
                         + ".import",
                 );
-                if import_path.exists() {
-                    if !file_created {
-                        pending_editor_update
-                            .reimport_files
-                            .insert(res_path.to_string());
-                    }
+                if import_path.exists() && !file_created {
+                    pending_editor_update
+                        .reimport_files
+                        .insert(res_path.to_string());
                 }
             }
         }
         tracing::info!("---------- files_changed: {:?}", files_changed);
-        return pending_editor_update;
+        pending_editor_update
     }
 
     fn reload_project_settings(&self) {
@@ -565,7 +568,7 @@ impl GodotProject {
         self.project.get_current_ref()
     }
 
-    pub fn get_file_at_ref(&self, path: &String, ref_: &HistoryRef) -> Option<FileContent> {
+    pub fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent> {
         self.project.get_file_at_ref(path, ref_)
     }
 
@@ -604,7 +607,7 @@ impl INode for GodotProject {
             panic!("Failed to steal reload methods from dialog signal handlers");
         }
         let project_id = BackstitchConfigAccessor::get_project_doc_id();
-        if project_id == "" {
+        if project_id.is_empty() {
             tracing::info!("Backstitch config has no project id, not autostarting...");
             return;
         }
@@ -629,18 +632,16 @@ impl INode for GodotProject {
     fn process(&mut self, _delta: f64) {
         if self.deferred_start > 0 {
             self.deferred_start -= 1;
-            if self.deferred_start == 0 {
-                if let Ok(id) =
+            if self.deferred_start == 0
+                && let Ok(id) =
                     DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
-                {
-                    if let Err(e) = self.project.load_project(&id, true) {
-                        tracing::error!("Error autostarting {:?}", e);
-                        self.base_mut().call_deferred(
-                            "emit_signal",
-                            &["create_failed".to_variant(), e.to_string().to_variant()],
-                        );
-                    }
-                }
+                && let Err(e) = self.project.load_project(&id, true)
+            {
+                tracing::error!("Error autostarting {:?}", e);
+                self.base_mut().call_deferred(
+                    "emit_signal",
+                    &["create_failed".to_variant(), e.to_string().to_variant()],
+                );
             }
             return;
         }
@@ -648,7 +649,7 @@ impl INode for GodotProject {
             return;
         }
         let (updates, signals) = self.project.process(_delta);
-        if updates.len() > 0 {
+        if !updates.is_empty() {
             self.pending_editor_update
                 .merge(self.process_godot_updates(updates));
         }
@@ -741,11 +742,10 @@ impl GodotProjectPlugin {
     }
 
     fn force_reload_resource(path: &str) -> Option<Gd<Resource>> {
-        let scene = ResourceLoader::singleton()
+        ResourceLoader::singleton()
             .load_ex(path)
             .cache_mode(CacheMode::REPLACE_DEEP)
-            .done();
-        scene
+            .done()
     }
 
     fn update_godot_after_source_change(&mut self) -> bool {
@@ -763,7 +763,7 @@ impl GodotProjectPlugin {
             &p.pending_editor_update
                 .deleted_files
                 .iter()
-                .map(|path| path.clone())
+                .cloned()
                 .collect::<Vec<String>>(),
         );
         p.pending_editor_update.deleted_files.clear();
@@ -782,7 +782,7 @@ impl GodotProjectPlugin {
         let mut p = proj.bind_mut();
         p.base_mut().set_process(true);
         self.base_mut().set_process(true);
-        return true;
+        true
     }
 
     #[func]

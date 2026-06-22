@@ -47,14 +47,8 @@ pub mod autosurgeon_heads {
             .collect()
     }
 
-    pub fn reconcile<R: Reconciler>(
-        heads: &Vec<ChangeHash>,
-        reconciler: R,
-    ) -> Result<(), R::Error> {
-        let str_vec = heads
-            .into_iter()
-            .map(|h| h.to_string())
-            .collect::<Vec<String>>();
+    pub fn reconcile<R: Reconciler>(heads: &[ChangeHash], reconciler: R) -> Result<(), R::Error> {
+        let str_vec = heads.iter().map(|h| h.to_string()).collect::<Vec<String>>();
         str_vec.reconcile(reconciler)
     }
 }

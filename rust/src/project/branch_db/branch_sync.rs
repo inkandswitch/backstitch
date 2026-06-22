@@ -52,7 +52,7 @@ impl BranchDb {
     /// Get the mutable checked out ref for locking.
     /// TODO (Lilith): This smells kind of nasty, maybe don't expose this... but how else to ensure we don't step on toes?
     pub fn get_checked_out_ref_mut(&self) -> Arc<RwLock<Option<HistoryRef>>> {
-        return self.checked_out_ref.clone();
+        self.checked_out_ref.clone()
     }
 
     pub async fn get_checked_out_ref(&self) -> Option<HistoryRef> {
@@ -61,7 +61,7 @@ impl BranchDb {
 
     pub fn subscribe_doc_changes(&self) -> impl Stream<Item = ()> {
         let s = self.branch_change_tx.subscribe();
-        return BroadcastStream::new(s).filter_map(async |f| f.ok());
+        BroadcastStream::new(s).filter_map(async |f| f.ok())
     }
 
     pub async fn get_metadata_state(&self) -> Option<(DocHandle, BranchesMetadataDoc)> {
@@ -122,7 +122,7 @@ impl BranchDb {
             return CanonicalBranchStatus::Pending;
         }
 
-        return CanonicalBranchStatus::Healthy;
+        CanonicalBranchStatus::Healthy
     }
 
     pub async fn wait_for_shadow_doc(&self, branch: &DocumentId) -> Result<(), ShadowDocWaitError> {
@@ -135,7 +135,7 @@ impl BranchDb {
             state.shadow_doc_init_tx.subscribe()
         };
 
-        let current = rx.borrow_and_update().clone();
+        let current = *rx.borrow_and_update();
         if current {
             return Ok(());
         }
@@ -151,7 +151,7 @@ impl BranchDb {
     /// But that introduces problems, like server disconnections causing a file checkout! We need to figure out expected failure behavior.
     pub async fn has_binary_doc(&self, id: &DocumentId) -> bool {
         let states = self.binary_states.lock().await;
-        states.contains_key(&id)
+        states.contains_key(id)
     }
 
     pub async fn ingest_binary_doc(&self, id: DocumentId, handle: Option<DocHandle>) {
@@ -230,12 +230,12 @@ impl BranchDb {
 
     // we may need to do an unordered comparison for heads across docs
     // todo: we may want to factor this out to a better Heads struct to handle correct comparison always
-    fn are_heads_equivalent(a: &Vec<ChangeHash>, b: &Vec<ChangeHash>) -> bool {
-        let mut asorted = a.clone();
-        let mut bsorted = b.clone();
+    fn are_heads_equivalent(a: &[ChangeHash], b: &[ChangeHash]) -> bool {
+        let mut asorted = a.to_vec();
+        let mut bsorted = b.to_vec();
         asorted.sort();
         bsorted.sort();
-        return asorted == bsorted;
+        asorted == bsorted
     }
 
     fn resolved_all_canonical_binary_docs(

@@ -54,10 +54,10 @@ impl FileSystemTraversal {
             // In case of hash retrieval failure, we don't want it to read the file as deleted.
             .filter_map(|r| async move {
                 match r {
-                    Ok(v) => return Some(v),
+                    Ok(v) => Some(v),
                     Err(e) => {
                         tracing::error!("Failed to hash: {e}");
-                        return None;
+                        None
                     }
                 }
             })
@@ -65,12 +65,12 @@ impl FileSystemTraversal {
             .await
     }
 
-    pub fn get_file_changes<K: AsRef<Path>>(
+    pub fn get_file_changes<K>(
         before: HashMap<K, blake3::Hash>,
         after: HashMap<K, blake3::Hash>,
     ) -> HashMap<K, ChangeType>
     where
-        K: Eq + std::hash::Hash + Clone,
+        K: AsRef<Path> + Eq + std::hash::Hash + Clone,
     {
         let mut changes = HashMap::new();
 

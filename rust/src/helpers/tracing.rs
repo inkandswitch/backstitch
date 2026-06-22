@@ -18,7 +18,6 @@ fn get_backstitch_dir() -> PathBuf {
     let path = ProjectSettings::singleton()
         .globalize_path("res://")
         .to_string();
-
     let path = PathBuf::from(path).join(".backstitch");
     let _ = std::fs::create_dir_all(&path);
     path

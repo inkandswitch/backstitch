@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use godot::obj::Singleton;
 use godot::{
     classes::{Engine, ResourceLoader, ResourceSaver},
@@ -17,13 +15,9 @@ use crate::{
 };
 
 struct MyExtension;
-thread_local! {
-    static BACKSTITCH_RESOURCE_LOADER: RefCell<Option<Gd<BackstitchResourceLoader>>> =
-        const { RefCell::new(None) };
+static mut BACKSTITCH_RESOURCE_LOADER: Option<Gd<BackstitchResourceLoader>> = None;
+static mut BACKSTITCH_RESOURCE_FORMAT_SAVER: Option<Gd<BackstitchResourceFormatSaver>> = None;
 
-    static BACKSTITCH_RESOURCE_FORMAT_SAVER: RefCell<Option<Gd<BackstitchResourceFormatSaver>>> =
-        const { RefCell::new(None) };
-}
 #[gdextension]
 unsafe impl ExtensionLibrary for MyExtension {
     fn editor_run_behavior() -> EditorRunBehavior {
@@ -47,14 +41,10 @@ unsafe impl ExtensionLibrary for MyExtension {
                 .add_resource_format_saver_ex(&saver)
                 .at_front(true)
                 .done();
-
-            BACKSTITCH_RESOURCE_LOADER.with(|slot| {
-                *slot.borrow_mut() = Some(loader);
-            });
-
-            BACKSTITCH_RESOURCE_FORMAT_SAVER.with(|slot| {
-                *slot.borrow_mut() = Some(saver);
-            });
+            unsafe {
+                BACKSTITCH_RESOURCE_LOADER = Some(loader);
+                BACKSTITCH_RESOURCE_FORMAT_SAVER = Some(saver);
+            }
         } else if level == InitLevel::Editor {
             tracing::info!("** on_level_init: Editor");
         }
@@ -65,15 +55,20 @@ unsafe impl ExtensionLibrary for MyExtension {
             tracing::info!("** on_level_deinit: Editor");
         }
         if level == InitLevel::Scene {
-            let loader = BACKSTITCH_RESOURCE_LOADER.with(|slot| slot.borrow_mut().take());
-            let saver = BACKSTITCH_RESOURCE_FORMAT_SAVER.with(|slot| slot.borrow_mut().take());
-
-            if let Some(loader) = loader.as_ref() {
+            // TODO: Figure out how to safely have a static mut pointer to a Gd<T>
+            #[allow(clippy::deref_addrof)]
+            let loader = unsafe { &*(&raw mut BACKSTITCH_RESOURCE_LOADER) };
+            #[allow(clippy::deref_addrof)]
+            let saver = unsafe { &*(&raw mut BACKSTITCH_RESOURCE_FORMAT_SAVER) };
+            if let Some(loader) = loader {
                 ResourceLoader::singleton().remove_resource_format_loader(loader);
             }
-
-            if let Some(saver) = saver.as_ref() {
+            if let Some(saver) = saver {
                 ResourceSaver::singleton().remove_resource_format_saver(saver);
+            }
+            unsafe {
+                BACKSTITCH_RESOURCE_LOADER = None;
+                BACKSTITCH_RESOURCE_FORMAT_SAVER = None;
             }
             tracing::info!("** on_level_deinit: Scene");
             unregister_singleton("GodotProject");

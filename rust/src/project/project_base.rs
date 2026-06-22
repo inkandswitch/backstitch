@@ -555,7 +555,11 @@ impl Project {
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn process(&mut self, _delta: f64) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
+    pub fn process(
+        &mut self,
+        _delta: f64,
+        safe_to_update_godot: bool,
+    ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
         let fs_changes = {
             let mut driver_guard = self.driver.blocking_lock();
@@ -566,7 +570,7 @@ impl Project {
             driver_guard
                 .as_ref()
                 .unwrap()
-                .set_safe_to_update_editor(Self::safe_to_update_godot());
+                .set_safe_to_update_editor(safe_to_update_godot);
             let block = self.main_thread_block.clone();
             tracing::trace!("Blocking for dependents...");
             self.runtime

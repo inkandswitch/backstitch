@@ -149,7 +149,7 @@ impl BackstitchResourceLoader {
         let keys: PackedStringArray = import_file.get_section_keys("params");
         let mut params: VarDictionary = vdict! {};
         for key in keys.as_slice().iter() {
-            params.set(key.to_variant(), import_file.get_value("params", key));
+            params.set(&key.to_variant(), &import_file.get_value("params", key));
         }
         (importer.to::<GString>(), params)
     }

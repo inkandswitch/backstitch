@@ -31,14 +31,6 @@ jobs:
     name: 🔍 Rust Validation
     uses: ./.github/workflows/rust_validation.yml
 
-  editor-builds:
-    name: 🤖 Build Godot for All Platforms
-    uses: ./.github/workflows/all_editor_builds.yml
-    secrets: inherit
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-
   macos-plugin-builds:
     name: 🍎 Build Backstitch for macOS
     uses: ./.github/workflows/macos_builds.yml
@@ -69,5 +61,5 @@ jobs:
   release:
     name: 📦 Release
     if: github.ref_type == 'tag'
-    needs: [editor-builds, merge-plugin-builds, compose-projects]
+    needs: [merge-plugin-builds, compose-projects]
     uses: ./.github/workflows/release.yml

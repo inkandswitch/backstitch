@@ -125,6 +125,7 @@ struct PendingEditorUpdate {
     reimport_files: HashSet<String>,
     uids_to_add: HashMap<String, String>,
     reload_project_settings: bool,
+    was_load_or_checkout: bool,
 }
 
 impl PendingEditorUpdate {
@@ -142,6 +143,7 @@ impl PendingEditorUpdate {
         }
         self.reload_project_settings =
             self.reload_project_settings || other.reload_project_settings;
+        self.was_load_or_checkout = self.was_load_or_checkout || other.was_load_or_checkout;
     }
 
     /// Returns true if there are any added or deleted files
@@ -167,6 +169,7 @@ impl PendingEditorUpdate {
         self.reimport_files.clear();
         self.uids_to_add.clear();
         self.reload_project_settings = false;
+        self.was_load_or_checkout = false;
     }
 }
 
@@ -473,7 +476,11 @@ impl GodotProject {
             || BackstitchEditorAccessor::unsaved_files_open())
     }
 
-    fn process_godot_updates(&self, events: Vec<FileSystemEvent>) -> PendingEditorUpdate {
+    fn process_godot_updates(
+        &self,
+        events: Vec<FileSystemEvent>,
+        was_load_or_checkout: bool,
+    ) -> PendingEditorUpdate {
         let mut pending_editor_update = PendingEditorUpdate::default();
         let mut files_changed = Vec::new();
         for event in events {
@@ -557,6 +564,7 @@ impl GodotProject {
                 }
             }
         }
+        pending_editor_update.was_load_or_checkout = was_load_or_checkout;
         tracing::info!("---------- files_changed: {:?}", files_changed);
         pending_editor_update
     }
@@ -665,8 +673,14 @@ impl INode for GodotProject {
         }
         let (updates, signals) = self.project.process(_delta, self.safe_to_update_godot());
         if !updates.is_empty() {
-            self.pending_editor_update
-                .merge(self.process_godot_updates(updates));
+            self.pending_editor_update.merge(
+                self.process_godot_updates(
+                    updates,
+                    signals
+                        .iter()
+                        .any(|s| matches!(s, GodotProjectSignal::BranchCheckedOut)),
+                ),
+            );
         }
         for signal in signals {
             match signal {
@@ -678,6 +692,8 @@ impl INode for GodotProject {
                     self.base_mut()
                         .call_deferred("emit_signal", &["sync_changed".to_variant()]);
                 }
+                // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
+                GodotProjectSignal::BranchCheckedOut => {}
             }
         }
     }
@@ -787,14 +803,39 @@ impl GodotProjectPlugin {
             p.pending_editor_update.reload_project_settings = false;
         }
 
+        let scripts_to_reload: HashSet<String> = p.pending_editor_update.scripts_to_reload.clone();
+        let needs_full_scan = p.pending_editor_update.was_load_or_checkout;
         // make sure to explicitly have p dropped so that sidebar can update, then rebind
         drop(p);
 
-        if BackstitchEditorAccessor::refresh_after_source_change() {
-            let mut p = proj.bind_mut();
-            p.pending_editor_update.clear();
+        if !needs_full_scan {
+            EditorFilesystemAccessor::scan_changes();
+            BackstitchEditorAccessor::reload_script_editor();
+            BackstitchEditorAccessor::reload_scene_files();
+        } else {
+            if !BackstitchEditorAccessor::fs_scan_full_sync() {
+                tracing::error!("Full scan timed out");
+                let mut p = proj.bind_mut();
+                p.base_mut().set_process(true);
+                self.base_mut().set_process(true);
+                return false;
+            }
+            for script in scripts_to_reload {
+                if ResourceLoader::singleton()
+                    .load_ex(&script)
+                    .cache_mode(CacheMode::IGNORE_DEEP)
+                    .done()
+                    .is_none()
+                {
+                    tracing::error!("Failed to reload script {}", script);
+                }
+            }
+            BackstitchEditorAccessor::reload_script_editor();
+            BackstitchEditorAccessor::reload_scene_files();
         }
+
         let mut p = proj.bind_mut();
+        p.pending_editor_update.clear();
         p.base_mut().set_process(true);
         self.base_mut().set_process(true);
         true

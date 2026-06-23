@@ -51,25 +51,22 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
         // get the first Panel child of the editor node, that's the gui base
         let children = editor_node.get_children();
         // it should be the first panel
-        if let Some(gui_base) = children
-            .iter_shared()
-            .find(|c| c.get_class().to_string() == "Panel")
-        {
+        if let Some(gui_base) = children.iter_shared().find(|c| c.get_class() == "Panel") {
             // find the disk_changed dialog child of the gui base
             let children = gui_base.get_children();
             if let Some(disk_changed_dialog_node) = children.iter_shared().find(|c| {
-                if c.get_class().to_string() == "ConfirmationDialog" {
+                if c.get_class() == "ConfirmationDialog" {
                     // check that one of the children is a VBoxContainer
                     let children = c.get_children();
                     if let Some(vbox_container) = children
                         .iter_shared()
-                        .find(|c| c.get_class().to_string() == "VBoxContainer")
+                        .find(|c| c.get_class() == "VBoxContainer")
                     {
                         // check that one of the children is a Tree
                         let children = vbox_container.get_children();
                         if children
                             .iter_shared()
-                            .find(|c| c.get_class().to_string() == "Tree")
+                            .find(|c| c.get_class() == "Tree")
                             .is_some()
                         {
                             return true;

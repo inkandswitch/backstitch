@@ -4,7 +4,9 @@ use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
 use automerge::ChangeHash;
 use godot::builtin::Variant;
-use godot::meta::{ArgPassing, ByValue, GodotType, ToArg};
+use godot::meta::conv::{ArgPassing, ByValue};
+use godot::meta::shape::GodotShape;
+use godot::meta::{GodotType, ToArg};
 use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
 use samod::DocumentId;
 use std::fmt::Display;
@@ -133,40 +135,43 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
     let merge_into = branch.get_merge_into();
     let var = merge_into.to_variant();
     vdict! {
-        "id": branch.get_id().to_godot(),
-        "name": branch.get_name(),
-        "parent": branch.get_parent().to_variant(),
-        "children": branch.get_children().to_godot(),
-        "is_available": branch.is_available(),
+        "id" => &branch.get_id().to_variant(),
+        "name" => branch.get_name(),
+        "parent" => &branch.get_parent().to_variant(),
+        "children" => &branch.get_children().to_variant(),
+        "is_available" => branch.is_available(),
         // todo: figure out how to make to_godot work for this
-        "reverted_to": branch.get_reverted_to().to_variant(),
-        "merge_into": var
+        "reverted_to" => &branch.get_reverted_to().to_variant(),
+        "merge_into" => &var
     }
 }
 
 pub(crate) fn diff_view_model_to_dict(diff: &impl DiffViewModel) -> VarDictionary {
     vdict! {
-        "dict": diff.get_diff().to_godot(),
-        "title": diff.get_title().to_godot()
+        "dict" => &diff.get_diff().to_godot(),
+        "title" => &diff.get_title().to_variant()
     }
 }
 
 pub(crate) fn change_view_model_to_dict(change: &impl ChangeViewModel) -> VarDictionary {
     vdict! {
-        "hash": change.get_hash().to_string(),
-        "username": change.get_username(),
-        "is_synced": change.is_synced(),
-        "summary": change.get_summary(),
-        "is_merge": change.is_merge(),
-        "merge_id": change.get_merge_id().to_variant(),
-        "is_setup": change.is_setup(),
-        "exact_timestamp": change.get_exact_timestamp(),
-        "human_timestamp": change.get_human_timestamp(),
+        "hash" => change.get_hash().to_string(),
+        "username" => change.get_username(),
+        "is_synced" => change.is_synced(),
+        "summary" => change.get_summary(),
+        "is_merge" => change.is_merge(),
+        "merge_id" => &change.get_merge_id().to_variant(),
+        "is_setup" => change.is_setup(),
+        "exact_timestamp" => change.get_exact_timestamp(),
+        "human_timestamp" => change.get_human_timestamp(),
     }
 }
 
 impl GodotConvert for SyncStatus {
     type Via = VarDictionary;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
 }
 
 impl ToGodot for SyncStatus {
@@ -174,13 +179,13 @@ impl ToGodot for SyncStatus {
 
     fn to_godot(&self) -> VarDictionary {
         vdict! {
-            "state": match self {
+            "state" => match self {
                 SyncStatus::Unknown => "unknown",
                 SyncStatus::Disconnected(_) => "disconnected",
                 SyncStatus::UpToDate => "up_to_date",
                 SyncStatus::Syncing => "syncing"
             },
-            "unsynced_changes": match self {
+            "unsynced_changes" => match self {
                 SyncStatus::Disconnected(num) => *num as i32,
                 _ => 0
             }
@@ -190,6 +195,9 @@ impl ToGodot for SyncStatus {
 
 impl GodotConvert for FileContent {
     type Via = Variant;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
 }
 
 impl ToGodot for FileContent {
@@ -230,6 +238,9 @@ impl ToGodotExt for Vec<ChangedFile> {
 
 impl GodotConvert for TypeOrInstance {
     type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
 }
 
 impl ToGodot for TypeOrInstance {

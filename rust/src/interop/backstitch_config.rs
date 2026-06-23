@@ -4,7 +4,7 @@ use godot::global::Error;
 use godot::prelude::*;
 
 #[derive(GodotClass)]
-#[class(base=Object)]
+#[class(base=Object, tool)]
 pub struct BackstitchConfig {
     #[base]
     base: Base<Object>,

@@ -7,7 +7,7 @@ use godot::{
 };
 
 #[derive(GodotClass, Debug)]
-#[class(base=RefCounted)]
+#[class(base=RefCounted, tool)]
 pub struct LazyLoadToken {
     base: Base<RefCounted>,
     original_path: Option<String>,

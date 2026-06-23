@@ -64,7 +64,7 @@ impl BackstitchEditorAccessor {
             tracing::error!("No script editor found?!");
             return PackedStringArray::new();
         };
-        // TODO: when 4.7 is released, use the bound method instead
+        // TODO: when gdext ships 4.7 bindings, use the bound method instead
         script_editor
             .call("get_unsaved_files", &[])
             .to::<PackedStringArray>()
@@ -74,7 +74,7 @@ impl BackstitchEditorAccessor {
         if !Self::get_unsaved_scripts().is_empty() {
             return true;
         }
-        // TODO: when 4.7 is released, use the bound method instead
+        // TODO: when gdext ships 4.7 bindings, use the bound method instead
         let unsaved_scenes = EditorInterface::singleton()
             .call("get_unsaved_scenes", &[])
             .to::<PackedStringArray>();
@@ -94,7 +94,7 @@ impl BackstitchEditorAccessor {
             tracing::error!("No script editor found?!");
             return;
         };
-        // TODO: when 4.7 is released, use the bound method instead
+        // TODO: when gdext ships 4.7 bindings, use the bound method instead
         script_editor.call("close_file", &[path.to_variant()]);
     }
 
@@ -119,12 +119,11 @@ impl BackstitchEditorAccessor {
                 if current_scene.is_some() && current_scene.as_ref().unwrap() == path {
                     EditorInterface::singleton().close_scene();
                 } else {
-                    // TODO: https://github.com/godotengine/godot/pull/116905 has a bug in it that causes a crash if the scene is not the current scene and then we close it; so we need to wait until that's fixed
-                    // EditorInterface::singleton().open_scene_from_path(path);
-                    // EditorInterface::singleton().close_scene();
+                    EditorInterface::singleton().open_scene_from_path(path);
+                    EditorInterface::singleton().close_scene();
                 }
             } else if open_scripts.contains(path) {
-                // TODO: when https://github.com/godotengine/godot/pull/113772 is merged and 4.7 is released, use the bound method instead
+                // TODO: when gdext ships 4.7 bindings, use the bound method instead
                 script_editor.call("close_file", &[path.to_variant()]);
             }
         }
@@ -144,7 +143,13 @@ impl BackstitchEditorAccessor {
         }
     }
 
-    pub fn scan_fs_sync() -> bool {
+    pub fn reload_script_editor() {
+        let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
+        // TODO: when gdext ships 4.7 bindings, use the bound method instead
+        script_editor.call("reload_open_files", &[]);
+    }
+
+    pub fn fs_scan_full_sync() -> bool {
         let mut fs = EditorInterface::singleton()
             .get_resource_filesystem()
             .unwrap();
@@ -160,7 +165,7 @@ impl BackstitchEditorAccessor {
             std::thread::sleep(Duration::from_millis(100));
             fs.notify(godot::classes::notify::NodeNotification::PROCESS)
         }
-        timed_out
+        !timed_out
     }
 
     pub fn refresh_after_source_change() -> bool {
@@ -170,20 +175,14 @@ impl BackstitchEditorAccessor {
         //     tracing::warn!("Scanning filesystem timed out!");
         //     return false;
         // }
-        EditorInterface::singleton()
-            .get_resource_filesystem()
-            .unwrap()
-            .scan_sources();
-        let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
-        // TODO: when 4.7 is released, use the bound method instead
-        script_editor.call("reload_open_files", &[]);
-
+        EditorFilesystemAccessor::scan_changes();
+        Self::reload_script_editor();
         Self::reload_scene_files();
         true
     }
 
     pub fn save_all_scripts() {
-        // TODO: when 4.7 is released, use the bound method instead
+        // TODO: when gdext ships 4.7 bindings, use the bound method instead
         EditorInterface::singleton()
             .get_script_editor()
             .unwrap()
@@ -191,11 +190,6 @@ impl BackstitchEditorAccessor {
     }
 
     pub fn save_all() {
-        // TODO: no bound method to get shader_editor; I don't think we need it?
-        // ShaderEditorPlugin *shader_editor = Object::cast_to<ShaderEditorPlugin>(EditorNode::get_editor_data().get_editor_by_name("Shader"));
-        // if (shader_editor) {
-        //     shader_editor->save_external_data();
-        // }
         BackstitchEditorAccessor::save_all_scripts();
         EditorInterface::singleton().save_all_scenes();
     }

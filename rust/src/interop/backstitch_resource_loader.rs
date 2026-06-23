@@ -24,7 +24,7 @@ use crate::interop::godot_project::GodotProject;
 /// It is registered as a resource format loader with Godot.
 /// Works on paths that are formatted as `backstitch://<doc_id>+<ChangeHash>/<actual_path>`
 #[derive(GodotClass)]
-#[class(base = ResourceFormatLoader)]
+#[class(base = ResourceFormatLoader, tool)]
 pub struct BackstitchResourceLoader {
     #[base]
     base: Base<ResourceFormatLoader>,
@@ -149,7 +149,7 @@ impl BackstitchResourceLoader {
         let keys: PackedStringArray = import_file.get_section_keys("params");
         let mut params: VarDictionary = vdict! {};
         for key in keys.as_slice().iter() {
-            params.set(key.to_variant(), import_file.get_value("params", key));
+            params.set(&key.to_variant(), &import_file.get_value("params", key));
         }
         (importer.to::<GString>(), params)
     }
@@ -475,7 +475,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
 }
 
 #[derive(GodotClass)]
-#[class(base = ResourceFormatSaver)]
+#[class(base = ResourceFormatSaver, tool)]
 pub struct BackstitchResourceFormatSaver {
     #[base]
     base: Base<ResourceFormatSaver>,

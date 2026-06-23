@@ -51,25 +51,22 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
         // get the first Panel child of the editor node, that's the gui base
         let children = editor_node.get_children();
         // it should be the first panel
-        if let Some(gui_base) = children
-            .iter_shared()
-            .find(|c| c.get_class().to_string() == "Panel")
-        {
+        if let Some(gui_base) = children.iter_shared().find(|c| c.get_class() == "Panel") {
             // find the disk_changed dialog child of the gui base
             let children = gui_base.get_children();
             if let Some(disk_changed_dialog_node) = children.iter_shared().find(|c| {
-                if c.get_class().to_string() == "ConfirmationDialog" {
+                if c.get_class() == "ConfirmationDialog" {
                     // check that one of the children is a VBoxContainer
                     let children = c.get_children();
                     if let Some(vbox_container) = children
                         .iter_shared()
-                        .find(|c| c.get_class().to_string() == "VBoxContainer")
+                        .find(|c| c.get_class() == "VBoxContainer")
                     {
                         // check that one of the children is a Tree
                         let children = vbox_container.get_children();
                         if children
                             .iter_shared()
-                            .find(|c| c.get_class().to_string() == "Tree")
+                            .find(|c| c.get_class() == "Tree")
                             .is_some()
                         {
                             return true;
@@ -125,6 +122,7 @@ struct PendingEditorUpdate {
     reimport_files: HashSet<String>,
     uids_to_add: HashMap<String, String>,
     reload_project_settings: bool,
+    was_load_or_checkout: bool,
 }
 
 impl PendingEditorUpdate {
@@ -142,6 +140,7 @@ impl PendingEditorUpdate {
         }
         self.reload_project_settings =
             self.reload_project_settings || other.reload_project_settings;
+        self.was_load_or_checkout = self.was_load_or_checkout || other.was_load_or_checkout;
     }
 
     /// Returns true if there are any added or deleted files
@@ -167,6 +166,7 @@ impl PendingEditorUpdate {
         self.reimport_files.clear();
         self.uids_to_add.clear();
         self.reload_project_settings = false;
+        self.was_load_or_checkout = false;
     }
 }
 
@@ -174,7 +174,7 @@ impl PendingEditorUpdate {
 /// It is intended to be a gdscript-visible lightweight wrapper around the GodotProjectImpl, which contains the actual logic.
 /// It also handles signals and communication with Godot.
 #[derive(GodotClass, Debug)]
-#[class(base=Node)]
+#[class(base=Node, tool)]
 pub struct GodotProject {
     base: Base<Node>,
     project: Project,
@@ -473,7 +473,11 @@ impl GodotProject {
             || BackstitchEditorAccessor::unsaved_files_open())
     }
 
-    fn process_godot_updates(&self, events: Vec<FileSystemEvent>) -> PendingEditorUpdate {
+    fn process_godot_updates(
+        &self,
+        events: Vec<FileSystemEvent>,
+        was_load_or_checkout: bool,
+    ) -> PendingEditorUpdate {
         let mut pending_editor_update = PendingEditorUpdate::default();
         let mut files_changed = Vec::new();
         for event in events {
@@ -557,6 +561,7 @@ impl GodotProject {
                 }
             }
         }
+        pending_editor_update.was_load_or_checkout = was_load_or_checkout;
         tracing::info!("---------- files_changed: {:?}", files_changed);
         pending_editor_update
     }
@@ -665,8 +670,14 @@ impl INode for GodotProject {
         }
         let (updates, signals) = self.project.process(_delta, self.safe_to_update_godot());
         if !updates.is_empty() {
-            self.pending_editor_update
-                .merge(self.process_godot_updates(updates));
+            self.pending_editor_update.merge(
+                self.process_godot_updates(
+                    updates,
+                    signals
+                        .iter()
+                        .any(|s| matches!(s, GodotProjectSignal::BranchCheckedOut)),
+                ),
+            );
         }
         for signal in signals {
             match signal {
@@ -678,6 +689,8 @@ impl INode for GodotProject {
                     self.base_mut()
                         .call_deferred("emit_signal", &["sync_changed".to_variant()]);
                 }
+                // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
+                GodotProjectSignal::BranchCheckedOut => {}
             }
         }
     }
@@ -787,14 +800,39 @@ impl GodotProjectPlugin {
             p.pending_editor_update.reload_project_settings = false;
         }
 
+        let scripts_to_reload: HashSet<String> = p.pending_editor_update.scripts_to_reload.clone();
+        let needs_full_scan = p.pending_editor_update.was_load_or_checkout;
         // make sure to explicitly have p dropped so that sidebar can update, then rebind
         drop(p);
 
-        if BackstitchEditorAccessor::refresh_after_source_change() {
-            let mut p = proj.bind_mut();
-            p.pending_editor_update.clear();
+        if !needs_full_scan {
+            EditorFilesystemAccessor::scan_changes();
+            BackstitchEditorAccessor::reload_script_editor();
+            BackstitchEditorAccessor::reload_scene_files();
+        } else {
+            if !BackstitchEditorAccessor::fs_scan_full_sync() {
+                tracing::error!("Full scan timed out");
+                let mut p = proj.bind_mut();
+                p.base_mut().set_process(true);
+                self.base_mut().set_process(true);
+                return false;
+            }
+            for script in scripts_to_reload {
+                if ResourceLoader::singleton()
+                    .load_ex(&script)
+                    .cache_mode(CacheMode::IGNORE_DEEP)
+                    .done()
+                    .is_none()
+                {
+                    tracing::error!("Failed to reload script {}", script);
+                }
+            }
+            BackstitchEditorAccessor::reload_script_editor();
+            BackstitchEditorAccessor::reload_scene_files();
         }
+
         let mut p = proj.bind_mut();
+        p.pending_editor_update.clear();
         p.base_mut().set_process(true);
         self.base_mut().set_process(true);
         true

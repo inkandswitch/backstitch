@@ -43,7 +43,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -83,7 +83,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -102,7 +102,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -138,7 +138,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -173,7 +173,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -214,7 +214,7 @@
             "type": "lldb-dap",
             "request": "launch",
             "program": "",
-            "osx": { "program": "build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
             "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
             "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
             "args": [
@@ -231,6 +231,49 @@
 			],
             "preLaunchTask": "Build: Prepare moddable-platformer (Debug)"
         },
-
+        {
+            "name": "lldb-dap: Launch threadbare",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "",
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor.app/Contents/MacOS/Godot" },
+            "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.x86_64.exe" },
+            "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.x86_64" },
+            "args": [
+                "-e",
+                "--path",
+                "${workspaceFolder}/build/threadbare",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "initCommands": [
+                "command script import ${workspaceFolder}/build/GodotFormatters/rust_lang_support",
+                "command script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
+                "command script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
+            ],
+            "preLaunchTask": "Build: Prepare threadbare (Release)"
+        },
+        {
+            "name": "lldb-dap: Launch threadbare (dev)",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "",
+            "osx": { "program": "${workspaceFolder}/build/godot/bin/godot_macos_editor_dev.app/Contents/MacOS/Godot" },
+            "windows": { "program": "${workspaceFolder}/build/godot/bin/godot.windows.editor.dev.x86_64.exe" },
+            "linux": { "program": "${workspaceFolder}/build/godot/bin/godot.linux.editor.dev.x86_64" },
+            "args": [
+                "-e",
+                "--path",
+                "${workspaceFolder}/build/threadbare",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "initCommands": [
+                "command script import ${workspaceFolder}/build/GodotFormatters/rust_lang_support",
+                "command script import ${workspaceFolder}/scripts/patchwork_lldb_formatters",
+                "command script import ${workspaceFolder}/build/GodotFormatters/godot_formatters",
+            ],
+            "preLaunchTask": "Build: Prepare threadbare (Debug)"
+        },
     ]
 }

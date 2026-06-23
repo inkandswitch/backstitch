@@ -1,7 +1,7 @@
 use godot::obj::Singleton;
 use godot::{
     classes::{Engine, ResourceLoader, ResourceSaver},
-    init::{EditorRunBehavior, ExtensionLibrary, InitLevel, gdextension},
+    init::{EditorRunBehavior, ExtensionLibrary, InitStage, gdextension},
     obj::{Gd, NewAlloc, NewGd},
 };
 
@@ -24,8 +24,8 @@ unsafe impl ExtensionLibrary for MyExtension {
         EditorRunBehavior::ToolClassesOnly
     }
 
-    fn on_level_init(level: InitLevel) {
-        if level == InitLevel::Scene {
+    fn on_stage_init(level: InitStage) {
+        if level == InitStage::Scene {
             initialize_tracing();
             tracing::info!("** on_level_init: Scene");
             Engine::singleton()
@@ -45,16 +45,16 @@ unsafe impl ExtensionLibrary for MyExtension {
                 BACKSTITCH_RESOURCE_LOADER = Some(loader);
                 BACKSTITCH_RESOURCE_FORMAT_SAVER = Some(saver);
             }
-        } else if level == InitLevel::Editor {
+        } else if level == InitStage::Editor {
             tracing::info!("** on_level_init: Editor");
         }
     }
 
-    fn on_level_deinit(level: InitLevel) {
-        if level == InitLevel::Editor {
+    fn on_stage_deinit(level: InitStage) {
+        if level == InitStage::Editor {
             tracing::info!("** on_level_deinit: Editor");
         }
-        if level == InitLevel::Scene {
+        if level == InitStage::Scene {
             // TODO: Figure out how to safely have a static mut pointer to a Gd<T>
             #[allow(clippy::deref_addrof)]
             let loader = unsafe { &*(&raw mut BACKSTITCH_RESOURCE_LOADER) };

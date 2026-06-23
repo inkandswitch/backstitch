@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use godot::classes::ProjectSettings;
 use godot::obj::Singleton;
 use godot::{
     classes::{Engine, ResourceLoader, ResourceSaver},
@@ -18,6 +21,15 @@ struct MyExtension;
 static mut BACKSTITCH_RESOURCE_LOADER: Option<Gd<BackstitchResourceLoader>> = None;
 static mut BACKSTITCH_RESOURCE_FORMAT_SAVER: Option<Gd<BackstitchResourceFormatSaver>> = None;
 
+fn get_backstitch_dir() -> PathBuf {
+    let path = ProjectSettings::singleton()
+        .globalize_path("res://")
+        .to_string();
+    let path = PathBuf::from(path).join(".backstitch");
+    let _ = std::fs::create_dir_all(&path);
+    path
+}
+
 #[gdextension]
 unsafe impl ExtensionLibrary for MyExtension {
     fn editor_run_behavior() -> EditorRunBehavior {
@@ -26,7 +38,7 @@ unsafe impl ExtensionLibrary for MyExtension {
 
     fn on_stage_init(level: InitStage) {
         if level == InitStage::Scene {
-            initialize_tracing();
+            initialize_tracing(&get_backstitch_dir());
             tracing::info!("** on_level_init: Scene");
             Engine::singleton()
                 .register_singleton("BackstitchConfig", &BackstitchConfig::new_alloc());

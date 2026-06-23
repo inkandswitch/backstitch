@@ -1,8 +1,6 @@
 use std::io::Write;
 use std::{fmt, path::PathBuf};
 
-use godot::classes::ProjectSettings;
-use godot::obj::Singleton;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     EnvFilter, Layer,
@@ -14,15 +12,6 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-fn get_backstitch_dir() -> PathBuf {
-    let path = ProjectSettings::singleton()
-        .globalize_path("res://")
-        .to_string();
-    let path = PathBuf::from(path).join(".backstitch");
-    let _ = std::fs::create_dir_all(&path);
-    path
-}
-
 struct CompactTime;
 impl FormatTime for CompactTime {
     fn format_time(&self, w: &mut Writer<'_>) -> Result<(), std::fmt::Error> {
@@ -30,18 +19,19 @@ impl FormatTime for CompactTime {
     }
 }
 static mut M_FILE_WRITER_MUTEX: Option<WorkerGuard> = None;
-pub fn initialize_tracing() {
+pub fn initialize_tracing(tracing_dir: &PathBuf) {
+    // unwrap or get the default tracing directory
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
         .max_log_files(5)
         .filename_prefix("backstitch.log")
-        .build(get_backstitch_dir())
+        .build(tracing_dir)
         .expect("Failed to initialize rolling file appender!");
     let (non_blocking_file_writer, _guard) = tracing_appender::non_blocking(file_appender);
     // if the mutex gets dropped, the file writer will be closed, so we need to keep it alive
     unsafe {
         M_FILE_WRITER_MUTEX = Some(_guard);
     }
-    println!("!!! Logging to {:?}/backstitch.log", get_backstitch_dir());
+    println!("!!! Logging to {:?}/backstitch.log", tracing_dir);
 
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_timer(CompactTime)

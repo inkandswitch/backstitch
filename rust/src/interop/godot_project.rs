@@ -174,7 +174,7 @@ impl PendingEditorUpdate {
 /// It is intended to be a gdscript-visible lightweight wrapper around the GodotProjectImpl, which contains the actual logic.
 /// It also handles signals and communication with Godot.
 #[derive(GodotClass, Debug)]
-#[class(base=Node)]
+#[class(base=Node, tool)]
 pub struct GodotProject {
     base: Base<Node>,
     project: Project,

@@ -46,3 +46,29 @@ jobs:
         with:
           files: |
             ${{ matrix.artifact }}.zip
+
+  release_metadata:
+    runs-on: ubuntu-latest
+    name: 🏷️ Append Release Metadata
+    steps:
+      - uses: actions/checkout@v7
+      - id: dotenv
+        uses: falti/dotenv-action@v1.1.5
+        with:
+          path: build.env
+          keys-case: bypass
+      - name: Append metadata to release
+        uses: irongut/EditRelease@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          id: ${{ github.event.release.id }}
+          replacebody: false
+          body: |
+            <!-- BEGIN_RELEASE_METADATA
+            {
+              "MINIMUM_GODOT": "${{steps.dotenv.outputs.MINIMUM_GODOT}}"
+              "RECOMMENDED_GODOT": "${{steps.dotenv.outputs.RECOMMENDED_GODOT}}"
+              "MINIMUM_LAUNCHER": "${{steps.dotenv.outputs.MINIMUM_LAUNCHER}}"
+              "RECOMMENDED_LAUNCHER": "${{steps.dotenv.outputs.RECOMMENDED_LAUNCHER}}"
+            }
+            END_RELEASE_METADATA -->

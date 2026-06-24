@@ -321,7 +321,7 @@ _configure-backstitch: _make-plugin-dir
     with open("build/backstitch/Backstitch.gdextension", "w") as file:
         file.write(f"""[configuration]
     entry_symbol = "gdext_rust_init"
-    compatibility_minimum = 4.6
+    compatibility_minimum = {os.getenv("MINIMUM_GODOT")}
     reloadable = true
 
     [libraries]

@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     name: 🏷️ Append Release Metadata
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: dotenv
         uses: falti/dotenv-action@v1.1.5
         with:

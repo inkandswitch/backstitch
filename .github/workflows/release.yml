@@ -67,9 +67,9 @@ jobs:
           body: |
             <!-- BEGIN_RELEASE_METADATA
             {
-              "MINIMUM_GODOT": "${{steps.dotenv.outputs.MINIMUM_GODOT}}"
-              "RECOMMENDED_GODOT": "${{steps.dotenv.outputs.RECOMMENDED_GODOT}}"
-              "MINIMUM_LAUNCHER": "${{steps.dotenv.outputs.MINIMUM_LAUNCHER}}"
+              "MINIMUM_GODOT": "${{steps.dotenv.outputs.MINIMUM_GODOT}}",
+              "RECOMMENDED_GODOT": "${{steps.dotenv.outputs.RECOMMENDED_GODOT}}",
+              "MINIMUM_LAUNCHER": "${{steps.dotenv.outputs.MINIMUM_LAUNCHER}}",
               "RECOMMENDED_LAUNCHER": "${{steps.dotenv.outputs.RECOMMENDED_LAUNCHER}}"
             }
             END_RELEASE_METADATA -->

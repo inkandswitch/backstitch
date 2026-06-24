@@ -57,6 +57,7 @@ pub struct Project {
 pub enum GodotProjectSignal {
     ServerStatusChanged,
     ChangesIngested,
+    BranchCheckedOut,
 }
 
 struct LoadSuccess {
@@ -613,6 +614,7 @@ impl Project {
                 .unwrap_or("".to_string());
             BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
             rx.mark_unchanged();
+            signals.push(GodotProjectSignal::BranchCheckedOut);
         }
 
         tracing::trace!("Done with process.");

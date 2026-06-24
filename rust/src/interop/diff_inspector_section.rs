@@ -1,12 +1,14 @@
 use godot::builtin::{Color, GString, Rect2, StringName, Vector2};
+use godot::classes::class_macros::private::virtuals::Xrvrs::Side;
 use godot::classes::notify::ContainerNotification;
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
     Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
     InputEventMouseButton, Object, StyleBoxFlat, Texture2D, Timer, VBoxContainer,
 };
-use godot::global::{HorizontalAlignment, MouseButton, PropertyHint};
+use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
+use godot::register::info::PropertyHint;
 
 #[derive(GodotClass)]
 #[class(base=Container)]

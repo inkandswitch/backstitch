@@ -21,6 +21,7 @@ on:
         - "!.vscode/**"
         - ".github/actions/**"
         - ".github/workflows/**"
+    release:
 
 concurrency:
   group: ${{ github.ref }}

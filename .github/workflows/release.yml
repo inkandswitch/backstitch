@@ -50,6 +50,7 @@ jobs:
   release_metadata:
     runs-on: ubuntu-latest
     name: 🏷️ Append Release Metadata
+    if: github.event.release
     steps:
       - uses: actions/checkout@v7
       - id: dotenv

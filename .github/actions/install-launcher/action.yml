@@ -4,6 +4,9 @@ inputs:
   project_path:
     required: true
     description: Project path to install launcher into.
+  version:
+    required: true
+    description: Version of the launcher to install
 
 runs:
   using: composite
@@ -11,7 +14,7 @@ runs:
     - uses: robinraju/release-downloader@v1
       with:
         repository: 'inkandswitch/backstitch-launcher'
-        tag: 'v1.0.4'
+        tag: ${{ inputs.version }}
         fileName: 'backstitch-launcher-*.zip'
         out-file-path: 'backstitch-launcher'
         extract: true

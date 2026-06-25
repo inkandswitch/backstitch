@@ -186,7 +186,9 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::Unknown(message) => {
+                        return Err(ProjectStartError::Unknown(message));
+                    } // this shouldn't happen
                     // If anything wasn't found locally, that's OK, we want to connect first
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => match server_url {
                         Some(_) => e,
@@ -213,7 +215,9 @@ impl Project {
                 }
                 Err(e) => {
                     match e {
-                        ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                        ProjectLoadError::Unknown(message) => {
+                            return Err(ProjectStartError::Unknown(message));
+                        } // this shouldn't happen
                         // What the heck? We should've already checked this case...
                         ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                             tracing::error!(
@@ -248,7 +252,7 @@ impl Project {
         driver
             .start_connection(server_url)
             .await
-            .map_err(|_| ProjectStartError::Unknown)?;
+            .map_err(|e| ProjectStartError::Unknown(e.to_string()))?;
 
         // try again to load
         match driver.load_project(metadata_id, branch_id).await {
@@ -262,7 +266,9 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::Unknown(message) => {
+                        return Err(ProjectStartError::Unknown(message));
+                    } // this shouldn't happen
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                         return Err(ProjectStartError::DocumentIdNotFound);
                     }
@@ -294,7 +300,7 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => Err(ProjectStartError::Unknown), // this shouldn't happen
+                    ProjectLoadError::Unknown(message) => Err(ProjectStartError::Unknown(message)), // this shouldn't happen
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                         tracing::error!(
                             "What?!?!? The metadata doc went bad when trying to load the main branch!!"
@@ -399,12 +405,11 @@ impl Project {
                 // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
                 spawn_named_on("Create driver", self.runtime.handle(), async move {
                     tracing::debug!("Creating driver...");
-                    let Some(mut driver) =
-                        Driver::new(block, project_dir, username, storage_dir).await
-                    else {
-                        tracing::error!("Could not create driver!");
-                        return Err(ProjectStartError::Unknown);
-                    };
+                    let mut driver =
+                        match Driver::new(block, project_dir, username, storage_dir).await {
+                            Ok(d) => d,
+                            Err(e) => return Err(ProjectStartError::Unknown(e.to_string())),
+                        };
 
                     // We've created the driver. Before connecting, we need to load the doc and handle local changes.
                     // If we're making a new project, we don't have to worry about that.
@@ -412,7 +417,7 @@ impl Project {
                         driver
                             .create_project()
                             .await
-                            .map_err(|_| ProjectStartError::Unknown)?;
+                            .map_err(|e| ProjectStartError::Unknown(e.to_string()))?;
                         Ok((
                             driver,
                             Default::default(),
@@ -433,9 +438,9 @@ impl Project {
                         let local_changes = driver
                             .get_local_changes(saved_branch_id.as_ref())
                             .await
-                            .map_err(|_| {
+                            .map_err(|e| {
                                 tracing::error!("Couldn't get local changes!");
-                                ProjectStartError::Unknown
+                                ProjectStartError::Unknown(e.to_string())
                             })?;
                         Ok((driver, local_changes, success))
                     }
@@ -478,7 +483,9 @@ impl Project {
         let server_url = self.server_url.clone();
         let initial_branch = self.initial_branch.take();
         let metadata = self.with_driver_blocking("Finalize start", |mut driver| async move {
-            let driver = driver.as_mut().ok_or(ProjectStartError::Unknown)?;
+            let driver = driver.as_mut().ok_or(ProjectStartError::Unknown(
+                "couldn't get driver from with_driver_blocking".to_string(),
+            ))?;
             // start the connection, if we didn't before.
             if let Some(server_url) = server_url {
                 match driver.start_connection(&server_url).await {
@@ -489,7 +496,9 @@ impl Project {
             let metadata = driver
                 .get_metadata_doc()
                 .await
-                .ok_or(ProjectStartError::Unknown)?;
+                .ok_or(ProjectStartError::Unknown(
+                    "Could not get metadata doc!".to_string(),
+                ))?;
 
             driver.start_sync(initial_branch.as_ref()).await;
             Ok(metadata)

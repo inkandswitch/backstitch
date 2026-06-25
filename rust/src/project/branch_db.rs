@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use samod::{DocHandle, DocumentId, Repo};
+use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
@@ -22,9 +23,13 @@ pub enum CanonicalBranchStatus {
     BinaryDocNotFound,
     Healthy,
 }
+
+#[derive(Error, Debug)]
 pub enum ShadowDocWaitError {
+    #[error("the branch wasn't ingested")]
     BranchNotIngested,
-    Unknown,
+    #[error("unknown error waiting for shadow doc: {0}")]
+    Unknown(String),
 }
 
 /// [BranchDb] is the primary data source for project data.

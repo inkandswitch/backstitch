@@ -64,11 +64,13 @@ impl ProjectViewModel for Project {
         let branch = self.initial_branch.clone();
         let res: Result<(), ProjectStartError> =
             self.with_driver_blocking("Checkin local changes", |driver| async move {
-                let driver = driver.as_ref().ok_or(ProjectStartError::Unknown)?;
+                let driver = driver.as_ref().ok_or(ProjectStartError::Unknown(
+                    "Could not get driver!".to_string(),
+                ))?;
                 driver
                     .commit_local_changes(branch.as_ref())
                     .await
-                    .map_err(|_| ProjectStartError::Unknown)?;
+                    .map_err(|e| ProjectStartError::Unknown(e.to_string()))?;
                 Ok(())
             });
 

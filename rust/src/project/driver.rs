@@ -7,7 +7,7 @@ use crate::project::branch_db::{BranchDb, CanonicalBranchStatus};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
-use crate::project::fs::fs_index::FileSystemIndex;
+use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
 use crate::project::fs::fs_traversal::FileSystemTraversal;
 use crate::project::fs::sync_automerge_to_fs::SyncAutomergeToFileSystem;
 use crate::project::fs::sync_fs_to_automerge::SyncFileSystemToAutomerge;
@@ -72,11 +72,17 @@ pub enum ProjectLoadServerStatus {
     Error,
 }
 
+#[derive(Error, Debug)]
+pub enum DriverCreateError {
+    #[error("couldn't create index: {0}")]
+    Index(#[from] IndexError),
+}
+
 /// This requires a fairly complex error type, because the overall success is dependent on whether we connect the server or not.
 #[derive(Error, Debug)]
 pub enum ProjectLoadError {
-    #[error("unknown error")]
-    Unknown,
+    #[error("unknown error {0}")]
+    Unknown(String),
     #[error("a metadata document matching the ID was not found. Server status: {server_status:?}")]
     MetadataIdNotFound {
         server_status: ProjectLoadServerStatus,
@@ -156,7 +162,7 @@ impl Driver {
             .repo
             .find(metadata_id.clone())
             .await
-            .map_err(|_| ProjectLoadError::Unknown)?
+            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?
         {
             return Ok(metadata_handle);
         }
@@ -185,7 +191,7 @@ impl Driver {
             .repo
             .find(metadata_id.clone())
             .await
-            .map_err(|_| ProjectLoadError::Unknown)?
+            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?
         {
             return Ok(metadata_handle);
         }
@@ -248,7 +254,9 @@ impl Driver {
             Some(branch) => Some(branch.clone()),
             None => self.get_main_branch().await,
         }
-        .ok_or(ProjectLoadError::Unknown)?;
+        .ok_or(ProjectLoadError::Unknown(
+            "Branch not provided, and couldn't get main branch".to_string(),
+        ))?;
 
         // Wait until we've completely finished polling the branch
         tracing::debug!("Waiting for branch to ingest...");
@@ -264,7 +272,7 @@ impl Driver {
                     tracing::error!("The provided branch document timed out while trying to get...");
                     ProjectLoadError::BranchDocNotFound { server_status: server_status.clone() }
                 },
-                IngestWaitError::Unknown => ProjectLoadError::Unknown,
+                IngestWaitError::Unknown(str) => ProjectLoadError::Unknown(str),
             })?;
 
         // The binary docs might still be screwed... so we wait for the shadow doc ingest and check the status
@@ -272,7 +280,7 @@ impl Driver {
         self.get_branch_db()
             .wait_for_shadow_doc(&branch_id)
             .await
-            .map_err(|_| ProjectLoadError::Unknown)?;
+            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?;
 
         tracing::debug!("Getting status...");
 
@@ -286,11 +294,13 @@ impl Driver {
         match status {
             CanonicalBranchStatus::Pending => {
                 tracing::error!("Branch still pending... this shouldn't happen");
-                Err(ProjectLoadError::Unknown)
+                Err(ProjectLoadError::Unknown(
+                    "Branch still pending".to_string(),
+                ))
             }
             CanonicalBranchStatus::BranchNotIngested => {
                 tracing::error!("Branch not ingested... this shouldn't happen");
-                Err(ProjectLoadError::Unknown)
+                Err(ProjectLoadError::Unknown("Branch not ingested".to_string()))
             }
             CanonicalBranchStatus::BinaryDocNotFound => {
                 tracing::error!("Giving up on load because a binary doc wasn't synced properly");
@@ -317,13 +327,17 @@ impl Driver {
             Some(branch) => Some(branch.clone()),
             None => self.get_main_branch().await,
         }
-        .ok_or(ProjectLoadError::Unknown)?;
+        .ok_or(ProjectLoadError::Unknown(
+            "Could not get main branch, and no branch was passed in".to_string(),
+        ))?;
 
         // Using canonical here means we're allowed to do this work before the shadow doc is ready (i.e. all binary docs have checked in)
         self.get_branch_db()
             .get_latest_canonical_ref_on_branch(&branch)
             .await
-            .ok_or(ProjectLoadError::Unknown)
+            .ok_or(ProjectLoadError::Unknown(
+                "Could not get latest canonical ref on branch".to_string(),
+            ))
     }
 
     pub async fn get_local_changes(
@@ -341,7 +355,7 @@ impl Driver {
             .await
             .ok_or_else(|| {
                 tracing::debug!("Couldn't get canonical file hash index!");
-                ProjectLoadError::Unknown
+                ProjectLoadError::Unknown("Couldn't get canonical file hash index!".to_string())
             })?;
         let db_clone = self.get_branch_db().clone();
         tracing::debug!("Getting current files...");
@@ -394,14 +408,12 @@ impl Driver {
     /// Creates a new instance of [Driver].
     /// Causes tasks to run in the background. To cancel everything, drop the handle.
     /// If we couldn't start the driver, [None] is returned.
-    ///
-    /// When starting the driver
     pub async fn new(
         main_thread_block: MainThreadBlock,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
-    ) -> Option<Self> {
+    ) -> Result<Self, DriverCreateError> {
         let storage = samod::storage::TokioFilesystemStorage::new(&storage_directory);
         let repo = Repo::build_tokio()
             .with_concurrency(ConcurrencyConfig::Threadpool(
@@ -411,9 +423,7 @@ impl Driver {
             .load()
             .await;
 
-        let fs_index = FileSystemIndex::new(storage_directory.join("index.bin"))
-            .await
-            .ok()?;
+        let fs_index = FileSystemIndex::new(storage_directory.join("index.bin")).await?;
 
         let git_ignore: Gitignore = Self::build_gitignore(&project_path);
         let branch_db = BranchDb::new(repo.clone(), project_path, git_ignore);
@@ -441,7 +451,7 @@ impl Driver {
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
 
-        Some(Driver {
+        Ok(Driver {
             file_changes_rx,
             inner: Arc::new(DriverInner {
                 main_thread_block,

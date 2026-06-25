@@ -24,8 +24,8 @@ pub enum SyncStatus {
 
 #[derive(Error, Debug)]
 pub enum ProjectStartError {
-    #[error("unknown error")]
-    Unknown,
+    #[error("unknown error {0}")]
+    Unknown(String),
     #[error(
         "we couldn't find a document of the given ID on your computer or on the provided server"
     )]

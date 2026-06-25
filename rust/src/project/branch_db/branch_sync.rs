@@ -141,7 +141,7 @@ impl BranchDb {
         }
         rx.changed()
             .await
-            .map_err(|_| ShadowDocWaitError::Unknown)?;
+            .map_err(|e| ShadowDocWaitError::Unknown(e.to_string()))?;
 
         Ok(())
     }

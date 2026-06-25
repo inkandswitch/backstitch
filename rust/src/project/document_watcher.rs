@@ -35,8 +35,8 @@ pub enum IngestWaitError {
     NotTracked,
     #[error("this branch timed out when waiting for the ingest.")]
     TimedOut,
-    #[error("this branch can't be tracked by the document watcher for unknown reasons.")]
-    Unknown,
+    #[error("this branch can't be tracked by the document watcher: {0}")]
+    Unknown(String),
 }
 
 #[derive(Debug, Clone)]
@@ -99,11 +99,15 @@ impl DocumentWatcher {
         };
         let mut current = rx.borrow_and_update().clone();
         while current == BranchIngestState::Pending {
-            rx.changed().await.map_err(|_| IngestWaitError::Unknown)?;
+            rx.changed()
+                .await
+                .map_err(|e| IngestWaitError::Unknown(e.to_string()))?;
             current = rx.borrow_and_update().clone();
         }
         match current {
-            BranchIngestState::Pending => Err(IngestWaitError::Unknown), // this shouldn't happen
+            BranchIngestState::Pending => {
+                Err(IngestWaitError::Unknown("Still pending?!?".to_string()))
+            } // this shouldn't happen
             BranchIngestState::Ingested => Ok(()),
             BranchIngestState::Failed => Err(IngestWaitError::TimedOut),
         }

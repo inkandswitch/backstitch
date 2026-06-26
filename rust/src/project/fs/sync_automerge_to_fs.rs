@@ -76,7 +76,6 @@ impl SyncAutomergeToFileSystem {
             .await
             .inspect_err(|e| tracing::error!(
                 "Couldn't get file content between refs; canceling ref checkout of {goal_ref:?}. Reason: {e}",
-                
             )).ok()?;
 
         let joined: HashMap<PathBuf, (ChangeType, Option<FileContent>)> = changes

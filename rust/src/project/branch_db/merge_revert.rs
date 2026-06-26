@@ -209,14 +209,14 @@ impl BranchDb {
         if preview_state.reverted_to.is_none() {
             return Err(DbError::BadBranchState(
                 Box::new(preview_branch.clone()),
-                format!("not a revert preview branch"),
+                "not a revert preview branch".to_string(),
             ));
         }
 
         let Some(target) = preview_state.forked_from else {
             return Err(DbError::BadBranchState(
                 Box::new(preview_branch.clone()),
-                format!("doesn't have forked_from"),
+                "doesn't have forked_from".to_string(),
             ));
         };
 

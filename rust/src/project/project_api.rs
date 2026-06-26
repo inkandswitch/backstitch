@@ -3,11 +3,16 @@ use std::collections::{HashMap, HashSet};
 use automerge::ChangeHash;
 use samod::DocumentId;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 use crate::{
     diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
     helpers::{history_ref::HistoryRef, utils::ChangedFile},
+    project::{
+        connection::RemoteConnectionError,
+        driver::{DriverCreateError, ProjectLoadError},
+    },
 };
 
 /// Represents synchronization status for a project.
@@ -24,26 +29,37 @@ pub enum SyncStatus {
 
 #[derive(Error, Debug)]
 pub enum ProjectStartError {
-    #[error("unknown error")]
-    Unknown,
+    #[error("there wasn't a created driver")]
+    NoDriver,
+    #[error(transparent)]
+    DriverLoad(Box<ProjectLoadError>),
+    #[error(transparent)]
+    DriverCreate(#[from] DriverCreateError),
+    #[error(transparent)]
+    Connection(#[from] RemoteConnectionError),
+    #[error(transparent)]
+    Join(#[from] JoinError),
     #[error(
         "we couldn't find a document of the given ID on your computer or on the provided server"
     )]
     DocumentIdNotFound,
-
     #[error(
         "we couldn't find the referenced main branch on your computer or on the provided server"
     )]
     MainBranchNotFound,
-
     #[error(
         "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \
         The only supported schemes are tcp://, ws://, and wss://."
     )]
     ServerUrlInvalid(String),
-
     #[error("the document ID {0} is invalid!")]
     DocumentIdInvalid(String),
+}
+
+impl From<ProjectLoadError> for ProjectStartError {
+    fn from(value: ProjectLoadError) -> Self {
+        ProjectStartError::DriverLoad(Box::new(value))
+    }
 }
 
 /// Defines the surface for the UI layer interacting with the GodotProject core logic.

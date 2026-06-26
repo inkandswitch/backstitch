@@ -122,8 +122,14 @@ impl Project {
 
     pub fn clear_fs_cache(&self) {
         self.with_driver_blocking("Clear FS Cache", |driver| async move {
-            let _ = driver.as_ref().unwrap().get_fs_index().clear_cache();
-        })
+            driver
+                .as_ref()
+                .unwrap()
+                .get_fs_index()
+                .clear_cache()
+                .inspect_err(|e| tracing::error!("error clearing cache: {e}"))
+                .ok();
+        });
     }
 
     pub fn get_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
@@ -186,7 +192,6 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
                     // If anything wasn't found locally, that's OK, we want to connect first
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => match server_url {
                         Some(_) => e,
@@ -195,6 +200,8 @@ impl Project {
                     },
                     ProjectLoadError::BranchDocNotFound { server_status: _ } => e,
                     ProjectLoadError::BinaryDocNotFound { server_status: _ } => e,
+                    // If something else happened, bad!!!
+                    _ => return Err(e.into()),
                 }
             }
         };
@@ -213,7 +220,6 @@ impl Project {
                 }
                 Err(e) => {
                     match e {
-                        ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
                         // What the heck? We should've already checked this case...
                         ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                             tracing::error!(
@@ -239,16 +245,14 @@ impl Project {
                                 found_on_provided_branch: false,
                             });
                         }
+                        _ => return Err(e.into()),
                     }
                 }
             };
         };
 
         // try and start the connection
-        driver
-            .start_connection(server_url)
-            .await
-            .map_err(|_| ProjectStartError::Unknown)?;
+        driver.start_connection(server_url).await?;
 
         // try again to load
         match driver.load_project(metadata_id, branch_id).await {
@@ -262,7 +266,6 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => return Err(ProjectStartError::Unknown), // this shouldn't happen
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                         return Err(ProjectStartError::DocumentIdNotFound);
                     }
@@ -277,6 +280,7 @@ impl Project {
                             found_on_provided_branch: true,
                         });
                     }
+                    _ => return Err(e.into()),
                 }
             }
         };
@@ -294,7 +298,6 @@ impl Project {
             }
             Err(e) => {
                 match e {
-                    ProjectLoadError::Unknown => Err(ProjectStartError::Unknown), // this shouldn't happen
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
                         tracing::error!(
                             "What?!?!? The metadata doc went bad when trying to load the main branch!!"
@@ -317,6 +320,7 @@ impl Project {
                             found_on_provided_branch: false,
                         })
                     }
+                    _ => Err(e.into()),
                 }
             }
         }
@@ -369,8 +373,8 @@ impl Project {
             {
                 Some(s) => match DocumentId::from_str(&s) {
                     Ok(id) => Some(id),
-                    Err(_) => {
-                        tracing::error!("Invalid saved branch ID! Not using.");
+                    Err(e) => {
+                        tracing::error!("Invalid saved branch ID! Not using. {e}");
                         None
                     }
                 },
@@ -393,55 +397,38 @@ impl Project {
         let server_url_clone = server_url.clone();
         tracing::debug!("Attempting to create driver...");
         let init_branch = initial_branch.clone();
-        let (driver, local_changes, load_success) = self
-            .runtime
-            .block_on(
-                // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
-                spawn_named_on("Create driver", self.runtime.handle(), async move {
-                    tracing::debug!("Creating driver...");
-                    let Some(mut driver) =
-                        Driver::new(block, project_dir, username, storage_dir).await
-                    else {
-                        tracing::error!("Could not create driver!");
-                        return Err(ProjectStartError::Unknown);
-                    };
+        let (driver, local_changes, load_success) = self.runtime.block_on(
+            // I think it's correct to spawn this on a different task explicitly, because block_on runs the future on the current thread, not a worker thread.
+            spawn_named_on("Create driver", self.runtime.handle(), async move {
+                tracing::debug!("Creating driver...");
+                let mut driver = Driver::new(block, project_dir, username, storage_dir).await?;
 
-                    // We've created the driver. Before connecting, we need to load the doc and handle local changes.
-                    // If we're making a new project, we don't have to worry about that.
-                    if mode_clone == ProjectCreateMode::New {
-                        driver
-                            .create_project()
-                            .await
-                            .map_err(|_| ProjectStartError::Unknown)?;
-                        Ok((
-                            driver,
-                            Default::default(),
-                            LoadSuccess {
-                                found_locally: true,
-                                found_on_provided_branch: false,
-                            },
-                        ))
-                    } else {
-                        let success = Self::try_and_retry_load(
-                            &mut driver,
-                            server_url.as_ref(),
-                            &metadata_id.unwrap(), // we know this is valid, from earlier
-                            init_branch.as_ref(),
-                        )
-                        .await?;
+                // We've created the driver. Before connecting, we need to load the doc and handle local changes.
+                // If we're making a new project, we don't have to worry about that.
+                if mode_clone == ProjectCreateMode::New {
+                    driver.create_project().await?;
+                    Ok::<_, ProjectStartError>((
+                        driver,
+                        Default::default(),
+                        LoadSuccess {
+                            found_locally: true,
+                            found_on_provided_branch: false,
+                        },
+                    ))
+                } else {
+                    let success = Self::try_and_retry_load(
+                        &mut driver,
+                        server_url.as_ref(),
+                        &metadata_id.unwrap(), // we know this is valid, from earlier
+                        init_branch.as_ref(),
+                    )
+                    .await?;
 
-                        let local_changes = driver
-                            .get_local_changes(saved_branch_id.as_ref())
-                            .await
-                            .map_err(|_| {
-                                tracing::error!("Couldn't get local changes!");
-                                ProjectStartError::Unknown
-                            })?;
-                        Ok((driver, local_changes, success))
-                    }
-                }),
-            )
-            .unwrap()?;
+                    let local_changes = driver.get_local_changes(saved_branch_id.as_ref()).await?;
+                    Ok((driver, local_changes, success))
+                }
+            }),
+        )??;
 
         self.changes_rx = Some(driver.get_changes_rx());
         self.connection_info_rx = Some(driver.get_connection_info_rx());
@@ -478,7 +465,7 @@ impl Project {
         let server_url = self.server_url.clone();
         let initial_branch = self.initial_branch.take();
         let metadata = self.with_driver_blocking("Finalize start", |mut driver| async move {
-            let driver = driver.as_mut().ok_or(ProjectStartError::Unknown)?;
+            let driver = driver.as_mut().ok_or(ProjectStartError::NoDriver)?;
             // start the connection, if we didn't before.
             if let Some(server_url) = server_url {
                 match driver.start_connection(&server_url).await {
@@ -486,13 +473,10 @@ impl Project {
                     Err(e) => tracing::error!("Remote connection error: {:?}", e),
                 }
             }
-            let metadata = driver
-                .get_metadata_doc()
-                .await
-                .ok_or(ProjectStartError::Unknown)?;
+            let metadata = driver.get_metadata_doc().await?;
 
             driver.start_sync(initial_branch.as_ref()).await;
-            Ok(metadata)
+            Ok::<_, ProjectStartError>(metadata)
         })?;
         self.local_changes = Default::default();
         BackstitchConfigAccessor::set_project_value("project_doc_id", &metadata.to_string());
@@ -512,16 +496,13 @@ impl Project {
     // common utility function within this class
     pub(super) fn get_checked_out_branch_state(&self) -> Option<Branch> {
         self.with_driver_blocking("Get checked out branch state", |driver| async move {
-            let checked_out_ref = driver
-                .as_ref()?
-                .get_branch_db()
-                .get_checked_out_ref()
-                .await?;
-            driver
-                .as_ref()?
-                .get_branch_db()
+            let branch_db = driver.as_ref()?.get_branch_db();
+            let checked_out_ref = branch_db.get_checked_out_ref().await?;
+            branch_db
                 .get_branch_state(checked_out_ref.branch())
                 .await
+                .inspect_err(|e| tracing::error!("Error getting checked out branch state: {e}"))
+                .ok()
         })
     }
 

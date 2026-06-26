@@ -32,7 +32,12 @@ impl ProjectViewModel for Project {
 
     fn get_project_id(&self) -> Option<DocumentId> {
         self.with_driver_blocking("Get project ID", |driver| async move {
-            driver.as_ref()?.get_metadata_doc().await
+            driver
+                .as_ref()?
+                .get_metadata_doc()
+                .await
+                .inspect_err(|e| tracing::error!("couldn't get metadata doc ID {e}"))
+                .ok()
         })
     }
 
@@ -64,11 +69,8 @@ impl ProjectViewModel for Project {
         let branch = self.initial_branch.clone();
         let res: Result<(), ProjectStartError> =
             self.with_driver_blocking("Checkin local changes", |driver| async move {
-                let driver = driver.as_ref().ok_or(ProjectStartError::Unknown)?;
-                driver
-                    .commit_local_changes(branch.as_ref())
-                    .await
-                    .map_err(|_| ProjectStartError::Unknown)?;
+                let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
+                driver.commit_local_changes(branch.as_ref()).await?;
                 Ok(())
             });
 
@@ -76,21 +78,21 @@ impl ProjectViewModel for Project {
         // This could turn into a discard, depending on the error. Idk what it'd be though
         match res {
             Ok(_) => {}
-            Err(_) => tracing::error!(
-                "Unknown error while checking in local changes. Proceeding with start."
+            Err(e) => tracing::error!(
+                "Unknown error while checking in local changes. Proceeding with start. {e}"
             ),
         }
 
         match self.finalize_start() {
             Ok(_) => {}
-            Err(_) => tracing::error!("Unknown error while finalizing the project start."),
+            Err(e) => tracing::error!("Unknown error while finalizing the project start: {e}"),
         }
     }
 
     fn discard_local_changes(&mut self) {
         match self.finalize_start() {
             Ok(_) => {}
-            Err(_) => tracing::error!("Unknown error while finalizing the project start."),
+            Err(e) => tracing::error!("Unknown error while finalizing the project start. {e}"),
         }
     }
     fn clear_project(&mut self) {
@@ -204,16 +206,17 @@ impl ProjectViewModel for Project {
         let merge_into = merge_info.branch().clone();
         let Some((source_branch, latest_dest_heads)) =
             self.with_driver_blocking("Is safe to merge", |driver| async move {
-                let source_branch = driver
-                    .as_ref()?
-                    .get_branch_db()
+                let branch_db = driver.as_ref()?.get_branch_db();
+                let source_branch = branch_db
                     .get_branch_state(&forked_from)
-                    .await;
-                let latest_dest_heads = driver
-                    .as_ref()?
-                    .get_branch_db()
+                    .await
+                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
+                    .ok()?;
+                let latest_dest_heads = branch_db
                     .get_latest_ref_on_branch(&merge_into)
-                    .await?
+                    .await
+                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
+                    .ok()?
                     .heads()
                     .clone();
                 Some((source_branch, latest_dest_heads))
@@ -222,11 +225,10 @@ impl ProjectViewModel for Project {
             return false;
         };
 
-        source_branch.is_some_and(|s| {
-            s.forked_from
-                .as_ref()
-                .is_some_and(|i| i.heads() == &latest_dest_heads)
-        })
+        source_branch
+            .forked_from
+            .as_ref()
+            .is_some_and(|i| i.heads() == &latest_dest_heads)
     }
 
     fn confirm_preview_branch(&mut self) {
@@ -279,7 +281,11 @@ impl ProjectViewModel for Project {
                 let branch_db = d.get_branch_db();
                 let r#ref = branch_db.get_checked_out_ref().await?;
                 // don't use checked out ref, because that might be updated too late! we care about what's synced here, not what's checked out
-                let ref_ = branch_db.get_latest_ref_on_branch(r#ref.branch()).await?;
+                let ref_ = branch_db
+                    .get_latest_ref_on_branch(r#ref.branch())
+                    .await
+                    .inspect_err(|e| tracing::error!("error during get_sync_status: {e}"))
+                    .ok()?;
                 Some((info, ref_))
             })
         else {
@@ -357,7 +363,11 @@ impl ProjectViewModel for Project {
             self.with_driver_blocking("Get branch", |driver| async move {
                 tracing::trace!("Getting branch state...");
                 let branch_db = driver.as_ref()?.get_branch_db();
-                let state = branch_db.get_branch_state(&id).await?;
+                let state = branch_db
+                    .get_branch_state(&id)
+                    .await
+                    .inspect_err(|e| tracing::error!("error getting branch: {e}"))
+                    .ok()?;
                 tracing::trace!("Getting branch children...");
                 let children = branch_db.get_branch_children(&id).await;
                 Some((state, children))
@@ -386,7 +396,12 @@ impl ProjectViewModel for Project {
 
     fn get_main_branch(&self) -> Option<impl BranchViewModel> {
         let id = self.with_driver_blocking("Get main branch", |driver| async move {
-            driver.as_ref()?.get_main_branch().await
+            driver
+                .as_ref()?
+                .get_main_branch()
+                .await
+                .inspect_err(|e| tracing::error!("Error getting main branch: {e}"))
+                .ok()
         })?;
         self.get_branch(&id)
     }
@@ -427,10 +442,16 @@ impl ProjectViewModel for Project {
 
                 let branch = branch_db.get_checked_out_ref().await?.branch().clone();
 
-                let state = branch_db.get_branch_state(&branch).await?;
+                let state = branch_db
+                    .get_branch_state(&branch)
+                    .await
+                    .inspect_err(|e| tracing::error!("Error getting branch state default diff {e}"))
+                    .ok()?;
                 let synced_heads = branch_db
                     .get_latest_ref_on_branch(&branch)
-                    .await?
+                    .await
+                    .inspect_err(|e| tracing::error!("Error getting default diff {e}"))
+                    .ok()?
                     .heads()
                     .clone();
                 Some((state, synced_heads))
@@ -540,7 +561,9 @@ impl ProjectViewModel for Project {
                 .as_ref()?
                 .get_branch_db()
                 .get_files_at_ref(&ref_, &HashSet::from_iter(vec![path.clone()]))
-                .await;
+                .await
+                .inspect_err(|e| tracing::error!("Error getting file at ref: {e}"))
+                .ok();
             files?.get(&path).cloned()
         })
     }
@@ -558,6 +581,8 @@ impl ProjectViewModel for Project {
                 .get_branch_db()
                 .get_files_at_ref(&ref_, &filters)
                 .await
+                .inspect_err(|e| tracing::error!("Error getting files at ref {e}"))
+                .ok()
         })
     }
 

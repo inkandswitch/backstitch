@@ -11,7 +11,7 @@ use crate::{
         history_ref::HistoryRef,
         utils::{ChangeType, CommitMetadata, MergeMetadata, commit_with_metadata},
     },
-    project::branch_db::BranchDb,
+    project::branch_db::{BranchDb, DbError},
 };
 
 impl BranchDb {
@@ -20,7 +20,7 @@ impl BranchDb {
         &self,
         source: &DocumentId,
         target: &DocumentId,
-    ) -> Option<DocumentId> {
+    ) -> Result<DocumentId, DbError> {
         // Not getting the branch state so we don't gotta clone, honestly that was probably simpler though
         let source_name = self.get_branch_name(source).await?;
         let target_name = self.get_branch_name(target).await?;
@@ -36,16 +36,14 @@ impl BranchDb {
                 let _ = preview_doc.merge(d);
             });
         })
-        .await
-        .ok()?;
+        .await?;
 
         self.with_shadow_document(target, async |d| {
             handle_clone.with_document(|preview_doc| {
                 let _ = preview_doc.merge(d);
             });
         })
-        .await
-        .ok()?;
+        .await?;
 
         let username = self.username.lock().await.clone();
         self.add_branch_to_meta(Branch {
@@ -56,18 +54,20 @@ impl BranchDb {
             created_by: username.clone(),
             reverted_to: None,
         })
-        .await;
-        Some(handle.document_id().clone())
+        .await?;
+        Ok(handle.document_id().clone())
     }
 
-    pub async fn merge_branch(&self, source: &DocumentId, target: &DocumentId) {
-        let Some(source_state) = self.get_branch_state(source).await else {
-            return;
-        };
+    pub async fn merge_branch(
+        &self,
+        source: &DocumentId,
+        target: &DocumentId,
+    ) -> Result<(), DbError> {
+        let source_state = self.get_branch_state(source).await?;
 
         if source == target {
             tracing::error!("cannot merge branch into itself!");
-            return;
+            return Ok(());
         }
 
         self.with_shadow_document(source, async |source_doc| {
@@ -75,17 +75,15 @@ impl BranchDb {
                 let _ = target_doc.merge(source_doc);
             })
             .await
-            .unwrap();
         })
-        .await
-        .unwrap();
+        .await??;
 
         // if the branch has some merge_into we know that it's a merge preview branch
         // forked_from is the original branch of the preview branch
         let forked_from = source_state.forked_from.unwrap().branch().clone();
         let merge_metadata = if source_state.merge_into.is_some() {
             match self.get_branch_state(&forked_from).await {
-                Some(original_state) => Some(MergeMetadata {
+                Ok(original_state) => Some(MergeMetadata {
                     merged_branch_id: forked_from,
                     forked_at_heads: original_state.forked_from.unwrap().heads().clone(),
                 }),
@@ -118,32 +116,26 @@ impl BranchDb {
                     },
                 );
             })
-            .await
-            .unwrap();
+            .await?;
         }
 
         // reconcile the dummy merge commit
         let states = self.branch_sync_states.lock().await;
-        let Some(state) = states.get(target) else {
-            return;
-        };
-        self.try_reconcile_branch(state.clone()).await;
+        let state = states
+            .get(target)
+            .ok_or_else(|| DbError::NoBranch(Box::new(target.clone())))?;
+        self.try_reconcile_branch(state.clone()).await?;
+        Ok(())
     }
 
     pub async fn create_revert_preview_branch(
         &self,
         branch: &DocumentId,
         ref_: &HistoryRef,
-    ) -> Option<DocumentId> {
-        let Some(current_ref) = self.get_latest_ref_on_branch(branch).await else {
-            tracing::error!(
-                "Can't create revert preview branch; no ref on branch {}!",
-                branch
-            );
-            return None;
-        };
+    ) -> Result<DocumentId, DbError> {
+        let current_ref = self.get_latest_ref_on_branch(branch).await?;
 
-        let handle = self.repo.create(Automerge::new()).await.ok()?;
+        let handle = self.repo.create(Automerge::new()).await?;
         let handle_clone = handle.clone();
 
         self.with_shadow_document(branch, async |d| {
@@ -151,8 +143,7 @@ impl BranchDb {
                 let _ = preview_doc.merge(d);
             });
         })
-        .await
-        .ok()?;
+        .await?;
 
         let username = self.username.lock().await.clone();
         self.add_branch_to_meta(Branch {
@@ -163,7 +154,7 @@ impl BranchDb {
             created_by: username.clone(),
             reverted_to: Some(ref_.clone()),
         })
-        .await;
+        .await?;
 
         let changed_files = self
             .get_changed_files_between_refs(Some(&current_ref), ref_)
@@ -196,7 +187,7 @@ impl BranchDb {
         // We pretend there's 0 linked docs, because we're forking off a shadow doc for the preview, which had BETTER
         // not be waiting on any binary docs!!!!!
         self.update_branch_sync_state(handle.clone(), current_ref.heads().clone(), HashSet::new())
-            .await;
+            .await?;
 
         self.commit_fs_changes(
             changed_files,
@@ -206,32 +197,36 @@ impl BranchDb {
         )
         .await;
 
-        Some(handle.document_id().clone())
+        Ok(handle.document_id().clone())
     }
 
-    pub async fn confirm_revert_preview_branch(&self, preview_branch: &DocumentId) {
-        let Some(preview_state) = self.get_branch_state(preview_branch).await else {
-            tracing::error!("No revert preview state!");
-            return;
-        };
+    pub async fn confirm_revert_preview_branch(
+        &self,
+        preview_branch: &DocumentId,
+    ) -> Result<(), DbError> {
+        let preview_state = self.get_branch_state(preview_branch).await?;
 
         if preview_state.reverted_to.is_none() {
-            tracing::error!("Branch {preview_branch} is not a revert preview branch!");
-            return;
+            return Err(DbError::BadBranchState(
+                Box::new(preview_branch.clone()),
+                "not a revert preview branch".to_string(),
+            ));
         }
 
         let Some(target) = preview_state.forked_from else {
-            tracing::error!("Branch {preview_branch} doesn't have forked_from?!?!?!?");
-            return;
+            return Err(DbError::BadBranchState(
+                Box::new(preview_branch.clone()),
+                "doesn't have forked_from".to_string(),
+            ));
         };
 
         self.with_shadow_document(preview_branch, async |source_doc| {
             self.with_shadow_document(target.branch(), async |target_doc| {
-                tracing::info!("HEADS BEFORE MERGE: {:?}", target_doc.get_heads());
-                tracing::info!("PREVIEW HEADS BEFORE MERGE: {:?}", source_doc.get_heads());
+                tracing::debug!("HEADS BEFORE MERGE: {:?}", target_doc.get_heads());
+                tracing::debug!("PREVIEW HEADS BEFORE MERGE: {:?}", source_doc.get_heads());
                 let res = target_doc.merge(source_doc).unwrap();
-                tracing::info!("NEW HEADS AFTER MERGE: {:?}", res);
-                tracing::info!("NEW HEADS AFTER MERGE2: {:?}", target_doc.get_heads());
+                tracing::debug!("NEW HEADS AFTER MERGE: {:?}", res);
+                tracing::debug!("NEW HEADS AFTER MERGE2: {:?}", target_doc.get_heads());
             })
             .await
             .unwrap();
@@ -242,9 +237,10 @@ impl BranchDb {
         // Unlike merging, we don't need to make a dummy commit, because the revert already had a commit of the changed files.
         // Reconcile the merge anyways though.
         let states = self.branch_sync_states.lock().await;
-        let Some(state) = states.get(target.branch()) else {
-            return;
-        };
-        self.try_reconcile_branch(state.clone()).await;
+        let state = states
+            .get(target.branch())
+            .ok_or_else(|| DbError::NoBranch(Box::new(target.branch().clone())))?;
+        self.try_reconcile_branch(state.clone()).await?;
+        Ok(())
     }
 }

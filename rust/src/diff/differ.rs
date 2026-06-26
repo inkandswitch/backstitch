@@ -78,7 +78,9 @@ impl Differ {
         let changed_files = self
             .branch_db
             .get_changed_files_between_refs(Some(before), after)
-            .await?;
+            .await
+            .inspect_err(|e| tracing::error!("Error during getting old_file_contents {e}"))
+            .ok()?;
 
         tracing::debug!("diffing {} changes...", changed_files.len());
 
@@ -91,11 +93,15 @@ impl Differ {
         let new_file_contents = self
             .branch_db
             .get_files_at_ref(after, &changed_filter)
-            .await?;
+            .await
+            .inspect_err(|e| tracing::error!("Error during getting new_file_contents {e}"))
+            .ok()?;
         let old_file_contents = self
             .branch_db
             .get_files_at_ref(before, &changed_filter)
-            .await?;
+            .await
+            .inspect_err(|e| tracing::error!("Error during getting old_file_contents {e}"))
+            .ok()?;
 
         let mut diffs: Vec<Diff> = vec![];
 

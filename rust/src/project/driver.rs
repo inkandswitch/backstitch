@@ -3,7 +3,7 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
-use crate::project::branch_db::{BranchDb, CanonicalBranchStatus};
+use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
@@ -81,8 +81,6 @@ pub enum DriverCreateError {
 /// This requires a fairly complex error type, because the overall success is dependent on whether we connect the server or not.
 #[derive(Error, Debug)]
 pub enum ProjectLoadError {
-    #[error("unknown error {0}")]
-    Unknown(String),
     #[error("a metadata document matching the ID was not found. Server status: {server_status:?}")]
     MetadataIdNotFound {
         server_status: ProjectLoadServerStatus,
@@ -99,6 +97,15 @@ pub enum ProjectLoadError {
     BinaryDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
+
+    #[error(transparent)]
+    RepoStopped(#[from] samod::Stopped),
+
+    #[error("branch db error: {0}")]
+    Db(#[from] DbError),
+
+    #[error("branch wasn't successfully ingested")]
+    NotIngested,
 }
 
 impl Drop for Driver {
@@ -158,12 +165,7 @@ impl Driver {
         //  c: The document doesn't exist at all.
 
         // First, we check the local repository. Or, if we're already connected, this also checks the remote.
-        if let Some(metadata_handle) = self
-            .repo
-            .find(metadata_id.clone())
-            .await
-            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?
-        {
+        if let Some(metadata_handle) = self.repo.find(metadata_id.clone()).await? {
             return Ok(metadata_handle);
         }
 
@@ -187,12 +189,7 @@ impl Driver {
         }
 
         // Now that we know we're connected, try the find again.
-        if let Some(metadata_handle) = self
-            .repo
-            .find(metadata_id.clone())
-            .await
-            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?
-        {
+        if let Some(metadata_handle) = self.repo.find(metadata_id.clone()).await? {
             return Ok(metadata_handle);
         }
 
@@ -251,12 +248,9 @@ impl Driver {
 
         // replace branch_id with main from metadata
         let branch_id = match branch_id {
-            Some(branch) => Some(branch.clone()),
-            None => self.get_main_branch().await,
-        }
-        .ok_or(ProjectLoadError::Unknown(
-            "Branch not provided, and couldn't get main branch".to_string(),
-        ))?;
+            Some(branch) => branch.clone(),
+            None => self.get_main_branch().await?,
+        };
 
         // Wait until we've completely finished polling the branch
         tracing::debug!("Waiting for branch to ingest...");
@@ -272,7 +266,10 @@ impl Driver {
                     tracing::error!("The provided branch document timed out while trying to get...");
                     ProjectLoadError::BranchDocNotFound { server_status: server_status.clone() }
                 },
-                IngestWaitError::Unknown(str) => ProjectLoadError::Unknown(str),
+                _ => {
+                    tracing::error!("Unknown ingest wait error {e}");
+                    ProjectLoadError::NotIngested
+                },
             })?;
 
         // The binary docs might still be screwed... so we wait for the shadow doc ingest and check the status
@@ -280,7 +277,10 @@ impl Driver {
         self.get_branch_db()
             .wait_for_shadow_doc(&branch_id)
             .await
-            .map_err(|e| ProjectLoadError::Unknown(e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!("shadow doc error {e}");
+                ProjectLoadError::NotIngested
+            })?;
 
         tracing::debug!("Getting status...");
 
@@ -294,13 +294,11 @@ impl Driver {
         match status {
             CanonicalBranchStatus::Pending => {
                 tracing::error!("Branch still pending... this shouldn't happen");
-                Err(ProjectLoadError::Unknown(
-                    "Branch still pending".to_string(),
-                ))
+                Err(ProjectLoadError::NotIngested)
             }
             CanonicalBranchStatus::BranchNotIngested => {
                 tracing::error!("Branch not ingested... this shouldn't happen");
-                Err(ProjectLoadError::Unknown("Branch not ingested".to_string()))
+                Err(ProjectLoadError::NotIngested)
             }
             CanonicalBranchStatus::BinaryDocNotFound => {
                 tracing::error!("Giving up on load because a binary doc wasn't synced properly");
@@ -311,7 +309,7 @@ impl Driver {
     }
 
     pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
-        let metadata_handle = self.inner.branch_db.create_metadata_doc().await;
+        let metadata_handle = self.inner.branch_db.create_metadata_doc().await?;
         self.create_document_watcher(&metadata_handle, 30000).await;
         // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
         // This has to go after the document watcher ingests the metadata doc, of course.
@@ -324,20 +322,15 @@ impl Driver {
         branch: Option<&DocumentId>,
     ) -> Result<HistoryRef, ProjectLoadError> {
         let branch = match branch {
-            Some(branch) => Some(branch.clone()),
-            None => self.get_main_branch().await,
-        }
-        .ok_or(ProjectLoadError::Unknown(
-            "Could not get main branch, and no branch was passed in".to_string(),
-        ))?;
+            Some(branch) => branch.clone(),
+            None => self.get_main_branch().await?,
+        };
 
         // Using canonical here means we're allowed to do this work before the shadow doc is ready (i.e. all binary docs have checked in)
-        self.get_branch_db()
+        Ok(self
+            .get_branch_db()
             .get_latest_canonical_ref_on_branch(&branch)
-            .await
-            .ok_or(ProjectLoadError::Unknown(
-                "Could not get latest canonical ref on branch".to_string(),
-            ))
+            .await?)
     }
 
     pub async fn get_local_changes(
@@ -353,10 +346,8 @@ impl Driver {
             .branch_db
             .get_hash_index(&ref_)
             .await
-            .ok_or_else(|| {
-                tracing::debug!("Couldn't get canonical file hash index!");
-                ProjectLoadError::Unknown("Couldn't get canonical file hash index!".to_string())
-            })?;
+            .inspect_err(|e| tracing::error!("Error getting canonical files: {e}"))?;
+
         let db_clone = self.get_branch_db().clone();
         tracing::debug!("Getting current files...");
         let current_files = FileSystemTraversal::get_all_files(
@@ -514,56 +505,83 @@ impl Driver {
     }
 
     pub async fn fork_branch(&self, name: String, branch: &DocumentId) {
-        if let Some(id) = self.inner.branch_db.fork_branch(name, branch).await {
-            self.request_checkout(&id).await;
+        match self.inner.branch_db.fork_branch(name, branch).await {
+            Ok(id) => {
+                self.request_checkout(&id).await;
+            }
+            Err(e) => tracing::error!("Could not fork branch: {e}"),
         }
     }
 
     pub async fn merge_branch(&self, source: &DocumentId, target: &DocumentId) {
-        self.inner.branch_db.merge_branch(source, target).await;
-        self.inner.branch_db.delete_branch(source).await;
+        match self.inner.branch_db.merge_branch(source, target).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Could not merge branch {source} to {target}: {e}"),
+        }
+        match self.inner.branch_db.delete_branch(source).await {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!("Could not delete merge preview branch {source}: {e}")
+            }
+        }
         self.request_checkout(target).await;
     }
 
     pub async fn discard_current_branch(&self) {
         let Some(checked_out_ref) = self.get_branch_db().get_checked_out_ref().await else {
+            tracing::error!("Could not discard current branch; no checked out ref");
             return;
         };
 
-        let Some(branch_state) = self
+        let branch_state = match self
             .get_branch_db()
             .get_branch_state(checked_out_ref.branch())
             .await
-        else {
-            return;
+        {
+            Ok(state) => state,
+            Err(e) => {
+                tracing::error!("Could not discard current branch: {e}");
+                return;
+            }
         };
 
         let Some(fork_info) = &branch_state.forked_from else {
             return;
         };
-        self.inner.branch_db.delete_branch(&branch_state.id).await;
+        match self.inner.branch_db.delete_branch(&branch_state.id).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error discarding current branch {e}"),
+        };
 
         self.request_checkout(fork_info.branch()).await;
     }
 
     pub async fn create_merge_preview_branch(&self, source: &DocumentId, target: &DocumentId) {
-        if let Some(id) = self
+        match self
             .inner
             .branch_db
             .create_merge_preview_branch(source, target)
             .await
         {
-            self.request_checkout(&id).await;
+            Ok(id) => {
+                self.request_checkout(&id).await;
+            }
+            Err(e) => tracing::error!(
+                "Could not create merge preview branch from {source} to {target}: {e}"
+            ),
         }
     }
 
     pub async fn create_revert_preview_branch(&self, ref_: &HistoryRef) {
-        if let Some(id) = self
+        match self
             .get_branch_db()
             .create_revert_preview_branch(ref_.branch(), ref_)
             .await
         {
-            self.request_checkout(&id).await;
+            Ok(id) => {
+                self.request_checkout(&id).await;
+            }
+            Err(e) => tracing::error!("Could not create revert preview branch: {e}"),
         }
     }
 
@@ -571,17 +589,36 @@ impl Driver {
         let Some(branch) = self.get_branch_db().get_checked_out_ref().await else {
             return;
         };
-        let Some(branch_state) = self.get_branch_db().get_branch_state(branch.branch()).await
-        else {
-            return;
+        let branch_state = match self.get_branch_db().get_branch_state(branch.branch()).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Could not confirm revert preview branch: {e}");
+                return;
+            }
         };
+
         let Some(forked_from) = branch_state.forked_from else {
             return;
         };
-        self.get_branch_db()
+
+        match self
+            .get_branch_db()
             .confirm_revert_preview_branch(branch.branch())
-            .await;
-        self.inner.branch_db.delete_branch(branch.branch()).await;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!("Could not confirm revert preview: {e}");
+                return;
+            }
+        };
+        match self.inner.branch_db.delete_branch(branch.branch()).await {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!("Could not delete preview branch: {e}");
+                return;
+            }
+        }
         self.request_checkout(forked_from.branch()).await;
     }
 
@@ -594,20 +631,22 @@ impl Driver {
         // ProjectDiff::default()
     }
 
-    pub async fn get_metadata_doc(&self) -> Option<DocumentId> {
-        self.inner
+    pub async fn get_metadata_doc(&self) -> Result<DocumentId, ProjectLoadError> {
+        Ok(self
+            .inner
             .branch_db
             .get_metadata_state()
             .await
-            .map(|(handle, _)| handle.document_id().clone())
+            .map(|(handle, _)| handle.document_id().clone())?)
     }
 
-    pub async fn get_main_branch(&self) -> Option<DocumentId> {
-        self.inner
+    pub async fn get_main_branch(&self) -> Result<DocumentId, ProjectLoadError> {
+        Ok(self
+            .inner
             .branch_db
             .get_metadata_state()
             .await
-            .map(|(_, doc)| doc.main_doc_id)
+            .map(|(_, doc)| doc.main_doc_id)?)
     }
 
     pub async fn get_connection_info(&self) -> Option<ConnectionInfo> {
@@ -688,20 +727,22 @@ impl DriverInner {
         // If we've changed branches, send the new checked out ref.
         if let Some(ref_) = &new_checked_out_ref {
             tracing::trace!("CHECKED OUT REF: {}", ref_.branch());
-            tracing::trace!("Attepmting to sync FS to automerge...");
+            tracing::trace!("Attempting to sync FS to automerge...");
             // Apply any watched FS updates to Automerge.
             // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
             // We need to grab the most current heads in case we haven't marked them as officially checked-out yet. (I think?)
-            if let Some(current_shadow_ref) =
-                self.branch_db.get_latest_ref_on_branch(ref_.branch()).await
-            {
-                let committed_changes = self
-                    .sync_fs_to_automerge
-                    .commit(&current_shadow_ref, false)
-                    .await;
-                if !committed_changes.is_empty() {
-                    self.change_ingester.request_ingestion();
+            match self.branch_db.get_latest_ref_on_branch(ref_.branch()).await {
+                Ok(current_shadow_ref) => {
+                    let committed_changes = self
+                        .sync_fs_to_automerge
+                        .commit(&current_shadow_ref, false)
+                        .await;
+                    if !committed_changes.is_empty() {
+                        self.change_ingester.request_ingestion();
+                    }
                 }
+                // this may be overly verbose
+                Err(e) => tracing::error!("Couldn't get latest ref on branch {e}"),
             }
         } else {
             tracing::trace!("NO CHECKED OUT REF");
@@ -814,9 +855,10 @@ impl DriverInner {
         // - If we have a requested checkout that is valid, use that, and clear it
         // - If the requested checkout is invalid or empty, use the branch from the currently checked out ref
         // - If we don't have anything currently checked out, default to main.
+        // We're eating all the errors here... probably shouldn't? Idk
         let req_branch = requested_checkout.clone();
         if let Some(requested_branch) = req_branch
-            && let Some(latest) = self
+            && let Ok(latest) = self
                 .branch_db
                 .get_latest_ref_on_branch(&requested_branch)
                 .await
@@ -828,15 +870,15 @@ impl DriverInner {
         let current_ref = self.branch_db.get_checked_out_ref_mut();
         let current_ref = current_ref.read().await;
         if let Some(current_ref) = current_ref.clone()
-            && let Some(ref_) = self
+            && let Ok(ref_) = self
                 .branch_db
                 .get_latest_ref_on_branch(current_ref.branch())
                 .await
         {
             return Some(ref_);
         }
-        if let Some(main_branch) = self.branch_db.get_main_branch().await {
-            if let Some(ref_) = self.branch_db.get_latest_ref_on_branch(&main_branch).await {
+        if let Ok(main_branch) = self.branch_db.get_main_branch().await {
+            if let Ok(ref_) = self.branch_db.get_latest_ref_on_branch(&main_branch).await {
                 return Some(ref_);
             }
             tracing::error!(

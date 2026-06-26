@@ -35,8 +35,8 @@ pub enum IngestWaitError {
     NotTracked,
     #[error("this branch timed out when waiting for the ingest.")]
     TimedOut,
-    #[error("this branch can't be tracked by the document watcher: {0}")]
-    Unknown(String),
+    #[error("watch error: {0}")]
+    Watch(#[from] watch::error::RecvError),
 }
 
 #[derive(Debug, Clone)]
@@ -97,19 +97,16 @@ impl DocumentWatcher {
 
             tx.subscribe()
         };
-        let mut current = rx.borrow_and_update().clone();
-        while current == BranchIngestState::Pending {
-            rx.changed()
-                .await
-                .map_err(|e| IngestWaitError::Unknown(e.to_string()))?;
-            current = rx.borrow_and_update().clone();
-        }
-        match current {
-            BranchIngestState::Pending => {
-                Err(IngestWaitError::Unknown("Still pending?!?".to_string()))
-            } // this shouldn't happen
-            BranchIngestState::Ingested => Ok(()),
-            BranchIngestState::Failed => Err(IngestWaitError::TimedOut),
+
+        loop {
+            let current = rx.borrow_and_update().clone();
+            match current {
+                BranchIngestState::Pending => {
+                    rx.changed().await?;
+                }
+                BranchIngestState::Ingested => break Ok(()),
+                BranchIngestState::Failed => break Err(IngestWaitError::TimedOut),
+            }
         }
     }
 }
@@ -225,7 +222,8 @@ impl DocumentWatcherInner {
                 _ = token.cancelled() => {}
                 handle = Self::poll_document(&repo, &doc_id, poll_time, semaphore) => {
                     // this may trigger a reconciliation for a shadow doc
-                    branch_db.ingest_binary_doc(doc_id, handle).await;
+                    branch_db.ingest_binary_doc(doc_id, handle).await
+                        .inspect_err(|e| tracing::error!("Error during track_binary_document {e}")).ok();
                 }
             }
         });
@@ -280,7 +278,9 @@ impl DocumentWatcherInner {
 
         self.branch_db
             .update_branch_sync_state(handle, heads, linked_docs.values().cloned().collect())
-            .await;
+            .await
+            .inspect_err(|e| tracing::error!("Error during ingest_branch_document {e}"))
+            .ok();
     }
 
     #[tracing::instrument(skip_all, level = "trace")]

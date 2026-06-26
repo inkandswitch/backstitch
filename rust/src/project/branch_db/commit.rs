@@ -205,7 +205,10 @@ impl BranchDb {
         // That's OK; once the binary doc sync finishes, it will trigger a reconcile to canonical.
         // In the mean time, we can continue committing to the shadow doc.
         drop(state);
-        self.try_reconcile_branch(state_arc.clone()).await;
+        self.try_reconcile_branch(state_arc.clone())
+            .await
+            .inspect_err(|e| tracing::error!("Error reconciling after commit: {e}"))
+            .ok();
 
         tracing::info!("Committed {} files.", count);
 

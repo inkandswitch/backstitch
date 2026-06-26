@@ -107,13 +107,15 @@ impl SyncFileSystemToAutomerge {
         .instrument(tracing::debug_span!("get_all_files"))
         .await;
 
-        let Some(old_files) = self
+        let Ok(old_files) = self
             .branch_db
             .get_hash_index(ref_)
             .instrument(tracing::debug_span!("get_hash_index"))
             .await
+            .inspect_err(|e| {
+                tracing::error!("Failed to get current files! Canceling commit. Reason: {e}")
+            })
         else {
-            tracing::error!("Failed to get current files!");
             return HashSet::new();
         };
 

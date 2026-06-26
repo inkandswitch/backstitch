@@ -9,14 +9,14 @@ use crate::{
         branch::{BRANCH_DOC_VERSION, Branch, BranchesMetadataDoc, GodotProjectDoc},
         utils::{CommitMetadata, commit_with_metadata},
     },
-    project::branch_db::{BranchDb, HistoryRef},
+    project::branch_db::{BranchDb, DbError, HistoryRef},
 };
 
 // Methods related to branch and document management on a [BranchDb].
 impl BranchDb {
     /// Create a new metadata document, and a new main branch, and return the handle of the metadata document.
     /// Checks out the initial commit of the main branch automatically.
-    pub async fn create_metadata_doc(&self) -> DocHandle {
+    pub async fn create_metadata_doc(&self) -> Result<DocHandle, DbError> {
         tracing::info!("Creating new metadata doc...");
         let username = self.username.lock().await.clone();
 
@@ -25,7 +25,7 @@ impl BranchDb {
         let mut checked_out_ref = r.write().await;
 
         // Create new main branch doc
-        let main_handle = self.repo.create(Automerge::new()).await.unwrap();
+        let main_handle = self.repo.create(Automerge::new()).await?;
         let main_handle_clone = main_handle.clone();
         let username_clone = username.clone();
 
@@ -101,29 +101,24 @@ impl BranchDb {
                 );
             });
         })
-        .await
-        .unwrap();
-        metadata_handle_clone
+        .await?;
+        Ok(metadata_handle_clone)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(super) async fn add_branch_to_meta(&self, branch: Branch) {
+    pub(super) async fn add_branch_to_meta(&self, branch: Branch) -> Result<(), DbError> {
         let meta_handle = {
             let meta = self.metadata_state.lock().await;
-            if meta.is_none() {
-                tracing::error!("Could not find metadata document!");
-                return;
-            }
-            meta.as_ref().unwrap().0.clone()
+            meta.as_ref().ok_or(DbError::NoMetadataState)?.0.clone()
         };
 
         let username = self.username.lock().await.clone();
         tokio::task::spawn_blocking(move || {
-            meta_handle.with_document(|d| {
-                let mut branches_metadata: BranchesMetadataDoc = hydrate(d).unwrap();
+            meta_handle.with_document(|d| -> Result<_, DbError> {
+                let mut branches_metadata: BranchesMetadataDoc = hydrate(d)?;
                 let mut tx = d.transaction();
                 branches_metadata.branches.insert(branch.id.clone(), branch);
-                let _ = reconcile(&mut tx, branches_metadata);
+                reconcile(&mut tx, branches_metadata)?;
                 commit_with_metadata(
                     tx,
                     &CommitMetadata {
@@ -135,18 +130,17 @@ impl BranchDb {
                         is_setup: Some(true),
                     },
                 );
-            });
-        });
+                Ok(())
+            })
+        })
+        .await??;
+        Ok(())
     }
 
-    async fn remove_branch_from_meta(&self, branch: DocumentId) {
+    async fn remove_branch_from_meta(&self, branch: DocumentId) -> Result<(), DbError> {
         let meta_handle = {
             let meta = self.metadata_state.lock().await;
-            if meta.is_none() {
-                tracing::error!("Could not find metadata document!");
-                return;
-            }
-            meta.as_ref().unwrap().0.clone()
+            meta.as_ref().ok_or(DbError::NoMetadataState)?.0.clone()
         };
         let branch_clone = branch.clone();
         let username = self.username.lock().await.clone();
@@ -169,32 +163,33 @@ impl BranchDb {
                 );
             });
         })
-        .await
-        .unwrap();
+        .await?;
+        Ok(())
     }
 
     // delete branch isn't fully implemented right now deletes are not propagated to the frontend
     // right now this is just useful to clean up merge preview branches
     #[tracing::instrument(skip_all, level = "trace")]
-    pub async fn delete_branch(&self, branch: &DocumentId) {
-        self.remove_branch_from_meta(branch.clone()).await;
+    pub async fn delete_branch(&self, branch: &DocumentId) -> Result<(), DbError> {
+        self.remove_branch_from_meta(branch.clone()).await
     }
 
-    async fn clone_branch(&self, branch: &DocumentId) -> Option<DocHandle> {
-        self.with_shadow_document(branch, async |d| self.repo.create(d.clone()).await.unwrap())
-            .await
-            .ok()
+    async fn clone_branch(&self, branch: &DocumentId) -> Result<DocHandle, DbError> {
+        Ok(self
+            .with_shadow_document(branch, async |d| self.repo.create(d.clone()).await)
+            .await??)
     }
 
     // TODO: This would be more versatile if we gave a HistoryRef instead of a branch.
     // That way it might work for reverts too?
-    pub async fn fork_branch(&self, name: String, source: &DocumentId) -> Option<DocumentId> {
+    pub async fn fork_branch(
+        &self,
+        name: String,
+        source: &DocumentId,
+    ) -> Result<DocumentId, DbError> {
         tracing::info!("Forking new branch {:?} from source {:?}", name, source);
 
-        let Some(latest_ref) = self.get_latest_ref_on_branch(source).await else {
-            tracing::error!("Couldn't get latest ref on source branch!");
-            return None;
-        };
+        let latest_ref = self.get_latest_ref_on_branch(source).await?;
 
         // At the instant which we clone, the new shadow document does NOT exist, but the
         // canonical document does.
@@ -211,7 +206,7 @@ impl BranchDb {
             created_by: username,
             reverted_to: None,
         })
-        .await;
-        Some(id.clone())
+        .await?;
+        Ok(id.clone())
     }
 }

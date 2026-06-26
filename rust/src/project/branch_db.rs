@@ -1,8 +1,13 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use automerge::AutomergeError;
+use autosurgeon::{HydrateError, ReconcileError};
 use samod::{DocHandle, DocumentId, Repo};
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock, broadcast};
+use tokio::{
+    sync::{Mutex, RwLock, broadcast, watch},
+    task::JoinError,
+};
 
 use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
@@ -28,8 +33,36 @@ pub enum CanonicalBranchStatus {
 pub enum ShadowDocWaitError {
     #[error("the branch wasn't ingested")]
     BranchNotIngested,
-    #[error("unknown error waiting for shadow doc: {0}")]
-    Unknown(String),
+    #[error("tokio error: {0}")]
+    Watch(#[from] watch::error::RecvError),
+}
+
+#[derive(Error, Debug)]
+pub enum DbError {
+    #[error("there was no loaded metadata state")]
+    NoMetadataState,
+    #[error("there was no branch matching the id {0}")]
+    NoBranch(Box<DocumentId>),
+    #[error("the branch state of id {0} is wrong ({1})")]
+    BadBranchState(Box<DocumentId>, String),
+    #[error("bad branch document at ref {0} ({1})")]
+    BadBranchDocument(Box<HistoryRef>, String),
+    #[error("shadow doc isn't initialized")]
+    ShadowDocNotInitialized,
+    #[error("there was an issue with threading: {0}")]
+    Thread(#[from] JoinError),
+    #[error(transparent)]
+    RepoStopped(#[from] samod::Stopped),
+    #[error(transparent)]
+    Automerge(#[from] AutomergeError),
+    #[error(transparent)]
+    Hydrate(#[from] HydrateError),
+    #[error(transparent)]
+    Reconcile(#[from] ReconcileError),
+    #[error("the provided ref was invalid: {0}")]
+    InvalidRef(Box<HistoryRef>),
+    #[error("there were no provided file filters")]
+    NoFilters,
 }
 
 /// [BranchDb] is the primary data source for project data.

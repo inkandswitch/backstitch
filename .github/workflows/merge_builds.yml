@@ -14,14 +14,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: backstitch-build-*
-          path: ${{ github.workspace }}/backstitch
+          path: ${{ github.workspace }}/merge/addons/backstitch
           merge-multiple: true
+      - name: Download license file
+        shell: bash
+        run: |
+          curl -o ${{ github.workspace }}/merge/addons/backstitch/LICENSE -L https://raw.githubusercontent.com/inkandswitch/backstitch/${{ github.ref_name }}/LICENSE
       - name: Wut
         run: |
-          ls -la ${{ github.workspace }}/backstitch/bin || echo "No artifacts"
+          ls -la ${{ github.workspace }}/merge/addons/backstitch/bin || echo "No artifacts"
 
       - name: Upload backstitch
         uses: actions/upload-artifact@v4
         with:
-          path: backstitch
+          # the zip file needs to have `addons` as the root directory, and upload-artifact will not create it for us unless we put it in a parent folder
+          path: ${{ github.workspace }}/merge
           name: backstitch

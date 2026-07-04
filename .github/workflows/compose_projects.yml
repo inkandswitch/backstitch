@@ -58,7 +58,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: backstitch
-          path: backstitch
+          path: backstitch-extract
       - name: Checkout backstitch # for actions
         uses: actions/checkout@v6
         with:
@@ -76,7 +76,7 @@ jobs:
         shell: sh
         run: |
           mkdir -p ${{ matrix.project.name }}/addons/backstitch
-          cp -r backstitch/. ${{ matrix.project.name }}/addons/backstitch
+          cp -r backstitch-extract/addons/backstitch/. ${{ matrix.project.name }}/addons/backstitch
       - name: Install Backstitch Launcher
         uses: ./backstitch-tmp/.github/actions/install-launcher
         with:

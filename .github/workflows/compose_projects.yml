@@ -17,7 +17,7 @@ jobs:
       MODDABLE_PONG_REF: ${{ steps.dotenv.outputs.MODDABLE_PONG_REF }}
       RECOMMENDED_LAUNCHER: ${{ steps.dotenv.outputs.RECOMMENDED_LAUNCHER }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: dotenv
         uses: falti/dotenv-action@v1.1.5
         with:

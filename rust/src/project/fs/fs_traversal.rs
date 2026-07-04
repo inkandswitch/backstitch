@@ -12,6 +12,7 @@ use crate::{helpers::utils::ChangeType, project::fs::fs_index::FileSystemIndex};
 pub struct FileSystemTraversal;
 
 impl FileSystemTraversal {
+    // TODO: don't throw away FS errors
     pub async fn get_all_files<P, F>(
         root: P,
         index: &FileSystemIndex,

@@ -57,13 +57,10 @@ impl SyncAutomergeToFileSystem {
         .map(|(k, v)| (self.branch_db.localize_path(&k), v))
         .collect();
 
-        let Some(goal_files) = self.branch_db.get_hash_index(goal_ref).await else {
+        let goal_files = self.branch_db.get_hash_index(goal_ref).await.inspect_err(|e|{
             tracing::error!(
-                "Couldn't get changed file content between refs; canceling ref checkout of {:?}",
-                goal_ref
-            );
-            return None;
-        };
+                "Couldn't get changed file content between refs; canceling ref checkout of {goal_ref:?}. Reason: {e}"
+            )}).ok()?;
 
         let changes = FileSystemTraversal::get_file_changes(current_files, goal_files);
 
@@ -73,17 +70,13 @@ impl SyncAutomergeToFileSystem {
 
         tracing::debug!("Changes to be applied: {:?}", changes);
 
-        let Some(mut contents) = self
+        let mut contents = self
             .branch_db
             .get_files_at_ref(goal_ref, &changes.keys().cloned().collect())
             .await
-        else {
-            tracing::error!(
-                "Couldn't get file content between refs; canceling ref checkout of {:?}",
-                goal_ref
-            );
-            return None;
-        };
+            .inspect_err(|e| tracing::error!(
+                "Couldn't get file content between refs; canceling ref checkout of {goal_ref:?}. Reason: {e}",
+            )).ok()?;
 
         let joined: HashMap<PathBuf, (ChangeType, Option<FileContent>)> = changes
             .into_iter()

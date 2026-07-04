@@ -5,7 +5,7 @@ use samod::DocumentId;
 
 use crate::{
     helpers::branch::Branch,
-    project::branch_db::{BranchDb, HistoryRef},
+    project::branch_db::{BranchDb, DbError, HistoryRef},
 };
 
 // Utility methods for working with [BranchDb].
@@ -40,45 +40,41 @@ impl BranchDb {
     }
 
     /// Get the most recent ref on a given branch (on the shadow doc).
-    pub async fn get_latest_ref_on_branch(&self, branch: &DocumentId) -> Option<HistoryRef> {
-        let Ok(heads) = self
+    pub async fn get_latest_ref_on_branch(
+        &self,
+        branch: &DocumentId,
+    ) -> Result<HistoryRef, DbError> {
+        let heads = self
             .with_shadow_document(branch, async |d| d.get_heads())
-            .await
-        else {
-            return None;
-        };
-
-        Some(HistoryRef::new(branch.clone(), heads))
+            .await?;
+        Ok(HistoryRef::new(branch.clone(), heads))
     }
 
     /// Get the most recent ref on a given branch (on the canonical doc).
     pub async fn get_latest_canonical_ref_on_branch(
         &self,
         branch: &DocumentId,
-    ) -> Option<HistoryRef> {
+    ) -> Result<HistoryRef, DbError> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(branch).cloned() else {
             tracing::error!(
                 "Branch not found in sync states! Unable to run get_latest_canonical_ref_on_branch."
             );
-            return None;
+            return Err(DbError::NoBranch(Box::new(branch.clone())));
         };
         drop(sync_states);
 
         let st = state.lock().await;
         let handle = st.canonical_doc.clone();
-        let heads = tokio::task::spawn_blocking(move || handle.with_document(|d| d.get_heads()))
-            .await
-            .ok()?;
-        Some(HistoryRef::new(branch.clone(), heads))
+        let heads =
+            tokio::task::spawn_blocking(move || handle.with_document(|d| d.get_heads())).await?;
+        Ok(HistoryRef::new(branch.clone(), heads))
     }
 
-    pub async fn get_main_branch(&self) -> Option<DocumentId> {
-        let Some((_, metadata)) = self.get_metadata_state().await else {
-            tracing::error!("Couldn't get main branch; no metadata doc.");
-            return None;
-        };
-        Some(metadata.main_doc_id)
+    pub async fn get_main_branch(&self) -> Result<DocumentId, DbError> {
+        self.get_metadata_state()
+            .await
+            .map(|(_, meta)| meta.main_doc_id)
     }
 
     /// Check if a path should be ignored based on the provided glob patterns
@@ -101,18 +97,34 @@ impl BranchDb {
             .is_ignore()
     }
 
-    pub async fn get_branch_name(&self, id: &DocumentId) -> Option<String> {
+    pub async fn get_branch_name(&self, id: &DocumentId) -> Result<String, DbError> {
         let meta = self.metadata_state.lock().await;
-        Some(meta.as_ref()?.1.branches.get(id)?.name.clone())
+
+        Ok(meta
+            .as_ref()
+            .ok_or(DbError::NoMetadataState)?
+            .1
+            .branches
+            .get(id)
+            .ok_or_else(|| DbError::NoBranch(Box::new(id.clone())))?
+            .name
+            .clone())
     }
 
     // This is not ideal -- I'd prefer not to clone unless necessary.
     // However, we NEVER want to expose our internal BranchState mutexes.
     // That could cause deadlocks if they acquired a branch state and later tried to call any branch info method on branch_db.
     // Callers should preferentially use other getter methods.
-    pub async fn get_branch_state(&self, id: &DocumentId) -> Option<Branch> {
+    pub async fn get_branch_state(&self, id: &DocumentId) -> Result<Branch, DbError> {
         let meta = self.metadata_state.lock().await;
-        Some(meta.as_ref()?.1.branches.get(id)?.clone())
+        Ok(meta
+            .as_ref()
+            .ok_or(DbError::NoMetadataState)?
+            .1
+            .branches
+            .get(id)
+            .ok_or_else(|| DbError::NoBranch(Box::new(id.clone())))?
+            .clone())
     }
 
     /// Run a closure over a mutable reference to our Automerge shadow document for a branch.
@@ -120,21 +132,19 @@ impl BranchDb {
         &self,
         branch: &DocumentId,
         f: F,
-    ) -> Result<R, ()>
+    ) -> Result<R, DbError>
     where
         F: AsyncFnOnce(&mut Automerge) -> R,
     {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(branch).cloned() else {
-            tracing::error!("Branch not found in sync states! Unable to run with_shadow_document.");
-            return Err(());
+            return Err(DbError::NoBranch(Box::new(branch.clone())));
         };
         // intentionally drop sync_states mutex here so that we can run nested with_shadow_document calls
         drop(sync_states);
         let mut state = state.lock().await;
         let Some(shadow_doc) = state.shadow_doc.as_mut() else {
-            tracing::error!("Shadow document not initialized!");
-            return Err(());
+            return Err(DbError::ShadowDocNotInitialized);
         };
         Ok(f(shadow_doc).await)
     }

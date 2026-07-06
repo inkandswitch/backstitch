@@ -9,15 +9,15 @@ use crate::{
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
-            human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffID, DiffWrapper,
+            exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
         project_api::{
             BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
-            SyncStatus,
+            RequestDiffError, SyncStatus,
         },
         project_base::{Project, ProjectCreateMode},
     },
@@ -504,6 +504,7 @@ impl ProjectViewModel for Project {
         let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
 
         Some(DiffWrapper {
+            id: DiffID::new(before.clone(), after.clone()),
             diff: self.get_cached_diff(before, after),
             title,
         })
@@ -538,6 +539,7 @@ impl ProjectViewModel for Project {
         let after = HistoryRef::new(branch_state.id.clone(), heads_after);
 
         Some(DiffWrapper {
+            id: DiffID::new(before.clone(), after.clone()),
             diff: self.get_cached_diff(before, after),
             title: format!(
                 "Showing changes from {} - {}",
@@ -545,6 +547,170 @@ impl ProjectViewModel for Project {
                 change.get_human_timestamp()
             ),
         })
+    }
+
+    fn request_commit_diff(&self, selected_hash: ChangeHash) -> Result<DiffID, RequestDiffError> {
+        let change = self
+            .changes
+            .get(&selected_hash)
+            .ok_or(RequestDiffError::CommitNotFound)?;
+        if change.is_setup() {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+        let heads_before;
+        let heads_after = vec![change.hash];
+
+        let history = self.get_branch_history();
+        let mut prev_hash = None;
+        for (i, el) in history.iter().enumerate() {
+            if *el == selected_hash {
+                prev_hash = history.get(i - 1).copied();
+                break;
+            }
+        }
+
+        let branch_state = self
+            .get_checked_out_branch_state()
+            .ok_or(RequestDiffError::NoBranchCheckedOut)?;
+
+        if let Some(prev_hash) = prev_hash {
+            heads_before = vec![prev_hash];
+        } else {
+            heads_before = branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+                .clone();
+        }
+
+        let before = HistoryRef::new(branch_state.id.clone(), heads_before);
+        let after = HistoryRef::new(branch_state.id.clone(), heads_after);
+        let title = format!(
+            "Showing changes from {} - {}",
+            change.get_summary(),
+            change.get_human_timestamp()
+        );
+        self.request_diff(before, after, Some(title))
+    }
+
+    fn request_default_diff(&self) -> Result<DiffID, RequestDiffError> {
+        let (branch_state, heads_after) = self
+            .with_driver_blocking("Get default diff", |driver| async move {
+                let branch_db = driver.as_ref()?.get_branch_db();
+
+                let branch = branch_db.get_checked_out_ref().await?.branch().clone();
+
+                let state = branch_db
+                    .get_branch_state(&branch)
+                    .await
+                    .map_err(|_| RequestDiffError::NoBranchCheckedOut)
+                    .ok()?;
+                let synced_heads = branch_db
+                    .get_latest_ref_on_branch(&branch)
+                    .await
+                    .map_err(|_| RequestDiffError::NoBranchCheckedOut)
+                    .ok()?
+                    .heads()
+                    .clone();
+                Some((state, synced_heads))
+            })
+            .ok_or(RequestDiffError::NoBranchCheckedOut)?;
+
+        // There is no default diff for the main branch!
+        if branch_state.id == self.get_main_branch().unwrap().get_id() {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        let heads_before = if self.is_merge_preview_branch_active() {
+            branch_state
+                .merge_into
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        }
+        // revert preview and regular branch both use forked_at
+        else {
+            branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        };
+
+        if heads_before == &heads_after {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        // generate the summary
+        let title;
+        if self.is_merge_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            let target_name = self
+                .get_branch(
+                    branch_state
+                        .merge_into
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            title = format!("Showing changes for {} -> {}", source_name, target_name);
+        } else if self.is_revert_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            // assume reverted_to is always just 1 hash
+            let short_heads = &branch_state
+                .reverted_to
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+                .first()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .to_string()[..7];
+            title = format!(
+                "Showing changes for {} reverted to {}",
+                source_name, short_heads
+            );
+        } else {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            title = format!(
+                "Showing changes from {} -> {}",
+                source_name, branch_state.name
+            );
+        }
+
+        let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
+        let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
+
+        self.request_diff(before, after, Some(title))
     }
 
     fn get_current_ref(&self) -> Option<HistoryRef> {
@@ -746,5 +912,13 @@ impl DiffViewModel for DiffWrapper {
 
     fn get_title(&self) -> &String {
         &self.title
+    }
+
+    fn get_before(&self) -> &HistoryRef {
+        &self.id.before
+    }
+
+    fn get_after(&self) -> &HistoryRef {
+        &self.id.after
     }
 }

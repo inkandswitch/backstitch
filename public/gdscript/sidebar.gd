@@ -93,6 +93,11 @@ var all_changes_count = 0
 var history_item_count = 0
 var history_saved_selection = null # hash string
 
+var pending_diff_id = null
+var current_diff_id = null
+var last_diff = null
+
+
 const CREATE_BRANCH_IDX = 1
 const MERGE_BRANCH_IDX = 2
 
@@ -306,6 +311,7 @@ func bind_listeners(godot_project):
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
 	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
+	godot_project.diff_generated.connect(self._on_diff_generated)
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)
@@ -837,7 +843,6 @@ func update_highlight_changes(diff: Dictionary) -> void:
 		else:
 			HighlightChangesLayer.remove_highlight(edited_root)
 
-var last_diff = null
 
 func _on_node_hovered(file_path: String, node_paths: Array) -> void:
 	var node: Node = EditorInterface.get_edited_scene_root()
@@ -955,11 +960,23 @@ func _on_history_tree_empty_clicked(_vec2, _idx):
 	history_tree.deselect_all()
 	update_diff()
 
+func _on_diff_generated(diff_id: String, diff: Dictionary):
+	if diff_id != pending_diff_id:
+		return
+	if diff_id == current_diff_id:
+		return
+	current_diff_id = diff_id
+	if diff == null:
+		show_invalid_diff()
+		return
+	show_diff(diff, true)
+	pass
+
 # Read the selection from the tree, and update the diff visualization accordingly.
 func update_diff():
 	if !GodotProject.has_project(): return
 	var selected_item = history_tree.get_selected()
-	var diff;
+	var diff_id = null
 
 	if (selected_item == null
 			and !(GodotProject.is_merge_preview_branch_active()
@@ -967,22 +984,20 @@ func update_diff():
 
 		# TODO: remove this, and the auto generate setting, when we fix diff speed
 		if _auto_generate_diffs():
-			diff = GodotProject.get_default_diff()
-			show_diff(diff, false)
+			diff_id = GodotProject.request_default_diff()
 		else:
+			pending_diff_id = null
+			current_diff_id = null
 			show_diff(null, false)
 	elif (selected_item == null
 			or GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active()):
-		diff = GodotProject.get_default_diff()
-		show_diff(diff, false)
+		diff_id = GodotProject.request_default_diff()
 	else:
 		var hash = get_history_item_hash(selected_item)
-		diff = GodotProject.get_diff(hash)
-		if (!diff):
-			show_invalid_diff()
-			return
-		show_diff(diff, true)
+		diff_id = GodotProject.request_commit_diff(hash)
+	if diff_id != null:
+		pending_diff_id = diff_id
 
 # Inspect the diff dictionary.
 func show_diff(diff, is_change) -> void:

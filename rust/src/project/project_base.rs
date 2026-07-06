@@ -3,11 +3,13 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
-use crate::helpers::utils::{ChangedFile, CommitInfo};
+use crate::helpers::utils::{ChangedFile, CommitInfo, DiffID};
 use crate::interop::godot_accessors::BackstitchConfigAccessor;
 use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
-use crate::project::project_api::{ProjectStartError, ProjectViewModel};
+use crate::project::project_api::{
+    DiffViewModel, ProjectStartError, ProjectViewModel, RequestDiffError,
+};
 use automerge::ChangeHash;
 use samod::{ConnectionInfo, DocumentId, Url};
 use std::cell::RefCell;
@@ -58,6 +60,7 @@ pub enum GodotProjectSignal {
     ServerStatusChanged,
     ChangesIngested,
     BranchCheckedOut,
+    DiffGenerated(DiffID, Option<Box<dyn DiffViewModel + 'static>>),
 }
 
 struct LoadSuccess {
@@ -114,6 +117,30 @@ impl Project {
             .entry((before.clone(), after.clone()))
             .or_insert_with(|| self.get_diff(before, after))
             .clone()
+    }
+
+    pub fn request_diff(
+        &self,
+        before: HistoryRef,
+        after: HistoryRef,
+        title: Option<String>,
+    ) -> Result<DiffID, RequestDiffError> {
+        let title = title.unwrap_or(format!("Showing changes from {} to {}", before, after));
+        if self
+            .diff_cache
+            .borrow()
+            .contains_key(&(before.clone(), after.clone()))
+        {
+            return Ok(DiffID { before, after });
+        }
+        self.with_driver_blocking("Start request diff", |driver| async move {
+            driver
+                .as_ref()
+                .ok_or(RequestDiffError::NoDriver)?
+                .request_diff(title, &before, &after)
+                .await;
+            Ok(DiffID { before, after })
+        })
     }
 
     pub fn clear_diff_cache(&self) {
@@ -534,7 +561,7 @@ impl Project {
         safe_to_update_godot: bool,
     ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
-        let fs_changes = {
+        let (fs_changes, diff_results) = {
             let mut driver_guard = self.driver.blocking_lock();
             if driver_guard.is_none() {
                 return (Vec::new(), Vec::new());
@@ -558,7 +585,10 @@ impl Project {
             tracing::trace!("Done blocking.");
 
             // Consume any modified files to send to Godot
-            driver_guard.as_mut().unwrap().get_filesystem_changes()
+            (
+                driver_guard.as_mut().unwrap().get_filesystem_changes(),
+                driver_guard.as_mut().unwrap().get_diff_results(),
+            )
         };
 
         let mut signals = Vec::new();
@@ -596,6 +626,13 @@ impl Project {
             BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
             rx.mark_unchanged();
             signals.push(GodotProjectSignal::BranchCheckedOut);
+        }
+
+        for (diff_id, result) in diff_results {
+            signals.push(GodotProjectSignal::DiffGenerated(
+                diff_id,
+                result.map(|r| Box::new(r) as Box<dyn DiffViewModel>),
+            ));
         }
 
         tracing::trace!("Done with process.");

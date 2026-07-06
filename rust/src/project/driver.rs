@@ -2,7 +2,7 @@ use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named;
-use crate::helpers::utils::{ChangeType, CommitInfo};
+use crate::helpers::utils::{ChangeType, CommitInfo, DiffID, DiffWrapper};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
@@ -29,6 +29,12 @@ use tokio_util::sync::CancellationToken;
 #[cfg(test)]
 mod tests;
 
+// typedef for the diff result type
+pub(super) type DiffResult = (DiffID, Option<DiffWrapper>);
+
+type DiffResultSender = mpsc::UnboundedSender<DiffResult>;
+pub(super) type DiffResultReceiver = mpsc::UnboundedReceiver<DiffResult>;
+
 /// The main driver for the project.
 /// Hooks together all the various controllers.
 /// When this object is constructed, it is started. When the handle is dropped, it shuts down.
@@ -39,6 +45,7 @@ pub struct Driver {
     token: CancellationToken,
     // receivers go outside Inner, so we don't have to mutex them
     file_changes_rx: mpsc::UnboundedReceiver<FileSystemEvent>,
+    diff_result_rx: DiffResultReceiver,
 }
 
 #[derive(Debug)]
@@ -47,6 +54,7 @@ pub struct DriverInner {
     main_thread_block: MainThreadBlock,
     file_changes_tx: mpsc::UnboundedSender<FileSystemEvent>,
     ref_tx: watch::Sender<Option<HistoryRef>>,
+    diff_result_tx: Arc<Mutex<DiffResultSender>>,
     safe_to_update_editor: AtomicBool,
     token: CancellationToken,
 
@@ -441,13 +449,16 @@ impl Driver {
         let (file_changes_tx, file_changes_rx) = mpsc::unbounded_channel();
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
+        let (diff_result_tx, diff_result_rx) = mpsc::unbounded_channel();
 
         Ok(Driver {
+            diff_result_rx,
             file_changes_rx,
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
                 ref_tx,
+                diff_result_tx: Arc::new(Mutex::new(diff_result_tx)),
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
@@ -631,6 +642,29 @@ impl Driver {
         // ProjectDiff::default()
     }
 
+    pub async fn request_diff(&self, title: String, before: &HistoryRef, after: &HistoryRef) {
+        let inner = self.inner.clone();
+        let diff_id = DiffID::new(before.clone(), after.clone());
+        spawn_named("Request diff", async move {
+            let diff = inner.differ.get_diff(&diff_id.before, &diff_id.after).await;
+            let result = if let Some(diff) = diff {
+                Some(DiffWrapper {
+                    id: diff_id.clone(),
+                    diff,
+                    title,
+                })
+            } else {
+                None
+            };
+            inner
+                .diff_result_tx
+                .lock()
+                .await
+                .send((diff_id, result))
+                .unwrap();
+        });
+    }
+
     pub async fn get_metadata_doc(&self) -> Result<DocumentId, ProjectLoadError> {
         Ok(self
             .inner
@@ -674,6 +708,14 @@ impl Driver {
             fs_changes.push(msg);
         }
         fs_changes
+    }
+
+    pub fn get_diff_results(&mut self) -> Vec<DiffResult> {
+        let mut diff_results = Vec::new();
+        while let Ok(msg) = self.diff_result_rx.try_recv() {
+            diff_results.push(msg);
+        }
+        diff_results
     }
 
     // also awkward

@@ -1,5 +1,6 @@
 use crate::fs::file_utils::FileContent;
-use crate::helpers::utils::ChangedFile;
+use crate::helpers::history_ref::HistoryRef;
+use crate::helpers::utils::{ChangedFile, DiffID};
 use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
 use automerge::ChangeHash;
@@ -129,6 +130,34 @@ impl ToGodotExt for PathBuf {
     }
 }
 
+impl GodotConvert for HistoryRef {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for HistoryRef {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
+impl GodotConvert for DiffID {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffID {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
 // I couldn't figure out how to use GodotConvert with impls, so just use methods for these.
 
 pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDictionary {
@@ -146,10 +175,12 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
     }
 }
 
-pub(crate) fn diff_view_model_to_dict(diff: &impl DiffViewModel) -> VarDictionary {
+pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary {
     vdict! {
         "dict" => &diff.get_diff().to_godot(),
-        "title" => &diff.get_title().to_variant()
+        "title" => &diff.get_title().to_variant(),
+        "before" => &diff.get_before().to_variant(),
+        "after" => &diff.get_after().to_variant(),
     }
 }
 

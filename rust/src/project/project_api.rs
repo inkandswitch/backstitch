@@ -8,7 +8,10 @@ use tokio::task::JoinError;
 use crate::{
     diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
-    helpers::{history_ref::HistoryRef, utils::ChangedFile},
+    helpers::{
+        history_ref::HistoryRef,
+        utils::{ChangedFile, DiffID},
+    },
     project::{
         connection::RemoteConnectionError,
         driver::{DriverCreateError, ProjectLoadError},
@@ -60,6 +63,20 @@ impl From<ProjectLoadError> for ProjectStartError {
     fn from(value: ProjectLoadError) -> Self {
         ProjectStartError::DriverLoad(Box::new(value))
     }
+}
+
+#[derive(Error, Debug)]
+pub enum RequestDiffError {
+    #[error("No diff available for selection")]
+    NoDiffAvailable,
+    #[error("the selected hash is invalid!")]
+    CommitNotFound,
+    #[error("no branch is checked out!")]
+    NoBranchCheckedOut,
+    #[error("no previous change found!")]
+    BranchesDiverge,
+    #[error("no driver found!")]
+    NoDriver,
 }
 
 /// Defines the surface for the UI layer interacting with the GodotProject core logic.
@@ -154,6 +171,11 @@ pub trait ProjectViewModel {
     /// Get a [DiffViewModel] for the current branch against its fork, or [None] if the current branch is main.
     fn get_default_diff(&self) -> Option<impl DiffViewModel>;
 
+    /// async version of get_diff for a single commit
+    fn request_commit_diff(&self, selected_hash: ChangeHash) -> Result<DiffID, RequestDiffError>;
+    /// async version of get_default_diff
+    fn request_default_diff(&self) -> Result<DiffID, RequestDiffError>;
+
     fn get_current_ref(&self) -> Option<HistoryRef>;
     /// Get the file at a given history reference.
     fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent>;
@@ -213,4 +235,8 @@ pub trait DiffViewModel {
     fn get_diff(&self) -> &ProjectDiff;
     /// Get the display title of the diff.
     fn get_title(&self) -> &String;
+    /// Get the before history reference.
+    fn get_before(&self) -> &HistoryRef;
+    /// Get the after history reference.
+    fn get_after(&self) -> &HistoryRef;
 }

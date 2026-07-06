@@ -6,7 +6,7 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project_api::{BranchViewModel, ProjectViewModel};
+use crate::project::project_api::{BranchViewModel, ProjectViewModel, RequestDiffError};
 use crate::project::project_base::{GodotProjectSignal, Project};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
@@ -196,6 +196,9 @@ impl GodotProject {
 
     #[signal]
     fn create_failed();
+
+    #[signal]
+    fn diff_generated(diff_id: GString, diff: VarDictionary);
 
     #[func]
     fn has_user_name(&self) -> bool {
@@ -446,6 +449,46 @@ impl GodotProject {
     }
 
     #[func]
+    fn request_commit_diff(&self, hash: String) -> Variant {
+        let Ok(hash) = ChangeHash::from_str(&hash) else {
+            godot_error!("Invalid hash: {hash}");
+            return Variant::nil();
+        };
+        match self.project.request_commit_diff(hash) {
+            Ok(diff_id) => {
+                return diff_id.to_variant();
+            }
+            Err(e) => {
+                match e {
+                    RequestDiffError::NoDiffAvailable => {}
+                    _ => {
+                        godot_error!("Error requesting diff for commit {hash}: {e}");
+                    }
+                };
+                return Variant::nil();
+            }
+        }
+    }
+
+    #[func]
+    fn request_default_diff(&self) -> Variant {
+        match self.project.request_default_diff() {
+            Ok(diff_id) => {
+                return diff_id.to_variant();
+            }
+            Err(e) => {
+                match e {
+                    RequestDiffError::NoDiffAvailable => {}
+                    _ => {
+                        godot_error!("Error requesting default diff: {e}");
+                    }
+                };
+                return Variant::nil();
+            }
+        }
+    }
+
+    #[func]
     fn get_current_ref_string(&self) -> String {
         let Some(ref_) = self.project.get_current_ref() else {
             return "".to_string();
@@ -691,6 +734,17 @@ impl INode for GodotProject {
                 }
                 // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
                 GodotProjectSignal::BranchCheckedOut => {}
+                GodotProjectSignal::DiffGenerated(diff_id, result) => {
+                    let result = match result {
+                        Some(result) => diff_view_model_to_dict(result.as_ref()).to_variant(),
+                        None => Variant::nil(),
+                    };
+                    self.signals().diff_generated().to_future();
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["diff_generated".to_variant(), diff_id.to_variant(), result],
+                    );
+                }
             }
         }
     }

@@ -642,9 +642,9 @@ impl Driver {
         // ProjectDiff::default()
     }
 
-    pub async fn request_diff(&self, title: String, before: &HistoryRef, after: &HistoryRef) {
+    pub async fn request_diff(&self, title: String, diff_id: &DiffID) {
         let inner = self.inner.clone();
-        let diff_id = DiffID::new(before.clone(), after.clone());
+        let diff_id = diff_id.clone();
         spawn_named("Request diff", async move {
             let diff = inner.differ.get_diff(&diff_id.before, &diff_id.after).await;
             let result = if let Some(diff) = diff {

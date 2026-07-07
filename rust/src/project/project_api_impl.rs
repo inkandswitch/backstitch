@@ -505,7 +505,7 @@ impl ProjectViewModel for Project {
 
         Some(DiffWrapper {
             id: DiffID::new(before.clone(), after.clone()),
-            diff: self.get_cached_diff(before, after),
+            diff: self.get_cached_diff(DiffID::new(before, after)),
             title,
         })
     }
@@ -540,7 +540,7 @@ impl ProjectViewModel for Project {
 
         Some(DiffWrapper {
             id: DiffID::new(before.clone(), after.clone()),
-            diff: self.get_cached_diff(before, after),
+            diff: self.get_cached_diff(DiffID::new(before, after)),
             title: format!(
                 "Showing changes from {} - {}",
                 change.get_summary(),
@@ -591,7 +591,7 @@ impl ProjectViewModel for Project {
             change.get_summary(),
             change.get_human_timestamp()
         );
-        self.request_diff(before, after, Some(title))
+        self.request_diff(DiffID::new(before, after), Some(title))
     }
 
     fn request_default_diff(&self) -> Result<DiffID, RequestDiffError> {
@@ -710,7 +710,7 @@ impl ProjectViewModel for Project {
         let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
         let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
 
-        self.request_diff(before, after, Some(title))
+        self.request_diff(DiffID::new(before, after), Some(title))
     }
 
     fn get_current_ref(&self) -> Option<HistoryRef> {

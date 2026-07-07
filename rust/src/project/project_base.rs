@@ -3,7 +3,7 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
-use crate::helpers::utils::{ChangedFile, CommitInfo, DiffID};
+use crate::helpers::utils::{ChangedFile, CommitInfo, DiffID, DiffWrapper};
 use crate::interop::godot_accessors::BackstitchConfigAccessor;
 use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
@@ -51,8 +51,10 @@ pub struct Project {
     pub(super) history: Option<Vec<ChangeHash>>,
     pub(super) changes: HashMap<ChangeHash, CommitInfo>,
 
+    // TODO: We should either remove this or mutex-guard it
     // Cached diffs between refs
-    pub(super) diff_cache: RefCell<HashMap<(HistoryRef, HistoryRef), ProjectDiff>>,
+    pub(super) diff_cache: RefCell<HashMap<DiffID, ProjectDiff>>,
+    already_done_diff_requests: RefCell<Vec<(DiffID, DiffWrapper)>>,
 }
 
 /// Notifications that can be emitted via process and consumed by GodotProject, in order to trigger signals to GDScript.
@@ -93,6 +95,7 @@ impl Project {
             server_url: None,
             initial_branch: None,
             connection_info_rx: None,
+            already_done_diff_requests: RefCell::new(Vec::new()),
         }
     }
 
@@ -111,40 +114,52 @@ impl Project {
         }
     }
 
-    pub fn get_cached_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
+    pub fn has_cached_diff(&self, diff_id: &DiffID) -> bool {
+        self.diff_cache.borrow().contains_key(diff_id)
+    }
+
+    pub fn get_cached_diff(&self, diff_id: DiffID) -> ProjectDiff {
         self.diff_cache
             .borrow_mut()
-            .entry((before.clone(), after.clone()))
-            .or_insert_with(|| self.get_diff(before, after))
+            .entry(diff_id.clone())
+            .or_insert_with(|| self.get_diff(diff_id.before, diff_id.after))
             .clone()
     }
 
     pub fn request_diff(
         &self,
-        before: HistoryRef,
-        after: HistoryRef,
+        diff_id: DiffID,
         title: Option<String>,
     ) -> Result<DiffID, RequestDiffError> {
-        let title = title.unwrap_or(format!("Showing changes from {} to {}", before, after));
-        if self
-            .diff_cache
-            .borrow()
-            .contains_key(&(before.clone(), after.clone()))
-        {
-            return Ok(DiffID { before, after });
+        let title = title.unwrap_or(format!(
+            "Showing changes from {} to {}",
+            diff_id.before.short_heads(),
+            diff_id.after.short_heads()
+        ));
+        if self.has_cached_diff(&diff_id) {
+            self.already_done_diff_requests.borrow_mut().push((
+                diff_id.clone(),
+                DiffWrapper {
+                    id: diff_id.clone(),
+                    diff: self.get_cached_diff(diff_id.clone()),
+                    title: title,
+                },
+            ));
+            return Ok(diff_id);
         }
         self.with_driver_blocking("Start request diff", |driver| async move {
             driver
                 .as_ref()
                 .ok_or(RequestDiffError::NoDriver)?
-                .request_diff(title, &before, &after)
+                .request_diff(title, &diff_id)
                 .await;
-            Ok(DiffID { before, after })
+            Ok(diff_id)
         })
     }
 
     pub fn clear_diff_cache(&self) {
         self.diff_cache.borrow_mut().clear();
+        self.already_done_diff_requests.borrow_mut().clear();
     }
 
     pub fn clear_fs_cache(&self) {
@@ -629,9 +644,20 @@ impl Project {
         }
 
         for (diff_id, result) in diff_results {
+            if result.is_some() {
+                self.diff_cache
+                    .borrow_mut()
+                    .insert(diff_id.clone(), result.as_ref().unwrap().diff.clone());
+            }
             signals.push(GodotProjectSignal::DiffGenerated(
                 diff_id,
                 result.map(|r| Box::new(r) as Box<dyn DiffViewModel>),
+            ));
+        }
+        for (diff_id, wrapper) in self.already_done_diff_requests.borrow_mut().drain(..) {
+            signals.push(GodotProjectSignal::DiffGenerated(
+                diff_id,
+                Some(Box::new(wrapper) as Box<dyn DiffViewModel>),
             ));
         }
 

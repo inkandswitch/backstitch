@@ -986,10 +986,6 @@ func update_diff():
 		# TODO: remove this, and the auto generate setting, when we fix diff speed
 		if _auto_generate_diffs():
 			diff_id = GodotProject.request_default_diff()
-		else:
-			pending_diff_id = null
-			current_diff_id = null
-			show_diff(null, false)
 	elif (selected_item == null
 			or GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active()):
@@ -999,6 +995,10 @@ func update_diff():
 		diff_id = GodotProject.request_commit_diff(hash)
 	if diff_id != null:
 		pending_diff_id = diff_id
+	else:
+		pending_diff_id = null
+		current_diff_id = null
+		show_diff(null, false)
 
 # Inspect the diff dictionary.
 func show_diff(diff, is_change) -> void:

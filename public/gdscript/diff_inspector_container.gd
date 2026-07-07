@@ -52,7 +52,6 @@ func get_color_for_change_type(change_type: String) -> Color:
 		modified_color = value
 		set_inspector_change_color(("modified"), value)
 
-var diff_stylebox_tex = preload("./diff_stylebox_tex.png")
 @onready var main_vbox: VBoxContainer = %DifferMainVBox
 var diff_result: Dictionary
 

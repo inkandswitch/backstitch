@@ -12,6 +12,7 @@ use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
 use godot::register::info::PropertyHint;
 
+use crate::interop::lazy_load_editor_property::LazyLoadTokenEditorProperty;
 use crate::interop::lazy_load_token::LazyLoadToken;
 
 #[derive(GodotClass)]
@@ -396,7 +397,7 @@ impl DiffInspectorSection {
         None
     }
 
-    fn update_property_editor(editor_property: &mut Gd<EditorProperty>) {
+    pub fn update_property_editor(editor_property: &mut Gd<EditorProperty>) {
         editor_property.set_read_only(true);
         editor_property.update_property();
         editor_property.call("_update_editor_property_status", &[]);
@@ -488,13 +489,18 @@ impl DiffInspectorSection {
         fake_object.set_recording_properties(true);
         fake_object.set(prop_name, &prop_value);
         fake_object.set_recording_properties(false);
-        let mut editor_property = Self::instance_property_diff(
-            fake_object.clone().upcast::<Object>(),
-            prop_name.to_string(),
-            false,
-        )?;
+        let mut editor_property = match prop_value.try_to::<Gd<LazyLoadToken>>() {
+            Ok(lazy_load_token) => {
+                LazyLoadTokenEditorProperty::create(lazy_load_token).upcast::<EditorProperty>()
+            }
+            Err(_) => Self::instance_property_diff(
+                fake_object.clone().upcast::<Object>(),
+                prop_name.to_string(),
+                false,
+            )?,
+        };
 
-        editor_property.set_object_and_property(&fake_object.upcast::<Object>(), prop_name);
+        editor_property.set_object_and_property(&self.get_object().unwrap(), prop_name);
         Self::update_property_editor(&mut editor_property);
         let mut panel_container = PanelContainer::new_alloc();
         Self::add_label(prop_label, &mut panel_container);
@@ -546,8 +552,6 @@ impl DiffInspectorSection {
     ) {
         let has_old = change_type != "added";
         let has_new = change_type != "removed";
-        let old_prop_value = Self::get_real_val(old_prop_value);
-        let new_prop_value = Self::get_real_val(new_prop_value);
         let label = if label.is_empty() {
             Self::snake_case_to_human_readable(&prop_name)
         } else {
@@ -579,17 +583,21 @@ impl DiffInspectorSection {
         old_resource: Variant,
         new_resource: Variant,
     ) {
-        let old = Self::get_real_val(old_resource);
-        let new = Self::get_real_val(new_resource);
-        let old_resource: Option<Gd<Object>> = old.try_to::<Gd<Object>>().ok();
-        let new_resource: Option<Gd<Object>> = new.try_to::<Gd<Object>>().ok();
-        if old_resource.is_none() && new_resource.is_none() {
+        if old_resource.try_to::<Gd<Object>>().is_err()
+            && new_resource.try_to::<Gd<Object>>().is_err()
+        {
             return;
         }
         let prop_label = Self::snake_case_to_human_readable(&file_path);
         let mut fake_node: Gd<MissingResource> = MissingResource::new_gd();
         fake_node.set_original_class("Resource");
-        self.add_old_and_new(change_type, "Resource".to_string(), old, new, prop_label);
+        self.add_old_and_new(
+            change_type,
+            "Resource".to_string(),
+            old_resource,
+            new_resource,
+            prop_label,
+        );
     }
 }
 
@@ -634,6 +642,9 @@ impl IContainer for DiffInspectorSection {
     fn enter_tree(&mut self) {
         self.add_timer();
     }
+
+    // Solely here for the lazy load property editor to work
+    fn process(&mut self, _delta: f64) {}
 
     fn get_minimum_size(&self) -> Vector2 {
         let mut ms = Vector2::ZERO;

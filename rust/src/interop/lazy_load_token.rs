@@ -85,11 +85,9 @@ impl LazyLoadToken {
         if self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid() {
             return self.resource.clone();
         }
-        // NOTE: This always starts a load_threaded_request due to a race condition in gdext
-        // The only downside is that, with how we already started one in the differ,
-        // we will increment the load count twice and the resource will stick around in the cache
-        // TODO: replace this with self.is_started() when gdext is fixed
-        if !self.failed {
+        // NOTE: This previously caused race conditions in gdext that seem to be fixed now in the current gdext version;
+        // if this happens again, change this back to `!self.failed`
+        if !self.is_started() {
             self.start_load();
         }
         if self.failed {

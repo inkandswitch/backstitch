@@ -1,0 +1,9 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://dql80mrl8tckq"]
+
+[ext_resource type="Shader" uid="uid://hes8c1f5vbr1" path="res://addons/backstitch/public/gdscript/loading_circle.gdshader" id="1_8gtpc"]
+
+[resource]
+shader = ExtResource("1_8gtpc")
+shader_parameter/spinner_radius_factor = 0.7
+shader_parameter/dot_color = Color(1, 1, 1, 1)
+shader_parameter/rotation_speed = 0.8

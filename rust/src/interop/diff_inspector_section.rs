@@ -1,17 +1,21 @@
 use godot::builtin::{Color, GString, Rect2, StringName, Vector2};
 use godot::classes::class_macros::private::virtuals::Xrvrs::Side;
+use godot::classes::control::{LayoutDirection, SizeFlags};
 use godot::classes::notify::ContainerNotification;
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
-    Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
-    InputEventMouseButton, Object, StyleBoxFlat, Texture2D, Timer, VBoxContainer,
+    ColorRect, Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
+    InputEventMouseButton, Label, MarginContainer, MissingResource, Object, PanelContainer,
+    StyleBoxFlat, Texture2D, Timer, VBoxContainer,
 };
 use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
 use godot::register::info::PropertyHint;
 
+use crate::interop::lazy_load_token::LazyLoadToken;
+
 #[derive(GodotClass)]
-#[class(base=Container)]
+#[class(tool, base=Container)]
 pub struct DiffInspectorSection {
     #[base]
     base: Base<Container>,
@@ -37,6 +41,7 @@ pub struct DiffInspectorSection {
     dropping: bool,
     dropping_for_unfold: bool,
     vbox_added: bool,
+    changed_resources: Vec<Gd<MissingResource>>,
 }
 
 #[godot_api]
@@ -390,6 +395,202 @@ impl DiffInspectorSection {
         }
         None
     }
+
+    fn update_property_editor(editor_property: &mut Gd<EditorProperty>) {
+        editor_property.set_read_only(true);
+        editor_property.update_property();
+        editor_property.call("_update_editor_property_status", &[]);
+    }
+
+    fn get_color_for_change_type(&self, change_type: &str) -> Color {
+        self.base()
+            .get_theme_color_ex(&format!("prop_subsection_{}", change_type))
+            .theme_type(&StringName::from("Editor"))
+            .done()
+    }
+
+    #[func]
+    fn update_color_rect(change_type: GString, color_rect: Gd<ColorRect>) {
+        let mut color_rect = color_rect;
+        let color = color_rect
+            .get_theme_color_ex(&format!("prop_subsection_{}", change_type))
+            .theme_type(&StringName::from("Editor"))
+            .done();
+        color_rect.set_color(color);
+        color_rect.queue_redraw();
+    }
+
+    fn add_color_marker(&self, change_type: &str, panel_container: &mut Gd<PanelContainer>) {
+        let mut color_rect = ColorRect::new_alloc();
+        color_rect.set_color(self.get_color_for_change_type(change_type));
+        color_rect.set_custom_minimum_size(Vector2::new(10.0, 10.0));
+        color_rect.set_layout_direction(LayoutDirection::LTR);
+        color_rect.call("_set_layout_mode", &[2.to_variant()]);
+
+        color_rect.set_h_size_flags(SizeFlags::SHRINK_CENTER);
+        let mut margin_container = MarginContainer::new_alloc();
+        margin_container.call("_set_layout_mode", &[2.to_variant()]);
+        margin_container.add_theme_constant_override("margin_right", 20);
+        margin_container.add_child(&color_rect);
+        panel_container.add_child(&margin_container);
+        let callable = Callable::from_fn("update_color_rect", |vars| {
+            if vars.len() != 2 {
+                tracing::error!("Expected 2 variables, got {}", vars.len());
+                return;
+            }
+            let Ok(change_type) = vars[0].try_to::<GString>() else {
+                tracing::error!(
+                    "Expected change_type to be a GString, got {}",
+                    vars[0].get_type().as_str()
+                );
+                return;
+            };
+            let Ok(color_rect) = vars[1].try_to::<Gd<ColorRect>>() else {
+                tracing::error!(
+                    "Expected color_rect to be a Gd<ColorRect>, got {}",
+                    vars[1].get_type().as_str()
+                );
+                return;
+            };
+            Self::update_color_rect(change_type, color_rect);
+        })
+        .bind(&[change_type.to_variant(), color_rect.to_variant()]);
+        color_rect.connect("theme_changed", &callable);
+    }
+
+    fn add_label(label: &str, panel_container: &mut Gd<PanelContainer>) {
+        let mut label_node = Label::new_alloc();
+        label_node.set_text(label);
+        panel_container.add_child(&label_node);
+    }
+
+    fn snake_case_to_human_readable(snake_case_string: &str) -> String {
+        let words = snake_case_string.split("_");
+        let title_case_words = words
+            .map(|word| {
+                if word.is_empty() {
+                    return String::new();
+                }
+                word.chars().nth(0).unwrap().to_uppercase().to_string() + &word[1..]
+            })
+            .collect::<Vec<String>>();
+        title_case_words.join(" ")
+    }
+
+    fn create_prop_editor(
+        &self,
+        prop_name: &str,
+        prop_value: Variant,
+        change_type: &str,
+        prop_label: &str,
+    ) -> Option<Gd<PanelContainer>> {
+        let mut fake_object = self.get_object()?.try_cast::<MissingResource>().ok()?;
+        fake_object.set_recording_properties(true);
+        fake_object.set(prop_name, &prop_value);
+        fake_object.set_recording_properties(false);
+        let mut editor_property = Self::instance_property_diff(
+            fake_object.clone().upcast::<Object>(),
+            prop_name.to_string(),
+            false,
+        )?;
+
+        editor_property.set_object_and_property(&fake_object.upcast::<Object>(), prop_name);
+        Self::update_property_editor(&mut editor_property);
+        let mut panel_container = PanelContainer::new_alloc();
+        Self::add_label(prop_label, &mut panel_container);
+        self.add_color_marker(change_type, &mut panel_container);
+        panel_container.add_child(&editor_property);
+        Some(panel_container)
+    }
+
+    fn get_real_val(prop_value: Variant) -> Variant {
+        if let Ok(mut lazy_load_token) = prop_value.try_to::<Gd<LazyLoadToken>>() {
+            return lazy_load_token
+                .bind_mut()
+                .get_resource()
+                .map(|r| r.to_variant())
+                .unwrap_or(Variant::nil());
+        }
+        prop_value
+    }
+
+    fn try_add_prop_editor(
+        &mut self,
+        prop_name: &str,
+        prop_value: Variant,
+        change_type: &str,
+        prop_label: &str,
+    ) {
+        let var_type = prop_value.get_type();
+        let Some(prop_editor) =
+            self.create_prop_editor(&prop_name, prop_value, change_type, prop_label)
+        else {
+            tracing::error!(
+                "Failed to get prop editor for value of {} and variant type of {}",
+                prop_name,
+                var_type.as_str()
+            );
+            return;
+        };
+        self.vbox.add_child(&prop_editor);
+    }
+
+    #[func]
+    fn add_old_and_new(
+        &mut self,
+        change_type: String,
+        prop_name: String,
+        old_prop_value: Variant,
+        new_prop_value: Variant,
+        label: String,
+    ) {
+        let has_old = change_type != "added";
+        let has_new = change_type != "removed";
+        let old_prop_value = Self::get_real_val(old_prop_value);
+        let new_prop_value = Self::get_real_val(new_prop_value);
+        let label = if label.is_empty() {
+            Self::snake_case_to_human_readable(&prop_name)
+        } else {
+            label
+        };
+        if has_old {
+            self.try_add_prop_editor(
+                &format!("{}_old", prop_name),
+                old_prop_value,
+                "removed",
+                &label,
+            );
+        }
+        if has_new {
+            self.try_add_prop_editor(
+                &format!("{}_new", prop_name),
+                new_prop_value,
+                "added",
+                &label,
+            );
+        }
+    }
+
+    #[func]
+    fn add_resource_diff(
+        &mut self,
+        change_type: String,
+        file_path: String,
+        old_resource: Variant,
+        new_resource: Variant,
+    ) {
+        let old = Self::get_real_val(old_resource);
+        let new = Self::get_real_val(new_resource);
+        let old_resource: Option<Gd<Object>> = old.try_to::<Gd<Object>>().ok();
+        let new_resource: Option<Gd<Object>> = new.try_to::<Gd<Object>>().ok();
+        if old_resource.is_none() && new_resource.is_none() {
+            return;
+        }
+        let prop_label = Self::snake_case_to_human_readable(&file_path);
+        let mut fake_node: Gd<MissingResource> = MissingResource::new_gd();
+        fake_node.set_original_class("Resource");
+        self.add_old_and_new(change_type, "Resource".to_string(), old, new, prop_label);
+    }
 }
 
 #[godot_api]
@@ -426,6 +627,7 @@ impl IContainer for DiffInspectorSection {
             dropping: false,
             dropping_for_unfold: false,
             vbox_added: false,
+            changed_resources: Vec::new(),
         }
     }
 

@@ -81,54 +81,6 @@ func _process(delta: float) -> void:
 func _on_button_pressed() -> void:
 	pass
 
-# no type annotation for this because editor_property is ambiguously typed
-func update_property_editor(editor_property) -> void:
-	editor_property.set_read_only(true)
-	editor_property.update_property()
-	editor_property._update_editor_property_status()
-
-func get_diff_stylebox(color: Color) -> StyleBoxTexture:
-	var stylebox: StyleBoxTexture = StyleBoxTexture.new()
-	stylebox.texture = diff_stylebox_tex
-	stylebox.modulate_color = color
-	return stylebox
-
-func get_added_stylebox() -> StyleBoxTexture:
-	return get_diff_stylebox(added_color)
-
-func get_removed_stylebox() -> StyleBoxTexture:
-	return get_diff_stylebox(removed_color)
-
-func get_modified_stylebox() -> StyleBoxTexture:
-	return get_diff_stylebox(modified_color)
-
-
-func add_color_marker(change_type: String, panel_container: PanelContainer) -> void:
-	var color_rect: ColorRect = ColorRect.new()
-	color_rect.color = get_color_for_change_type(change_type)
-	color_rect.custom_minimum_size = Vector2(10, 10)
-	color_rect.layout_direction = 2 # horizontal
-	color_rect.layout_mode = 2 # manual
-	color_rect.size_flags_horizontal = 4 # expand
-	var margin_container: MarginContainer = MarginContainer.new()
-	margin_container.layout_mode = 2 # manual
-	margin_container.add_theme_constant_override("margin_right", 20)
-	margin_container.add_child(color_rect)
-	panel_container.add_child(margin_container)
-	var update_color_rect = func():
-		if !is_instance_valid(color_rect):
-			return
-		color_rect.color = get_color_for_change_type(change_type)
-		color_rect.theme_changed.emit()
-		panel_container.queue_redraw()
-	self.theme_changed.connect(update_color_rect)
-
-
-func add_label(label: String, panel_container: PanelContainer) -> void:
-	var label_node: Label = Label.new()
-	label_node.text = label
-	panel_container.add_child(label_node)
-
 func snake_case_to_human_readable(snake_case_string: String) -> String:
 	var words = snake_case_string.split("_")
 	var title_case_words = []
@@ -137,44 +89,6 @@ func snake_case_to_human_readable(snake_case_string: String) -> String:
 			title_case_words.append(word[0].to_upper() + word.substr(1))
 	return " ".join(title_case_words)
 
-
-func get_prop_editor(fake_object: MissingResource, prop_name: String, prop_value: Variant, change_type: String, prop_label: String) -> PanelContainer:
-	# print("!!! getting prop editor for ", prop_name, " with value ", prop_value)
-	fake_object.recording_properties = true
-	fake_object.set(prop_name, prop_value)
-	fake_object.recording_properties = false
-	# print("!!! fake_object prop value: ", fake_object.get(prop_name))
-	if prop_label == null:
-		prop_label = snake_case_to_human_readable(prop_name)
-	var editor_property: EditorProperty = DiffInspectorSection.instance_property_diff(fake_object, prop_name, false)
-	editor_property.set_object_and_property(fake_object, prop_name)
-	update_property_editor(editor_property)
-	var panel_container: PanelContainer = PanelContainer.new()
-	add_label(prop_label, panel_container)
-	add_color_marker(change_type, panel_container)
-	panel_container.add_child(editor_property)
-	changed_resources.append(fake_object)
-	return panel_container
-
-func get_real_val(prop_value: Variant) -> Variant:
-	if prop_value is LazyLoadToken:
-		# TODO: make this get called asynchronously
-		return prop_value.get_resource()
-	return prop_value
-
-func add_old_and_new(inspector_section: DiffInspectorSection, change_type: String, prop_name: String, old_prop_value: Variant, new_prop_value: Variant, label: String) -> void:
-	var has_old = change_type != "added"
-	var has_new = change_type != "removed"
-	old_prop_value = get_real_val(old_prop_value)
-	new_prop_value = get_real_val(new_prop_value)
-	if label == null:
-		label = snake_case_to_human_readable(prop_name)
-	if has_old:
-		var prop_editor = get_prop_editor(inspector_section.get_object(), prop_name + "_old", old_prop_value, "removed", label)
-		inspector_section.get_vbox().add_child(prop_editor)
-	if has_new:
-		var prop_editor = get_prop_editor(inspector_section.get_object(), prop_name + "_new", new_prop_value, "added", label if !has_old else "")
-		inspector_section.get_vbox().add_child(prop_editor)
 
 func get_default_val_for_class(node_type: String, prop_name: String, script_class = null):
 	# We can't get the default value for a script instance
@@ -186,8 +100,6 @@ func get_default_val_for_class(node_type: String, prop_name: String, script_clas
 	if ret == null:
 		return "<default_value>"
 	return ret
-
-
 
 func add_PropertyDiffResult(inspector_section: DiffInspectorSection, property_diff: Dictionary, node_type: String, script_class = null) -> void:
 	var change_type = property_diff["change_type"]
@@ -205,8 +117,7 @@ func add_PropertyDiffResult(inspector_section: DiffInspectorSection, property_di
 	# print("!!! prop_old: ", prop_old)
 	# print("!!! prop_new: ", prop_new)
 
-	add_old_and_new(inspector_section, change_type, prop_name, prop_old, prop_new, prop_label)
-
+	inspector_section.add_old_and_new(change_type, prop_name, prop_old, prop_new, prop_label)
 
 func get_flat_stylebox(color: Color) -> StyleBoxFlat:
 	var stylebox: StyleBoxFlat = StyleBoxFlat.new()
@@ -472,21 +383,6 @@ func create_node_diff_section(file_section: DiffInspectorSection, node_diff: Dic
 	# file_section.get_vbox().add_child(inspector_section)
 	return inspector_section
 
-
-func add_resource_diff(inspector_section: DiffInspectorSection, change_type: String, file_path: String, old_resource: Variant, new_resource: Variant) -> void:
-	# print("adding resource diff for ", file_path)
-	var old = get_real_val(old_resource);
-	var new = get_real_val(new_resource);
-	if !is_instance_valid(old_resource) && !is_instance_valid(new_resource):
-		return
-	var prop_label = snake_case_to_human_readable(file_path)
-	var has_old = is_instance_valid(old)
-	var has_new = is_instance_valid(new)
-	var fake_node: MissingResource = MissingResource.new()
-	fake_node.original_class = "Resource"
-	changed_resources.append(fake_node)
-	add_old_and_new(inspector_section, change_type, "Resource", old, new, prop_label)
-
 func add_text_diff(inspector_section: DiffInspectorSection, unified_diff: Dictionary) -> void:
 	# print("adding text diff")
 	var text_diff = TextDifferView.get_text_diff_view(unified_diff, false)
@@ -625,7 +521,7 @@ func add_text_resource_diff(inspector_section: DiffInspectorSection, changed_sub
 
 func add_sub_resource_diff(inspector_section: DiffInspectorSection, change_type: String, sub_resource_id: String, sub_resource_type: String, changed_properties: Dictionary, script_class = null) -> void:
 	if (changed_properties.size() == 0 and change_type == "modified"):
-		print("!!! no prop diffs for ", sub_resource_id, " with type ", change_type)
+		# print("!!! no prop diffs for ", sub_resource_id, " with type ", change_type)
 		return
 	var color: Color = modified_color
 	var subresource_label = sub_resource_id
@@ -691,7 +587,7 @@ func add_FileDiffResult(file_path: String, file_diff: Dictionary) -> void:
 	elif type == "resource_changed":
 		var res_old = file_diff.get("old_resource", null)
 		var res_new = file_diff.get("new_resource", null)
-		add_resource_diff(inspector_section, change_type, file_path, res_old, res_new)
+		inspector_section.add_resource_diff(change_type, file_path, res_old, res_new)
 		inspector_section.connect("box_clicked", self._on_resource_box_clicked)
 	elif type == "text_changed":
 		var text_diff = file_diff["text_diff"]

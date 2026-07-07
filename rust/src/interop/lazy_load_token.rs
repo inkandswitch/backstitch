@@ -44,7 +44,7 @@ impl LazyLoadToken {
 #[godot_api]
 impl LazyLoadToken {
     #[func]
-    fn is_started(&self) -> bool {
+    pub fn is_started(&self) -> bool {
         if self.failed
             || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
         {
@@ -58,7 +58,7 @@ impl LazyLoadToken {
     }
 
     #[func]
-    fn is_load_finished(&self) -> bool {
+    pub fn is_load_finished(&self) -> bool {
         if self.failed
             || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
         {

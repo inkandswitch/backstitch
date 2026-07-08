@@ -12,6 +12,7 @@ use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
 use godot::register::info::PropertyHint;
 
+use crate::interop::godot_helpers::ThemeGetter;
 use crate::interop::lazy_load_editor_property::LazyLoadTokenEditorProperty;
 use crate::interop::lazy_load_token::LazyLoadToken;
 
@@ -42,7 +43,6 @@ pub struct DiffInspectorSection {
     dropping: bool,
     dropping_for_unfold: bool,
     vbox_added: bool,
-    changed_resources: Vec<Gd<MissingResource>>,
 }
 
 #[godot_api]
@@ -509,17 +509,6 @@ impl DiffInspectorSection {
         Some(panel_container)
     }
 
-    fn get_real_val(prop_value: Variant) -> Variant {
-        if let Ok(mut lazy_load_token) = prop_value.try_to::<Gd<LazyLoadToken>>() {
-            return lazy_load_token
-                .bind_mut()
-                .get_resource()
-                .map(|r| r.to_variant())
-                .unwrap_or(Variant::nil());
-        }
-        prop_value
-    }
-
     fn try_add_prop_editor(
         &mut self,
         prop_name: &str,
@@ -635,7 +624,6 @@ impl IContainer for DiffInspectorSection {
             dropping: false,
             dropping_for_unfold: false,
             vbox_added: false,
-            changed_resources: Vec::new(),
         }
     }
 
@@ -844,22 +832,14 @@ impl IContainer for DiffInspectorSection {
 
 impl DiffInspectorSection {
     fn draw(&mut self) {
-        let section_indent_size = self
-            .base()
-            .get_theme_constant_ex(&StringName::from("indent_size"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_size = self.get_theme_constant("indent_size", "DiffInspectorSection");
         let mut section_indent = 0;
 
         if self.indent_depth > 0 && section_indent_size > 0 {
             section_indent = self.indent_depth * section_indent_size;
         }
 
-        let section_indent_style = self
-            .base()
-            .get_theme_stylebox_ex(&StringName::from("indent_box"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_style = self.get_theme_stylebox("indent_box", "DiffInspectorSection");
         if self.indent_depth > 0
             && let Some(ref style) = section_indent_style
             && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
@@ -898,11 +878,7 @@ impl DiffInspectorSection {
 
         // Draw header content (arrow, label, revertable count)
         let outer_margin = (2.0 * self.base().get_theme_default_base_scale()).round();
-        let separation = self
-            .base()
-            .get_theme_constant_ex(&StringName::from("h_separation"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let separation = self.get_theme_constant("h_separation", "DiffInspectorSection");
         let separation_val = separation as f32;
 
         let mut margin_start = section_indent as f32 + outer_margin;
@@ -1047,21 +1023,9 @@ impl DiffInspectorSection {
         // }
 
         // Draw label
-        let font = self
-            .base()
-            .get_theme_font_ex(&StringName::from("bold"))
-            .theme_type(&StringName::from("EditorFonts"))
-            .done();
-        let font_size = self
-            .base()
-            .get_theme_font_size_ex(&StringName::from("bold_size"))
-            .theme_type(&StringName::from("EditorFonts"))
-            .done();
-        let font_color = self
-            .base()
-            .get_theme_color_ex(&StringName::from("font_color"))
-            .theme_type(&StringName::from("Editor"))
-            .done();
+        let font = self.get_theme_font("bold", "EditorFonts");
+        let font_size = self.get_theme_font_size("bold_size", "EditorFonts");
+        let font_color = self.get_theme_color("font_color", "Editor");
 
         if let Some(ref font) = font {
             let text_offset_y = font.get_ascent_ex().font_size(font_size).done()
@@ -1091,11 +1055,7 @@ impl DiffInspectorSection {
 
         // Draw dropping highlight
         if self.dropping && !self.vbox.is_visible_in_tree() {
-            let accent_color = self
-                .base()
-                .get_theme_color_ex(&StringName::from("accent_color"))
-                .theme_type(&StringName::from("Editor"))
-                .done();
+            let accent_color = self.get_theme_color("accent_color", "Editor");
             let size = self.base().get_size();
             self.base_mut()
                 .draw_rect_ex(Rect2::new(Vector2::ZERO, size), accent_color)

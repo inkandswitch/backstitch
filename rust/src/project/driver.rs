@@ -659,15 +659,11 @@ impl Driver {
         let diff_id = diff_id.clone();
         spawn_named("Request diff", async move {
             let diff = inner.differ.get_diff(&diff_id.before, &diff_id.after).await;
-            let result = if let Some(diff) = diff {
-                Some(DiffWrapper {
-                    id: diff_id.clone(),
-                    diff,
-                    title,
-                })
-            } else {
-                None
-            };
+            let result = diff.map(|diff| DiffWrapper {
+                id: diff_id.clone(),
+                diff,
+                title,
+            });
             inner
                 .diff_result_tx
                 .lock()

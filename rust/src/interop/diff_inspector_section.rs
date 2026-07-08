@@ -518,7 +518,7 @@ impl DiffInspectorSection {
     ) {
         let var_type = prop_value.get_type();
         let Some(prop_editor) =
-            self.create_prop_editor(&prop_name, prop_value, change_type, prop_label)
+            self.create_prop_editor(prop_name, prop_value, change_type, prop_label)
         else {
             tracing::error!(
                 "Failed to get prop editor for value of {} and variant type of {}",

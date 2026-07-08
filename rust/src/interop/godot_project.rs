@@ -481,9 +481,7 @@ impl GodotProject {
             return Variant::nil();
         };
         match self.project.request_commit_diff(hash) {
-            Ok(diff_id) => {
-                return diff_id.to_variant();
-            }
+            Ok(diff_id) => diff_id.to_variant(),
             Err(e) => {
                 match e {
                     RequestDiffError::NoDiffAvailable => {}
@@ -491,7 +489,7 @@ impl GodotProject {
                         godot_error!("Error requesting diff for commit {hash}: {e}");
                     }
                 };
-                return Variant::nil();
+                Variant::nil()
             }
         }
     }
@@ -499,9 +497,7 @@ impl GodotProject {
     #[func]
     fn request_default_diff(&self) -> Variant {
         match self.project.request_default_diff() {
-            Ok(diff_id) => {
-                return diff_id.to_variant();
-            }
+            Ok(diff_id) => diff_id.to_variant(),
             Err(e) => {
                 match e {
                     RequestDiffError::NoDiffAvailable => {}
@@ -509,7 +505,7 @@ impl GodotProject {
                         godot_error!("Error requesting default diff: {e}");
                     }
                 };
-                return Variant::nil();
+                Variant::nil()
             }
         }
     }

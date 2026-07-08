@@ -12,11 +12,11 @@ use crate::{
         history_ref::HistoryRef,
         utils::{ChangedFile, DiffID},
     },
-    project::{
-        connection::RemoteConnectionError,
-        driver::{DriverCreateError, ProjectLoadError},
-    },
 };
+
+pub use crate::project::branch_db::DbError;
+pub use crate::project::connection::RemoteConnectionError;
+pub use crate::project::driver::{DriverCreateError, ProjectLoadError};
 
 /// Represents synchronization status for a project.
 pub enum SyncStatus {
@@ -28,6 +28,32 @@ pub enum SyncStatus {
     Syncing,
     /// The server is up to date with our changes, or the project is not started.
     UpToDate,
+}
+
+#[derive(Error, Debug)]
+pub enum CreateRevertPreviewBranchError {
+    #[error("no checked out branch")]
+    NoCheckedOutBranch,
+    #[error("no driver found!")]
+    NoDriver,
+    #[error("no changes to revert!")]
+    NoChangesToRevert,
+    #[error(transparent)]
+    DbError(#[from] DbError),
+}
+
+#[derive(Error, Debug)]
+pub enum CreateMergePreviewBranchError {
+    #[error("no checked out branch")]
+    NoCheckedOutBranch,
+    #[error("no forked from branch found!")]
+    NoForkedFrom,
+    #[error("no driver found!")]
+    NoDriver,
+    #[error("no changes to merge!")]
+    NoChangesToMerge,
+    #[error(transparent)]
+    DbError(#[from] DbError),
 }
 
 #[derive(Error, Debug)]
@@ -145,11 +171,14 @@ pub trait ProjectViewModel {
     /// Whether we can begin a merge preview for the current branch into its direct ancestor.
     fn can_create_merge_preview_branch(&self) -> bool;
     /// Create a new merge preview branch, for merging the current branch into its direct ancestor.
-    fn create_merge_preview_branch(&mut self);
+    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError>;
     /// Whether we can create a revert preview branch for the given head.
     fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool;
     /// Create a new revert preview branch for the given head.
-    fn create_revert_preview_branch(&mut self, head: ChangeHash);
+    fn create_revert_preview_branch(
+        &mut self,
+        head: ChangeHash,
+    ) -> Result<(), CreateRevertPreviewBranchError>;
     /// Whether there is currently a revert preview active.
     fn is_revert_preview_branch_active(&self) -> bool;
     /// Whether there is currently a merge preview active.

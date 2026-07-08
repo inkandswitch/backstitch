@@ -6,7 +6,10 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project_api::{BranchViewModel, ProjectViewModel};
+use crate::project::project_api::{
+    BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
+    ProjectViewModel, RequestDiffError,
+};
 use crate::project::project_base::{GodotProjectSignal, Project};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
@@ -18,6 +21,7 @@ use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
+use godot::global::Error;
 use godot::prelude::*;
 use samod::DocumentId;
 use std::collections::HashSet;
@@ -197,6 +201,9 @@ impl GodotProject {
     #[signal]
     fn create_failed();
 
+    #[signal]
+    fn diff_generated(diff_id: GString, diff: VarDictionary);
+
     #[func]
     fn has_user_name(&self) -> bool {
         self.project.has_user_name()
@@ -366,8 +373,18 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_merge_preview_branch(&mut self) {
-        self.project.create_merge_preview_branch();
+    fn create_merge_preview_branch(&mut self) -> Error {
+        match self.project.create_merge_preview_branch() {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating merge preview branch: {e}");
+                match e {
+                    CreateMergePreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateMergePreviewBranchError::NoChangesToMerge => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
+        }
     }
 
     #[func]
@@ -379,9 +396,21 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_revert_preview_branch(&mut self, head: String) {
-        if let Ok(hash) = ChangeHash::from_str(&head) {
-            self.project.create_revert_preview_branch(hash);
+    fn create_revert_preview_branch(&mut self, head: String) -> Error {
+        let Ok(hash) = ChangeHash::from_str(&head) else {
+            godot_error!("Invalid hash: {head}");
+            return Error::ERR_INVALID_PARAMETER;
+        };
+        match self.project.create_revert_preview_branch(hash) {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating revert preview branch: {e}");
+                match e {
+                    CreateRevertPreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateRevertPreviewBranchError::NoChangesToRevert => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
         }
     }
 
@@ -443,6 +472,42 @@ impl GodotProject {
             return Variant::nil();
         };
         Variant::from(diff_view_model_to_dict(&diff))
+    }
+
+    #[func]
+    fn request_commit_diff(&self, hash: String) -> Variant {
+        let Ok(hash) = ChangeHash::from_str(&hash) else {
+            godot_error!("Invalid hash: {hash}");
+            return Variant::nil();
+        };
+        match self.project.request_commit_diff(hash) {
+            Ok(diff_id) => diff_id.to_variant(),
+            Err(e) => {
+                match e {
+                    RequestDiffError::NoDiffAvailable => {}
+                    _ => {
+                        godot_error!("Error requesting diff for commit {hash}: {e}");
+                    }
+                };
+                Variant::nil()
+            }
+        }
+    }
+
+    #[func]
+    fn request_default_diff(&self) -> Variant {
+        match self.project.request_default_diff() {
+            Ok(diff_id) => diff_id.to_variant(),
+            Err(e) => {
+                match e {
+                    RequestDiffError::NoDiffAvailable => {}
+                    _ => {
+                        godot_error!("Error requesting default diff: {e}");
+                    }
+                };
+                Variant::nil()
+            }
+        }
     }
 
     #[func]
@@ -691,6 +756,17 @@ impl INode for GodotProject {
                 }
                 // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
                 GodotProjectSignal::BranchCheckedOut => {}
+                GodotProjectSignal::DiffGenerated(diff_id, result) => {
+                    let result = match result {
+                        Some(result) => diff_view_model_to_dict(result.as_ref()).to_variant(),
+                        None => Variant::nil(),
+                    };
+                    self.signals().diff_generated().to_future();
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["diff_generated".to_variant(), diff_id.to_variant(), result],
+                    );
+                }
             }
         }
     }

@@ -32,6 +32,17 @@ pub enum Diff {
     Text(TextDiff),
 }
 
+impl Diff {
+    pub fn get_diff_file_path(&self) -> &str {
+        match self {
+            Diff::Scene(scene_diff) => &scene_diff.path,
+            Diff::TextResourceDiff(text_resource_diff) => &text_resource_diff.path,
+            Diff::BinaryResource(binary_resource_diff) => &binary_resource_diff.path,
+            Diff::Text(text_diff) => &text_diff.path,
+        }
+    }
+}
+
 /// A diff for an entire project.
 #[derive(Clone, Default, Debug)]
 pub struct ProjectDiff {
@@ -277,6 +288,7 @@ impl Differ {
                 }
             }
         }
+        diffs.sort_by(|a, b| a.get_diff_file_path().cmp(b.get_diff_file_path()));
         Some(ProjectDiff { file_diffs: diffs })
     }
 }

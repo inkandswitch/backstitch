@@ -2,7 +2,7 @@ use crate::helpers::doc_utils::SimpleDocReader;
 use crate::helpers::utils::parse_automerge_url;
 use automerge::ObjId;
 use automerge::{Automerge, ChangeHash, ObjType, ReadDoc};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::borrow::Cow;
 use std::fs::File;
 use std::io;
@@ -110,7 +110,7 @@ impl FileContent {
         doc: &Automerge,
         path: &str,
         heads: &Vec<ChangeHash>,
-    ) -> Result<FileContent, Result<DocumentId, io::Error>> {
+    ) -> Result<FileContent, Result<SedimentreeId, io::Error>> {
         let structured_content = doc
             .get_at(&file_entry, "structured_content", heads)
             .unwrap()

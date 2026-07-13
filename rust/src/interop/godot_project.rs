@@ -19,7 +19,7 @@ use godot::classes::resource_loader::CacheMode;
 use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
 use godot::prelude::*;
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::collections::HashSet;
 use std::ops::DerefMut;
 use std::path::PathBuf;
@@ -273,7 +273,7 @@ impl GodotProject {
 
     #[func]
     fn load_project(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id)
+        if let Ok(id) = SedimentreeId::from_str(&id)
             && let Err(e) = self.project.load_project(&id, false)
         {
             tracing::error!("Error regular starting {:?}", e);
@@ -319,7 +319,7 @@ impl GodotProject {
 
     #[func]
     fn get_branch(&self, id: String) -> Variant {
-        let Ok(id) = DocumentId::from_str(&id) else {
+        let Ok(id) = SedimentreeId::from_str(&id) else {
             return Variant::nil();
         };
         self.branch_to_variant(self.project.get_branch(&id))
@@ -342,7 +342,7 @@ impl GodotProject {
 
     #[func]
     fn is_branch_loaded(&self, id: String) -> bool {
-        let Ok(id) = DocumentId::from_str(&id) else {
+        let Ok(id) = SedimentreeId::from_str(&id) else {
             return false;
         };
         self.project.is_branch_loaded(&id)
@@ -355,7 +355,7 @@ impl GodotProject {
 
     #[func]
     fn checkout_branch(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id) {
+        if let Ok(id) = SedimentreeId::from_str(&id) {
             self.project.checkout_branch(&id);
         };
     }
@@ -654,7 +654,7 @@ impl INode for GodotProject {
             self.deferred_start -= 1;
             if self.deferred_start == 0
                 && let Ok(id) =
-                    DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
+                    SedimentreeId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
                 && let Err(e) = self.project.load_project(&id, true)
             {
                 tracing::error!("Error autostarting {:?}", e);

@@ -6,6 +6,7 @@ use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
+use crate::project::doc_db::repo::Repo;
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
 use crate::project::fs::fs_traversal::FileSystemTraversal;
@@ -15,12 +16,21 @@ use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::peer_watcher::PeerWatcher;
 use futures::StreamExt;
 use futures::future::join_all;
+use futures::stream::Aborted;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
+use sedimentree_core::id::SedimentreeId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use subduction_core::handler::sync::SyncHandler;
+use subduction_core::policy::open::OpenPolicy;
+use subduction_core::subduction::Subduction;
+use subduction_core::subduction::builder::SubductionBuilder;
+use subduction_crypto::signer::memory::MemorySigner;
+use subduction_redb_storage::{RedbStorage, RedbStorageError};
+use subduction_websocket::timeout::FuturesTimerTimeout;
+use subduction_websocket::tokio::TimeoutTokio;
 use thiserror::Error;
 use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
@@ -51,7 +61,7 @@ pub struct DriverInner {
     token: CancellationToken,
 
     // internal synchronization
-    requested_checkout: Arc<Mutex<Option<DocumentId>>>,
+    requested_checkout: Arc<Mutex<Option<SedimentreeId>>>,
     fs_index: FileSystemIndex,
 
     // subtasks
@@ -76,6 +86,10 @@ pub enum ProjectLoadServerStatus {
 pub enum DriverCreateError {
     #[error("couldn't create index: {0}")]
     Index(#[from] IndexError),
+    #[error("couldn't create storage: {0}")]
+    Storage(#[from] RedbStorageError),
+    #[error("a cancelation token was used: {0}")]
+    Aborted(#[from] Aborted),
 }
 
 /// This requires a fairly complex error type, because the overall success is dependent on whether we connect the server or not.
@@ -97,9 +111,6 @@ pub enum ProjectLoadError {
     BinaryDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
-    #[error(transparent)]
-    RepoStopped(#[from] samod::Stopped),
 
     #[error("branch db error: {0}")]
     Db(#[from] DbError),
@@ -156,7 +167,7 @@ impl Driver {
 
     async fn get_metadata_handle(
         &self,
-        metadata_id: &DocumentId,
+        metadata_id: &SedimentreeId,
     ) -> Result<DocHandle, ProjectLoadError> {
         // Before we continue, we must acquire a handle to the metadata document.
         // There are three cases to handle:
@@ -216,8 +227,8 @@ impl Driver {
     /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
     pub async fn load_project(
         &mut self,
-        metadata_id: &DocumentId,
-        branch_id: Option<&DocumentId>,
+        metadata_id: &SedimentreeId,
+        branch_id: Option<&SedimentreeId>,
     ) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.get_metadata_handle(metadata_id).await?;
 
@@ -319,7 +330,7 @@ impl Driver {
 
     async fn get_latest_ref_on_branch_or_main(
         &self,
-        branch: Option<&DocumentId>,
+        branch: Option<&SedimentreeId>,
     ) -> Result<HistoryRef, ProjectLoadError> {
         let branch = match branch {
             Some(branch) => branch.clone(),
@@ -335,7 +346,7 @@ impl Driver {
 
     pub async fn get_local_changes(
         &self,
-        branch: Option<&DocumentId>,
+        branch: Option<&SedimentreeId>,
     ) -> Result<Vec<(String, ChangeType)>, ProjectLoadError> {
         tracing::info!("Getting local changes...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
@@ -371,7 +382,7 @@ impl Driver {
 
     pub async fn commit_local_changes(
         &self,
-        branch: Option<&DocumentId>,
+        branch: Option<&SedimentreeId>,
     ) -> Result<(), ProjectLoadError> {
         tracing::debug!("Getting ref for local changes commit...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
@@ -383,7 +394,7 @@ impl Driver {
     /// Begin the sync task. This will automatically check out the latest relevant ref, check in stuff from the FS,
     /// and constantly try to check out the next correct ref. Make sure any local changes are resolved, since this
     /// will reset all files to canonical.
-    pub async fn start_sync(&mut self, branch: Option<&DocumentId>) {
+    pub async fn start_sync(&mut self, branch: Option<&SedimentreeId>) {
         // TODO: protect this so it can't be started twice
         // Spawn off the sync task
         let inner_clone = self.inner.clone();
@@ -405,14 +416,23 @@ impl Driver {
         username: String,
         storage_directory: PathBuf,
     ) -> Result<Self, DriverCreateError> {
-        let storage = samod::storage::TokioFilesystemStorage::new(&storage_directory);
-        let repo = Repo::build_tokio()
-            .with_concurrency(ConcurrencyConfig::Threadpool(
-                rayon::ThreadPoolBuilder::new().build().unwrap(),
-            ))
-            .with_storage(storage)
-            .load()
-            .await;
+        let storage = RedbStorage::new(storage_directory)?;
+        let (subduction, sync_handler, listener, connection_manager) = SubductionBuilder::default()
+            .storage(storage, Arc::new(OpenPolicy))
+            .spawner(subduction_websocket::tokio::TokioSpawn)
+            .signer(MemorySigner::from_bytes(&[0; 32]))
+            .timer(TimeoutTokio)
+            .build();
+
+        tokio::spawn(async move {
+            let _ = connection_manager.await;
+        });
+
+        tokio::spawn(async move {
+            let _ = listener.await;
+        });
+
+        let repo = Repo { subduction };
 
         let fs_index = FileSystemIndex::new(storage_directory.join("index.bin")).await?;
 
@@ -499,12 +519,12 @@ impl Driver {
 
     /// Request the sync task to checkout the latest ref on a branch the next opportunity.
     /// This will only work once Godot is safe to update.
-    pub async fn request_checkout(&self, branch: &DocumentId) {
+    pub async fn request_checkout(&self, branch: &SedimentreeId) {
         let mut req = self.inner.requested_checkout.lock().await;
         *req = Some(branch.clone());
     }
 
-    pub async fn fork_branch(&self, name: String, branch: &DocumentId) {
+    pub async fn fork_branch(&self, name: String, branch: &SedimentreeId) {
         match self.inner.branch_db.fork_branch(name, branch).await {
             Ok(id) => {
                 self.request_checkout(&id).await;
@@ -513,7 +533,7 @@ impl Driver {
         }
     }
 
-    pub async fn merge_branch(&self, source: &DocumentId, target: &DocumentId) {
+    pub async fn merge_branch(&self, source: &SedimentreeId, target: &SedimentreeId) {
         match self.inner.branch_db.merge_branch(source, target).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Could not merge branch {source} to {target}: {e}"),
@@ -556,7 +576,11 @@ impl Driver {
         self.request_checkout(fork_info.branch()).await;
     }
 
-    pub async fn create_merge_preview_branch(&self, source: &DocumentId, target: &DocumentId) {
+    pub async fn create_merge_preview_branch(
+        &self,
+        source: &SedimentreeId,
+        target: &SedimentreeId,
+    ) {
         match self
             .inner
             .branch_db
@@ -631,7 +655,7 @@ impl Driver {
         // ProjectDiff::default()
     }
 
-    pub async fn get_metadata_doc(&self) -> Result<DocumentId, ProjectLoadError> {
+    pub async fn get_metadata_doc(&self) -> Result<SedimentreeId, ProjectLoadError> {
         Ok(self
             .inner
             .branch_db
@@ -640,7 +664,7 @@ impl Driver {
             .map(|(handle, _)| handle.document_id().clone())?)
     }
 
-    pub async fn get_main_branch(&self) -> Result<DocumentId, ProjectLoadError> {
+    pub async fn get_main_branch(&self) -> Result<SedimentreeId, ProjectLoadError> {
         Ok(self
             .inner
             .branch_db

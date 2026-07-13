@@ -8,6 +8,7 @@ pub mod project_api_impl;
 // pub for use in differ; consider restructuring
 pub mod branch_db;
 mod change_ingester;
+pub mod doc_db;
 mod driver;
 mod main_thread_block;
 mod peer_watcher;

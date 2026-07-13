@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
 use autosurgeon::{hydrate, reconcile};
-use samod::{DocHandle, DocumentId};
+use samod::{DocHandle, SedimentreeId};
 
 use crate::{
     helpers::{
@@ -137,7 +137,7 @@ impl BranchDb {
         Ok(())
     }
 
-    async fn remove_branch_from_meta(&self, branch: DocumentId) -> Result<(), DbError> {
+    async fn remove_branch_from_meta(&self, branch: SedimentreeId) -> Result<(), DbError> {
         let meta_handle = {
             let meta = self.metadata_state.lock().await;
             meta.as_ref().ok_or(DbError::NoMetadataState)?.0.clone()
@@ -170,11 +170,11 @@ impl BranchDb {
     // delete branch isn't fully implemented right now deletes are not propagated to the frontend
     // right now this is just useful to clean up merge preview branches
     #[tracing::instrument(skip_all, level = "trace")]
-    pub async fn delete_branch(&self, branch: &DocumentId) -> Result<(), DbError> {
+    pub async fn delete_branch(&self, branch: &SedimentreeId) -> Result<(), DbError> {
         self.remove_branch_from_meta(branch.clone()).await
     }
 
-    async fn clone_branch(&self, branch: &DocumentId) -> Result<DocHandle, DbError> {
+    async fn clone_branch(&self, branch: &SedimentreeId) -> Result<DocHandle, DbError> {
         Ok(self
             .with_shadow_document(branch, async |d| self.repo.create(d.clone()).await)
             .await??)
@@ -185,8 +185,8 @@ impl BranchDb {
     pub async fn fork_branch(
         &self,
         name: String,
-        source: &DocumentId,
-    ) -> Result<DocumentId, DbError> {
+        source: &SedimentreeId,
+    ) -> Result<SedimentreeId, DbError> {
         tracing::info!("Forking new branch {:?} from source {:?}", name, source);
 
         let latest_ref = self.get_latest_ref_on_branch(source).await?;

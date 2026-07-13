@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use automerge::{Automerge, ChangeMetadata};
-use samod::DocumentId;
+use samod::SedimentreeId;
 
 use crate::{
     helpers::branch::Branch,
@@ -42,7 +42,7 @@ impl BranchDb {
     /// Get the most recent ref on a given branch (on the shadow doc).
     pub async fn get_latest_ref_on_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
     ) -> Result<HistoryRef, DbError> {
         let heads = self
             .with_shadow_document(branch, async |d| d.get_heads())
@@ -53,7 +53,7 @@ impl BranchDb {
     /// Get the most recent ref on a given branch (on the canonical doc).
     pub async fn get_latest_canonical_ref_on_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
     ) -> Result<HistoryRef, DbError> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(branch).cloned() else {
@@ -71,7 +71,7 @@ impl BranchDb {
         Ok(HistoryRef::new(branch.clone(), heads))
     }
 
-    pub async fn get_main_branch(&self) -> Result<DocumentId, DbError> {
+    pub async fn get_main_branch(&self) -> Result<SedimentreeId, DbError> {
         self.get_metadata_state()
             .await
             .map(|(_, meta)| meta.main_doc_id)
@@ -97,7 +97,7 @@ impl BranchDb {
             .is_ignore()
     }
 
-    pub async fn get_branch_name(&self, id: &DocumentId) -> Result<String, DbError> {
+    pub async fn get_branch_name(&self, id: &SedimentreeId) -> Result<String, DbError> {
         let meta = self.metadata_state.lock().await;
 
         Ok(meta
@@ -115,7 +115,7 @@ impl BranchDb {
     // However, we NEVER want to expose our internal BranchState mutexes.
     // That could cause deadlocks if they acquired a branch state and later tried to call any branch info method on branch_db.
     // Callers should preferentially use other getter methods.
-    pub async fn get_branch_state(&self, id: &DocumentId) -> Result<Branch, DbError> {
+    pub async fn get_branch_state(&self, id: &SedimentreeId) -> Result<Branch, DbError> {
         let meta = self.metadata_state.lock().await;
         Ok(meta
             .as_ref()
@@ -130,7 +130,7 @@ impl BranchDb {
     /// Run a closure over a mutable reference to our Automerge shadow document for a branch.
     pub(super) async fn with_shadow_document<F, R>(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
         f: F,
     ) -> Result<R, DbError>
     where
@@ -149,7 +149,7 @@ impl BranchDb {
         Ok(f(shadow_doc).await)
     }
 
-    pub async fn get_branch_children(&self, id: &DocumentId) -> Vec<DocumentId> {
+    pub async fn get_branch_children(&self, id: &SedimentreeId) -> Vec<SedimentreeId> {
         let meta = self.metadata_state.lock().await;
         let mut result = Vec::new();
         let Some((_, m)) = meta.as_ref() else {
@@ -167,7 +167,7 @@ impl BranchDb {
     }
 
     /// Get ALL change metadata on the current branch shadow document, including those changes made before the document was created.
-    pub async fn get_shadow_changes(&self, id: &DocumentId) -> Option<Vec<ChangeMetadata<'_>>> {
+    pub async fn get_shadow_changes(&self, id: &SedimentreeId) -> Option<Vec<ChangeMetadata<'_>>> {
         self.with_shadow_document(id, async |d| {
             d.get_changes_meta(&[])
                 .iter()
@@ -180,7 +180,7 @@ impl BranchDb {
     }
 
     /// Get ALL change metadata on the current branch canonical document, including those changes made before the document was created.
-    pub async fn get_canonical_changes(&self, id: &DocumentId) -> Option<Vec<ChangeMetadata<'_>>> {
+    pub async fn get_canonical_changes(&self, id: &SedimentreeId) -> Option<Vec<ChangeMetadata<'_>>> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(id).cloned() else {
             tracing::error!(
@@ -203,7 +203,7 @@ impl BranchDb {
     }
 
     /// Dumps a branch document to disk, at ./.backstitch/DUMP_{id}.bin
-    pub async fn dump_branch_doc(&self, id: &DocumentId) {
+    pub async fn dump_branch_doc(&self, id: &SedimentreeId) {
         let path = self
             .get_project_dir()
             .join("./.backstitch/")

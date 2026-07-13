@@ -6,22 +6,22 @@ use automerge::{
     transaction::{CommitOptions, Transaction},
 };
 use chrono::{DateTime, Datelike, Local, Locale, TimeZone};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use serde::{Deserialize, Serialize};
 
-pub(crate) fn parse_automerge_url(url: &str) -> Option<DocumentId> {
+pub(crate) fn parse_automerge_url(url: &str) -> Option<SedimentreeId> {
     const PREFIX: &str = "automerge:";
     if !url.starts_with(PREFIX) {
         return None;
     }
 
     let hash = &url[PREFIX.len()..];
-    DocumentId::from_str(hash).ok()
+    SedimentreeId::from_str(hash).ok()
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct MergeMetadata {
-    pub merged_branch_id: DocumentId,
+    pub merged_branch_id: SedimentreeId,
     pub forked_at_heads: Vec<ChangeHash>,
 }
 
@@ -51,7 +51,7 @@ pub struct ChangedFile {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct CommitMetadata {
     pub username: Option<String>,
-    pub branch_id: Option<DocumentId>,
+    pub branch_id: Option<SedimentreeId>,
     pub merge_metadata: Option<MergeMetadata>,
     pub reverted_to: Option<Vec<ChangeHash>>,
     /// Changed files in this commit. Only valid for commits to branch documents.
@@ -91,7 +91,7 @@ pub struct CommitInfo {
 #[derive(Debug)]
 pub struct BranchWrapper {
     pub state: Branch,
-    pub children: Vec<DocumentId>,
+    pub children: Vec<SedimentreeId>,
 }
 
 #[derive(Debug)]

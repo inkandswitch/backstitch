@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::DocumentId;
+use samod::SedimentreeId;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -86,14 +86,18 @@ pub trait ProjectViewModel {
     fn clear_project(&mut self);
     /// Whether we have initialized with a project yet.
     fn has_project(&self) -> bool;
-    /// Get the current project [DocumentId], if it exists. Otherwise, return [None]
-    fn get_project_id(&self) -> Option<DocumentId>;
+    /// Get the current project [SedimentreeId], if it exists. Otherwise, return [None]
+    fn get_project_id(&self) -> Option<SedimentreeId>;
     /// Creates a new project.
     fn new_project(&mut self) -> Result<(), ProjectStartError>;
-    /// Loads a project, given a [DocumentId]. If `autostart` is true, this is treated as automatically restarting a loaded project.
+    /// Loads a project, given a [SedimentreeId]. If `autostart` is true, this is treated as automatically restarting a loaded project.
     /// Otherwise, it behaves as if the user is loading into a project.
     /// If this returns an error, it contains a helpful [ProjectStartError] error message that should be propagated to the user.
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError>;
+    fn load_project(
+        &mut self,
+        id: &SedimentreeId,
+        autostart: bool,
+    ) -> Result<(), ProjectStartError>;
 
     /// Get the current unresolved local changes from the project.
     /// We'll need to ask the user if they want to check these in.
@@ -109,9 +113,9 @@ pub trait ProjectViewModel {
     /// Prints a sync debug message to the console.
     fn print_sync_debug(&self);
 
-    /// Gets the [BranchViewModel] for the provided branch [DocumentId],
+    /// Gets the [BranchViewModel] for the provided branch [SedimentreeId],
     /// or [None] if the document ID isn't a branch in the project.
-    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<Self>>;
+    fn get_branch(&self, id: &SedimentreeId) -> Option<impl BranchViewModel + use<Self>>;
     /// Gets the [BranchViewModel] for the main root branch, or [None] if we have no project.
     fn get_main_branch(&self) -> Option<impl BranchViewModel>;
     /// Gets the [BranchViewModel] for the current checked out branch, or [None] if we have no project.
@@ -119,9 +123,9 @@ pub trait ProjectViewModel {
     /// Create a new branch, forked off the current branch with the given name.
     fn create_branch(&mut self, branch_name: String);
     /// Check out a branch by ID.
-    fn checkout_branch(&mut self, branch: &DocumentId);
+    fn checkout_branch(&mut self, branch: &SedimentreeId);
     /// Returns true if the branch is loaded (i.e. has all of its binary docs synced).
-    fn is_branch_loaded(&self, branch: &DocumentId) -> bool;
+    fn is_branch_loaded(&self, branch: &SedimentreeId) -> bool;
     /// Dumps a binary representation of the current branch to ./.backstitch/.
     fn dump_current_branch(&self);
 
@@ -177,9 +181,9 @@ pub trait ChangeViewModel {
     fn get_summary(&self) -> String;
     /// Whether the change was from a branch being merged.
     fn is_merge(&self) -> bool;
-    /// If the change is a merge change, returns the [DocumentId] for the branch that was merged in.
+    /// If the change is a merge change, returns the [SedimentreeId] for the branch that was merged in.
     /// Otherwise [None]
-    fn get_merge_id(&self) -> Option<DocumentId>;
+    fn get_merge_id(&self) -> Option<SedimentreeId>;
     /// Whether the change was an initial setup change for the main branch.
     fn is_setup(&self) -> bool;
     /// Get an exact timestamp for the change.
@@ -190,21 +194,21 @@ pub trait ChangeViewModel {
 
 /// API surface for a Branch exposed to the UI.
 pub trait BranchViewModel {
-    /// Get the unique [DocumentId] for the branch.
-    fn get_id(&self) -> DocumentId;
+    /// Get the unique [SedimentreeId] for the branch.
+    fn get_id(&self) -> SedimentreeId;
     /// Get the name of the branch.
     fn get_name(&self) -> String;
     /// Get the parent branch, i.e. the branch this was originally forked from. If the branch is
     /// main, returns [None].
-    fn get_parent(&self) -> Option<DocumentId>;
+    fn get_parent(&self) -> Option<SedimentreeId>;
     /// Get the children of the branch, i.e. any branches that were forked from this branch.
-    fn get_children(&self) -> Vec<DocumentId>;
+    fn get_children(&self) -> Vec<SedimentreeId>;
     /// Whether the branch is user-exposed for checkout (i.e. isn't a merge or revert preview)
     fn is_available(&self) -> bool;
     /// If the branch is a revert preview, get the change reversion target. Otherwise, [None]
     fn get_reverted_to(&self) -> Option<ChangeHash>;
     /// If the branch is a merge preview, get the target branch. Otherwise, [None]
-    fn get_merge_into(&self) -> Option<DocumentId>;
+    fn get_merge_into(&self) -> Option<SedimentreeId>;
 }
 
 /// API surface for a Diff exposed to the UI.

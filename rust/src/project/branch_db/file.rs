@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
 use autosurgeon::Doc;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use samod::DocumentId;
+use samod::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -37,7 +37,7 @@ impl BranchDb {
 
         enum PendingHash {
             Hash(blake3::Hash),
-            Linked(DocumentId),
+            Linked(SedimentreeId),
         }
 
         let ref_clone = ref_.clone();
@@ -238,7 +238,7 @@ impl BranchDb {
         Ok(FileSystemTraversal::get_file_changes(old_index, new_index))
     }
 
-    async fn get_linked_file(&self, doc_id: &DocumentId) -> Option<FileContent> {
+    async fn get_linked_file(&self, doc_id: &SedimentreeId) -> Option<FileContent> {
         let handle = self
             .binary_states
             .lock()

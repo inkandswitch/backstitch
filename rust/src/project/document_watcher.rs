@@ -10,7 +10,7 @@ use crate::{
 use automerge::{ROOT, ReadDoc};
 use autosurgeon::hydrate;
 use futures::{FutureExt, StreamExt};
-use samod::{DocHandle, DocumentId, Repo};
+use samod::{DocHandle, SedimentreeId, Repo};
 use tokio::{
     select,
     sync::{Mutex, Semaphore, watch},
@@ -43,7 +43,7 @@ pub enum IngestWaitError {
 struct DocumentWatcherInner {
     repo: Repo,
     branch_db: BranchDb,
-    tracked_branches: Arc<Mutex<HashMap<DocumentId, watch::Sender<BranchIngestState>>>>,
+    tracked_branches: Arc<Mutex<HashMap<SedimentreeId, watch::Sender<BranchIngestState>>>>,
     token: CancellationToken,
     find_limit: Arc<Semaphore>,
     poll_time: u64,
@@ -90,7 +90,7 @@ impl DocumentWatcher {
     /// Subscribe to a one-shot document ingestion. If the document has already ingested, immediately resolves.
     /// Doesn't look for binary docs -- those could still be broken (they're *allowed* to be... it's just bad.)
     /// Branches aren't allowed to be broken at all.
-    pub async fn wait_for_branch_ingest(&self, branch: &DocumentId) -> Result<(), IngestWaitError> {
+    pub async fn wait_for_branch_ingest(&self, branch: &SedimentreeId) -> Result<(), IngestWaitError> {
         let mut rx: watch::Receiver<BranchIngestState> = {
             let branches = self.inner.tracked_branches.lock().await;
             let tx = branches.get(branch).ok_or(IngestWaitError::NotTracked)?;
@@ -114,7 +114,7 @@ impl DocumentWatcher {
 impl DocumentWatcherInner {
     async fn poll_document(
         repo: &Repo,
-        id: &DocumentId,
+        id: &SedimentreeId,
         timeout: u64,
         find_limit: Arc<Semaphore>,
     ) -> Option<DocHandle> {
@@ -145,7 +145,7 @@ impl DocumentWatcherInner {
     }
 
     // The branch documents are a document for each branch, containing all the serialized data for all scenes and text files.
-    async fn track_branch_document(&self, id: DocumentId) {
+    async fn track_branch_document(&self, id: SedimentreeId) {
         let handle = select! {
             _ = self.token.cancelled() => return,
             handle = Self::poll_document(&self.repo, &id, self.poll_time, self.find_limit.clone()) => handle
@@ -206,7 +206,7 @@ impl DocumentWatcherInner {
 
     // Binary documents are immutable, linked docs that contain binary data.
     // By tracking them, we ensure BranchDb is aware of them.
-    async fn track_binary_document(&self, doc_id: DocumentId) {
+    async fn track_binary_document(&self, doc_id: SedimentreeId) {
         let repo = self.repo.clone();
         let branch_db = self.branch_db.clone();
         let semaphore = self.find_limit.clone();
@@ -263,7 +263,7 @@ impl DocumentWatcherInner {
 
                         parse_automerge_url(&url).map(|id| (path.clone(), id))
                     })
-                    .collect::<HashMap<String, DocumentId>>();
+                    .collect::<HashMap<String, SedimentreeId>>();
 
                 (d.get_heads(), linked_docs)
             })

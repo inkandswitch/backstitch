@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
-use samod::DocumentId;
+use samod::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -18,9 +18,9 @@ impl BranchDb {
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn create_merge_preview_branch(
         &self,
-        source: &DocumentId,
-        target: &DocumentId,
-    ) -> Result<DocumentId, DbError> {
+        source: &SedimentreeId,
+        target: &SedimentreeId,
+    ) -> Result<SedimentreeId, DbError> {
         // Not getting the branch state so we don't gotta clone, honestly that was probably simpler though
         let source_name = self.get_branch_name(source).await?;
         let target_name = self.get_branch_name(target).await?;
@@ -60,8 +60,8 @@ impl BranchDb {
 
     pub async fn merge_branch(
         &self,
-        source: &DocumentId,
-        target: &DocumentId,
+        source: &SedimentreeId,
+        target: &SedimentreeId,
     ) -> Result<(), DbError> {
         let source_state = self.get_branch_state(source).await?;
 
@@ -130,9 +130,9 @@ impl BranchDb {
 
     pub async fn create_revert_preview_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
         ref_: &HistoryRef,
-    ) -> Result<DocumentId, DbError> {
+    ) -> Result<SedimentreeId, DbError> {
         let current_ref = self.get_latest_ref_on_branch(branch).await?;
 
         let handle = self.repo.create(Automerge::new()).await?;
@@ -202,7 +202,7 @@ impl BranchDb {
 
     pub async fn confirm_revert_preview_branch(
         &self,
-        preview_branch: &DocumentId,
+        preview_branch: &SedimentreeId,
     ) -> Result<(), DbError> {
         let preview_state = self.get_branch_state(preview_branch).await?;
 

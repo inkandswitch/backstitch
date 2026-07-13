@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::DocumentId;
+use samod::SedimentreeId;
 
 use crate::{
     diff::differ::ProjectDiff,
@@ -30,7 +30,7 @@ impl ProjectViewModel for Project {
         self.driver.blocking_lock().is_some()
     }
 
-    fn get_project_id(&self) -> Option<DocumentId> {
+    fn get_project_id(&self) -> Option<SedimentreeId> {
         self.with_driver_blocking("Get project ID", |driver| async move {
             driver
                 .as_ref()?
@@ -48,7 +48,11 @@ impl ProjectViewModel for Project {
         self.start(ProjectCreateMode::New)
     }
 
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
+    fn load_project(
+        &mut self,
+        id: &SedimentreeId,
+        autostart: bool,
+    ) -> Result<(), ProjectStartError> {
         if self.has_project() {
             return Ok(());
         }
@@ -356,7 +360,7 @@ impl ProjectViewModel for Project {
         tracing::debug!("=====================================");
     }
 
-    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
+    fn get_branch(&self, id: &SedimentreeId) -> Option<impl BranchViewModel + use<>> {
         let id = id.clone();
 
         let (state, mut children) =
@@ -423,7 +427,7 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn checkout_branch(&mut self, branch: &DocumentId) {
+    fn checkout_branch(&mut self, branch: &SedimentreeId) {
         let branch = branch.clone();
         self.with_driver_blocking("Checkout branch", |driver| async move {
             driver.as_ref()?.request_checkout(&branch).await;
@@ -586,7 +590,7 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn is_branch_loaded(&self, branch: &DocumentId) -> bool {
+    fn is_branch_loaded(&self, branch: &SedimentreeId) -> bool {
         let branch = branch.clone();
         self.with_driver_blocking("Is branch loaded", |driver| async move {
             let Some(dr) = driver.as_ref() else {
@@ -697,7 +701,7 @@ impl ChangeViewModel for CommitInfo {
         human_readable_timestamp(self.timestamp)
     }
 
-    fn get_merge_id(&self) -> Option<DocumentId> {
+    fn get_merge_id(&self) -> Option<SedimentreeId> {
         Some(
             self.metadata
                 .as_ref()?
@@ -710,7 +714,7 @@ impl ChangeViewModel for CommitInfo {
 }
 
 impl BranchViewModel for BranchWrapper {
-    fn get_id(&self) -> DocumentId {
+    fn get_id(&self) -> SedimentreeId {
         self.state.id.clone()
     }
 
@@ -718,11 +722,11 @@ impl BranchViewModel for BranchWrapper {
         self.state.name.clone()
     }
 
-    fn get_parent(&self) -> Option<DocumentId> {
+    fn get_parent(&self) -> Option<SedimentreeId> {
         Some(self.state.forked_from.as_ref()?.branch().clone())
     }
 
-    fn get_children(&self) -> Vec<DocumentId> {
+    fn get_children(&self) -> Vec<SedimentreeId> {
         self.children.clone()
     }
 
@@ -734,7 +738,7 @@ impl BranchViewModel for BranchWrapper {
         Some(*self.state.reverted_to.as_ref()?.heads().first()?)
     }
 
-    fn get_merge_into(&self) -> Option<DocumentId> {
+    fn get_merge_into(&self) -> Option<SedimentreeId> {
         Some(self.state.merge_into.as_ref()?.branch().clone())
     }
 }

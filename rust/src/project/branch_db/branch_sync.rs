@@ -5,7 +5,7 @@ use std::{
 
 use automerge::{Automerge, AutomergeError, ChangeHash};
 use futures::{Stream, StreamExt};
-use samod::{DocHandle, DocumentId};
+use sedimentree_core::id::SedimentreeId;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -24,7 +24,7 @@ pub(super) struct BranchSyncState {
     /// The last heads on the canonical doc that we reconciled from
     pub last_reconciled: Vec<ChangeHash>,
     /// The binary docs on the canonical doc
-    pub canonical_binary_docs: HashMap<DocumentId, BinaryDocStatus>,
+    pub canonical_binary_docs: HashMap<SedimentreeId, BinaryDocStatus>,
     // TODO (Lilith): Figure out a way to reconcile fully synced heads prior to the most recent unsynced heads, if needed.
 }
 
@@ -79,7 +79,7 @@ impl BranchDb {
         *st = Some((handle, state));
     }
 
-    pub async fn is_branch_loaded(&self, id: &DocumentId) -> bool {
+    pub async fn is_branch_loaded(&self, id: &SedimentreeId) -> bool {
         let states = self.branch_sync_states.lock().await;
         // branch isn't loaded if we haven't tracked its sync state yet!
         let Some(state) = states.get(id) else {
@@ -102,7 +102,7 @@ impl BranchDb {
         binary_states.clear();
     }
 
-    pub async fn canonical_branch_status(&self, id: &DocumentId) -> CanonicalBranchStatus {
+    pub async fn canonical_branch_status(&self, id: &SedimentreeId) -> CanonicalBranchStatus {
         let states = self.branch_sync_states.lock().await;
         // branch isn't loaded if we haven't tracked its sync state yet!
         let Some(state) = states.get(id) else {
@@ -129,7 +129,10 @@ impl BranchDb {
         CanonicalBranchStatus::Healthy
     }
 
-    pub async fn wait_for_shadow_doc(&self, branch: &DocumentId) -> Result<(), ShadowDocWaitError> {
+    pub async fn wait_for_shadow_doc(
+        &self,
+        branch: &SedimentreeId,
+    ) -> Result<(), ShadowDocWaitError> {
         let mut rx = {
             let states = self.branch_sync_states.lock().await;
             let state = states
@@ -151,14 +154,14 @@ impl BranchDb {
     /// Returns true if a binary doc is fully loaded onto the BranchDb.
     /// This will return true even if the binary doc failed to load... That's so we don't hang forever waiting for nonexistent docs.
     /// But that introduces problems, like server disconnections causing a file checkout! We need to figure out expected failure behavior.
-    pub async fn has_binary_doc(&self, id: &DocumentId) -> bool {
+    pub async fn has_binary_doc(&self, id: &SedimentreeId) -> bool {
         let states = self.binary_states.lock().await;
         states.contains_key(id)
     }
 
     pub async fn ingest_binary_doc(
         &self,
-        id: DocumentId,
+        id: SedimentreeId,
         handle: Option<DocHandle>,
     ) -> Result<(), DbError> {
         tracing::debug!("Ingesting binary doc {id}...");
@@ -197,7 +200,7 @@ impl BranchDb {
         &self,
         handle: DocHandle,
         heads: Vec<ChangeHash>,
-        linked_docs: HashSet<DocumentId>,
+        linked_docs: HashSet<SedimentreeId>,
     ) -> Result<(), DbError> {
         tracing::debug!("Updating branch sync state...");
         // acquire a lock to our tracked binary states.
@@ -247,7 +250,7 @@ impl BranchDb {
     }
 
     fn resolved_all_canonical_binary_docs(
-        binary_docs: &HashMap<DocumentId, BinaryDocStatus>,
+        binary_docs: &HashMap<SedimentreeId, BinaryDocStatus>,
     ) -> bool {
         binary_docs
             .iter()

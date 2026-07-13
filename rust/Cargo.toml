@@ -20,7 +20,7 @@ default = []
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
-automerge = "0.10.0"
+automerge = { git = "https://github.com/automerge/automerge.git" }
 autosurgeon = "0.12.0"
 futures = "0.3.31"
 godot = {version = "0.5.3", features = ["experimental-threads"]}
@@ -35,7 +35,7 @@ base64 = "0.22"
 lexical = { version = "7.0.5", features = ["format"] }
 num-traits = "0.2.19"
 indexmap = "2.13.0"
-uuid = "1.5.0"
+uuid = { version = "1.5.0", features = ["v4"] }
 pretty_assertions = "1.4.1"
 similar = { version = "2.4.0", features = ["unicode"] }
 notify = { version = "8.2.0", features = [
@@ -71,9 +71,15 @@ anyhow = "1.0.102"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
-subduction_core = "0.15.1"
-sedimentree_core = "0.12.1"
-subduction_iroh = "0.8.1"
+
+url = "2.5.8"
+subduction_core = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
+sedimentree_core = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git", features=["serde"] }
+subduction_redb_storage = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
+subduction_websocket = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git", features=["tokio_base", "tokio_client"] }
+subduction_crypto = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
+future_form = "0.3.1"
+nonempty = "0.12.0"
 
 [build-dependencies]
 cbindgen = "^0.27"
@@ -83,5 +89,3 @@ static_vcruntime = "2.0"
 [dev-dependencies]
 tempfile = "3.0"
 
-[dependencies.crates-io]
-sha2 = "^0.11.0-rc.5"

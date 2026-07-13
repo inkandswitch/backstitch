@@ -2,7 +2,6 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use automerge::AutomergeError;
 use autosurgeon::{HydrateError, ReconcileError};
-use samod::{DocHandle, DocumentId, Repo};
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, RwLock, broadcast, watch},
@@ -42,9 +41,9 @@ pub enum DbError {
     #[error("there was no loaded metadata state")]
     NoMetadataState,
     #[error("there was no branch matching the id {0}")]
-    NoBranch(Box<DocumentId>),
+    NoBranch(Box<SedimentreeId>),
     #[error("the branch state of id {0} is wrong ({1})")]
-    BadBranchState(Box<DocumentId>, String),
+    BadBranchState(Box<SedimentreeId>, String),
     #[error("bad branch document at ref {0} ({1})")]
     BadBranchDocument(Box<HistoryRef>, String),
     #[error("shadow doc isn't initialized")]
@@ -76,8 +75,8 @@ pub struct BranchDb {
 
     username: Arc<Mutex<Option<String>>>,
 
-    binary_states: Arc<Mutex<HashMap<DocumentId, Option<DocHandle>>>>,
-    branch_sync_states: Arc<Mutex<HashMap<DocumentId, Arc<Mutex<BranchSyncState>>>>>,
+    binary_states: Arc<Mutex<HashMap<SedimentreeId, Option<DocHandle>>>>,
+    branch_sync_states: Arc<Mutex<HashMap<SedimentreeId, Arc<Mutex<BranchSyncState>>>>>,
     metadata_state: Arc<Mutex<Option<(DocHandle, BranchesMetadataDoc)>>>,
 
     // The checked out ref is the ref that the filesystem is currently synced with.

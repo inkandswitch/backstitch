@@ -9,7 +9,7 @@ use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::{ProjectStartError, ProjectViewModel};
 use automerge::ChangeHash;
-use samod::{ConnectionInfo, DocumentId, Url};
+use samod::{ConnectionInfo, SedimentreeId, Url};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,7 +41,7 @@ pub struct Project {
     pub(super) driver: Arc<Mutex<Option<Driver>>>,
     pub(super) local_changes: Vec<ChangedFile>,
     pub(super) server_url: Option<Url>,
-    pub(super) initial_branch: Option<DocumentId>, // the initial branch to checkout, only valid before finalize_start is called
+    pub(super) initial_branch: Option<SedimentreeId>, // the initial branch to checkout, only valid before finalize_start is called
     project_dir: PathBuf,
     pub(super) runtime: Runtime,
 
@@ -164,8 +164,8 @@ impl Project {
     async fn try_and_retry_load(
         driver: &mut Driver,
         server_url: Option<&Url>,
-        metadata_id: &DocumentId,
-        branch_id: Option<&DocumentId>,
+        metadata_id: &SedimentreeId,
+        branch_id: Option<&SedimentreeId>,
     ) -> Result<LoadSuccess, ProjectStartError> {
         // I am going to become the joker because of this method, but I think it's all necessary/as simple as possible. Maybe I'm wrong...
         // Either way, here's the logic:
@@ -356,7 +356,7 @@ impl Project {
             None
         } else {
             let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
-            Some(DocumentId::from_str(&id).map_err(|_| {
+            Some(SedimentreeId::from_str(&id).map_err(|_| {
                 tracing::error!("Invalid metadata document ID! Not starting driver.");
                 ProjectStartError::DocumentIdInvalid(id)
             })?)
@@ -371,7 +371,7 @@ impl Project {
             ))
             .filter(|s| !s.is_empty())
             {
-                Some(s) => match DocumentId::from_str(&s) {
+                Some(s) => match SedimentreeId::from_str(&s) {
                     Ok(id) => Some(id),
                     Err(e) => {
                         tracing::error!("Invalid saved branch ID! Not using. {e}");

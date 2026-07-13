@@ -8,7 +8,7 @@ use godot::meta::conv::{ArgPassing, ByValue};
 use godot::meta::shape::GodotShape;
 use godot::meta::{GodotType, ToArg};
 use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::fmt::Display;
 use std::path::PathBuf;
 
@@ -51,11 +51,11 @@ pub trait ToVariantExt: Sized {
     }
 }
 
-impl GodotConvertExt for DocumentId {
+impl GodotConvertExt for SedimentreeId {
     type Via = GString;
 }
 
-impl ToGodotExt for DocumentId {
+impl ToGodotExt for SedimentreeId {
     type Pass = ByValue;
     fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
@@ -65,7 +65,7 @@ impl ToGodotExt for DocumentId {
     }
 }
 
-impl ToVariantExt for Option<DocumentId> {
+impl ToVariantExt for Option<SedimentreeId> {
     fn _to_variant(&self) -> Variant {
         match self {
             Some(id) => id.to_variant(),

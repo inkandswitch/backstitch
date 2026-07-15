@@ -349,7 +349,8 @@ func bind_listeners(godot_project):
 	for item in action_menu_button.get_popup().get_item_count():
 		var menu: PopupMenu = action_menu_button.get_popup()
 		var icon = menu.get_item_icon(item)
-		icon.base_scale = EditorInterface.get_editor_scale()
+		if icon:
+			icon.base_scale = EditorInterface.get_editor_scale()
 
 
 func _style_button(button: Button):

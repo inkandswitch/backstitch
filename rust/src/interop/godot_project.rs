@@ -273,9 +273,19 @@ impl GodotProject {
 
     #[func]
     fn load_project(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id)
-            && let Err(e) = self.project.load_project(&id, false)
-        {
+        let id = match DocumentId::from_str(&id) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Error regular starting {:?}", e);
+                self.base_mut().call_deferred(
+                    "emit_signal",
+                    &["create_failed".to_variant(), e.to_string().to_variant()],
+                );
+                return;
+            }
+        };
+
+        if let Err(e) = self.project.load_project(&id, false) {
             tracing::error!("Error regular starting {:?}", e);
             self.base_mut().call_deferred(
                 "emit_signal",

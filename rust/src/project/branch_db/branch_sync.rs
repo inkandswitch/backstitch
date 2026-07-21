@@ -10,7 +10,10 @@ use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
+    helpers::{
+        branch::BranchesMetadataDoc,
+        history_ref::{HistoryRef, heads_are_equivalent},
+    },
     project::branch_db::{BranchDb, CanonicalBranchStatus, DbError, ShadowDocWaitError},
 };
 
@@ -236,16 +239,6 @@ impl BranchDb {
         Ok(())
     }
 
-    // we may need to do an unordered comparison for heads across docs
-    // todo: we may want to factor this out to a better Heads struct to handle correct comparison always
-    fn are_heads_equivalent(a: &[ChangeHash], b: &[ChangeHash]) -> bool {
-        let mut asorted = a.to_vec();
-        let mut bsorted = b.to_vec();
-        asorted.sort();
-        bsorted.sort();
-        asorted == bsorted
-    }
-
     fn resolved_all_canonical_binary_docs(
         binary_docs: &HashMap<DocumentId, BinaryDocStatus>,
     ) -> bool {
@@ -269,10 +262,10 @@ impl BranchDb {
             }
 
             // did we track any new changes coming into the canonical?
-            if Self::are_heads_equivalent(&state.last_reconciled, &state.last_tracked) {
+            if heads_are_equivalent(&state.last_reconciled, &state.last_tracked) {
                 // is canonical still synced up with the shadow doc?
                 if let Some(shadow_doc) = &state.shadow_doc
-                    && Self::are_heads_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
+                    && heads_are_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
                 {
                     // if both of those were true, we don't actually need to reconcile.
                     tracing::debug!("Could not reconcile because we're already up-to-date.");

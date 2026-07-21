@@ -7,7 +7,7 @@ use crate::{
     diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
     helpers::{
-        history_ref::HistoryRef,
+        history_ref::{HistoryRef, heads_have_changes_since},
         utils::{
             BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
             human_readable_timestamp,
@@ -124,13 +124,36 @@ impl ProjectViewModel for Project {
         let Some(main_branch) = self.get_main_branch() else {
             return false;
         };
-        match self.get_checked_out_branch_state() {
-            Some(branch_state) => branch_state.id != main_branch.get_id(),
-            _ => false,
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return false;
+        };
+        if branch_state.id == main_branch.get_id() {
+            return false;
         }
+
+        let Some(forked_from) = branch_state.forked_from.as_ref() else {
+            return false;
+        };
+        let branch = branch_state.id.clone();
+        let fork_heads = forked_from.heads().clone();
+
+        self.with_driver_blocking("Check merge preview eligibility", |driver| async move {
+            let branch_db = driver.as_ref()?.get_branch_db();
+            let current_ref = branch_db
+                .get_latest_ref_on_branch(&branch)
+                .await
+                .inspect_err(|e| tracing::error!("Error getting current branch heads: {e}"))
+                .ok()?;
+            Some(heads_have_changes_since(&fork_heads, current_ref.heads()))
+        })
+        .unwrap_or(false)
     }
 
     fn create_merge_preview_branch(&mut self) {
+        if !self.can_create_merge_preview_branch() {
+            return;
+        }
+
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
             return;
         };

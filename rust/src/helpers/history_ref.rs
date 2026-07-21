@@ -4,6 +4,23 @@ use samod::DocumentId;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
+/// Compare Automerge heads without relying on the order returned by a document.
+pub(crate) fn heads_are_equivalent(a: &[ChangeHash], b: &[ChangeHash]) -> bool {
+    let mut a = a.to_vec();
+    let mut b = b.to_vec();
+    a.sort();
+    b.sort();
+    a == b
+}
+
+/// Return whether a branch has moved beyond the heads where it was forked.
+pub(crate) fn heads_have_changes_since(
+    fork_heads: &[ChangeHash],
+    current_heads: &[ChangeHash],
+) -> bool {
+    !heads_are_equivalent(fork_heads, current_heads)
+}
+
 /// Represents a location anywhere in Backstitch's history.
 /// Associates a branch with heads on that branch.
 #[derive(Debug, Clone, Serialize, Deserialize, Reconcile, Hydrate)]
@@ -117,5 +134,48 @@ impl FromStr for HistoryRef {
             return Err("Invalid history ref");
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash(byte: u8) -> ChangeHash {
+        ChangeHash::from_str(&format!("{byte:02x}").repeat(32)).unwrap()
+    }
+
+    #[test]
+    fn equivalent_heads_handle_empty_and_single_head_histories() {
+        assert!(heads_are_equivalent(&[], &[]));
+        assert!(heads_are_equivalent(&[hash(1)], &[hash(1)]));
+        assert!(!heads_are_equivalent(&[], &[hash(1)]));
+        assert!(!heads_are_equivalent(&[hash(1)], &[hash(2)]));
+    }
+
+    #[test]
+    fn equivalent_heads_ignore_multi_head_order() {
+        assert!(heads_are_equivalent(
+            &[hash(1), hash(2), hash(3)],
+            &[hash(3), hash(1), hash(2)]
+        ));
+        assert!(!heads_are_equivalent(
+            &[hash(1), hash(2), hash(3)],
+            &[hash(1), hash(2), hash(4)]
+        ));
+    }
+
+    #[test]
+    fn branch_changes_are_detected_for_single_and_multi_head_histories() {
+        assert!(!heads_have_changes_since(&[hash(1)], &[hash(1)]));
+        assert!(heads_have_changes_since(&[hash(1)], &[hash(2)]));
+        assert!(!heads_have_changes_since(
+            &[hash(1), hash(2)],
+            &[hash(2), hash(1)]
+        ));
+        assert!(heads_have_changes_since(
+            &[hash(1), hash(2)],
+            &[hash(1), hash(2), hash(3)]
+        ));
     }
 }

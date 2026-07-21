@@ -723,6 +723,9 @@ func update_action_buttons():
 	if main_branch.id == current_branch.id:
 		merge_button.disabled = true
 		merge_button.tooltip_text = "Can't merge main, because it's the root branch."
+	elif !GodotProject.can_create_merge_preview_branch():
+		merge_button.disabled = true
+		merge_button.tooltip_text = "There's nothing to merge."
 	else:
 		var parent_branch = GodotProject.get_branch(current_branch.parent)
 		merge_button.disabled = false

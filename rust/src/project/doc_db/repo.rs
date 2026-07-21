@@ -8,19 +8,22 @@ use std::{
 
 use automerge::Automerge;
 use future_form::Sendable;
+use rand::RngCore;
 use sedimentree_core::{
     blob::{Blob, BlobMeta},
     depth::CountLeadingZeroBytes,
     fragment::Fragment,
     id::SedimentreeId,
     loose_commit::id::CommitId,
+    sedimentree::Sedimentree,
 };
 use subduction_core::{
+    connection::message::SyncMessage,
     handler::sync::SyncHandler,
     policy::open::OpenPolicy,
     remote_heads::RemoteHeadsObserver,
     storage::memory::MemoryStorage,
-    subduction::{Subduction, builder::SubductionBuilder},
+    subduction::{Subduction, builder::SubductionBuilder, error::WriteError},
 };
 use subduction_crypto::signer::memory::MemorySigner;
 use subduction_redb_storage::{RedbStorage, RedbStorageError};
@@ -64,6 +67,10 @@ pub enum RepoError {
     NoSuchDocument(SedimentreeId),
     #[error(transparent)]
     Storage(#[from] RedbStorageError),
+    #[error(transparent)]
+    Write(
+        #[from] WriteError<Sendable, RedbStorage, TokioWebSocketClient<MemorySigner>, SyncMessage>,
+    ),
 }
 
 struct HeadsObserver {
@@ -139,6 +146,27 @@ impl Repo {
         };
 
         Ok(this)
+    }
+
+    pub async fn create(&self, initial: &Automerge) -> Result<SedimentreeId, RepoError> {
+        // TODO: this is horrible; don't drive sync here
+        let mut doc_db = self.doc_db.clone();
+        let mut id = [0u8; 32];
+        rand::rng().fill_bytes(id.as_mut_slice());
+        let id = SedimentreeId::from_bytes(id);
+        let res = self
+            .subduction()
+            .add_sedimentree(
+                id,
+                Sedimentree::default(),
+                Vec::new(),
+                subduction_core::timeout::call::CallTimeout::TimeoutMillis(5000),
+            )
+            .await?;
+
+        doc_db.insert_blobs(id, Vec::new());
+
+        Ok(id)
     }
 
     pub async fn with_document<F, R>(&self, id: &SedimentreeId, f: F) -> Result<R, RepoError>

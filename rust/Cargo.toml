@@ -21,7 +21,7 @@ tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
 automerge = { git = "https://github.com/automerge/automerge.git" }
-autosurgeon = "0.12.0"
+autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch="dep-hell" }
 futures = "0.3.31"
 godot = {version = "0.5.3", features = ["experimental-threads"]}
 tokio = { version = "1.49.0", features = ["full"] }
@@ -89,3 +89,5 @@ static_vcruntime = "2.0"
 [dev-dependencies]
 tempfile = "3.0"
 
+[patch.crates-io]
+automerge = { git = "https://github.com/automerge/automerge.git" }

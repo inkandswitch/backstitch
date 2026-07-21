@@ -1,7 +1,12 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use automerge::AutomergeError;
 use autosurgeon::{HydrateError, ReconcileError};
+use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, RwLock, broadcast, watch},
@@ -10,7 +15,7 @@ use tokio::{
 
 use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
-    project::branch_db::branch_sync::BranchSyncState,
+    project::{branch_db::branch_sync::BranchSyncState, doc_db::repo::Repo},
 };
 
 mod branch;
@@ -75,9 +80,9 @@ pub struct BranchDb {
 
     username: Arc<Mutex<Option<String>>>,
 
-    binary_states: Arc<Mutex<HashMap<SedimentreeId, Option<DocHandle>>>>,
+    binary_states: Arc<Mutex<HashMap<SedimentreeId, bool>>>,
     branch_sync_states: Arc<Mutex<HashMap<SedimentreeId, Arc<Mutex<BranchSyncState>>>>>,
-    metadata_state: Arc<Mutex<Option<(DocHandle, BranchesMetadataDoc)>>>,
+    metadata_state: Arc<Mutex<Option<(SedimentreeId, BranchesMetadataDoc)>>>,
 
     // The checked out ref is the ref that the filesystem is currently synced with.
     // Has a separate lock because of its importance; it needs to be locked while we're prepping a commit or checking out stuff

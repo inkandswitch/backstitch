@@ -2,21 +2,24 @@ use std::collections::HashMap;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
 use autosurgeon::{hydrate, reconcile};
-use samod::{DocHandle, SedimentreeId};
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     helpers::{
         branch::{BRANCH_DOC_VERSION, Branch, BranchesMetadataDoc, GodotProjectDoc},
         utils::{CommitMetadata, commit_with_metadata},
     },
-    project::branch_db::{BranchDb, DbError, HistoryRef},
+    project::{
+        branch_db::{BranchDb, DbError, HistoryRef},
+        doc_db::repo::RepoError,
+    },
 };
 
 // Methods related to branch and document management on a [BranchDb].
 impl BranchDb {
     /// Create a new metadata document, and a new main branch, and return the handle of the metadata document.
     /// Checks out the initial commit of the main branch automatically.
-    pub async fn create_metadata_doc(&self) -> Result<DocHandle, DbError> {
+    pub async fn create_metadata_doc(&self) -> Result<SedimentreeId, DbError> {
         tracing::info!("Creating new metadata doc...");
         let username = self.username.lock().await.clone();
 
@@ -25,12 +28,13 @@ impl BranchDb {
         let mut checked_out_ref = r.write().await;
 
         // Create new main branch doc
-        let main_handle = self.repo.create(Automerge::new()).await?;
+        let main_handle = self.repo.create().await?;
         let main_handle_clone = main_handle.clone();
         let username_clone = username.clone();
 
-        let new_heads = tokio::task::spawn_blocking(move || {
-            main_handle_clone.with_document(|d| {
+        let new_heads = self
+            .repo
+            .with_document(&main_handle_clone, async |d| {
                 let mut tx = d.transaction();
                 let _ = reconcile(
                     &mut tx,
@@ -44,7 +48,7 @@ impl BranchDb {
                     tx,
                     &CommitMetadata {
                         username: username_clone,
-                        branch_id: Some(main_handle_clone.document_id().clone()),
+                        branch_id: Some(main_handle_clone.clone()),
                         merge_metadata: None,
                         reverted_to: None,
                         changed_files: None,
@@ -53,21 +57,16 @@ impl BranchDb {
                 );
                 d.get_heads()
             })
-        })
-        .await
-        .unwrap();
+            .await?;
 
-        *checked_out_ref = Some(HistoryRef::new(
-            main_handle.document_id().clone(),
-            new_heads,
-        ));
+        *checked_out_ref = Some(HistoryRef::new(main_handle.clone(), new_heads));
 
-        let main_doc_id = main_handle.document_id().clone();
+        let main_doc_id = main_handle.clone();
         let branches = HashMap::from([(
             main_doc_id.clone(),
             Branch {
                 name: String::from("main"),
-                id: main_handle.document_id().clone(),
+                id: main_handle.clone(),
                 forked_from: None,
                 merge_into: None,
                 created_by: username.clone(),
@@ -76,10 +75,10 @@ impl BranchDb {
         )]);
 
         // create new branches metadata doc
-        let metadata_handle = self.repo.create(Automerge::new()).await.unwrap();
+        let metadata_handle = self.repo.create().await.unwrap();
         let metadata_handle_clone = metadata_handle.clone();
         tokio::task::spawn_blocking(move || {
-            metadata_handle.with_document(|d| {
+            self.repo.with_document(|d| {
                 let mut tx = d.transaction();
                 let _ = reconcile(
                     &mut tx,
@@ -113,27 +112,29 @@ impl BranchDb {
         };
 
         let username = self.username.lock().await.clone();
-        tokio::task::spawn_blocking(move || {
-            meta_handle.with_document(|d| -> Result<_, DbError> {
-                let mut branches_metadata: BranchesMetadataDoc = hydrate(d)?;
-                let mut tx = d.transaction();
-                branches_metadata.branches.insert(branch.id.clone(), branch);
-                reconcile(&mut tx, branches_metadata)?;
-                commit_with_metadata(
-                    tx,
-                    &CommitMetadata {
-                        username,
-                        branch_id: None,
-                        merge_metadata: None,
-                        reverted_to: None,
-                        changed_files: None,
-                        is_setup: Some(true),
-                    },
-                );
-                Ok(())
-            })
-        })
-        .await??;
+        self.repo
+            .with_document(
+                &meta_handle,
+                async |d: &mut Automerge| -> Result<_, DbError> {
+                    let mut branches_metadata: BranchesMetadataDoc = hydrate(d)?;
+                    let mut tx = d.transaction();
+                    branches_metadata.branches.insert(branch.id.clone(), branch);
+                    reconcile(&mut tx, branches_metadata)?;
+                    commit_with_metadata(
+                        tx,
+                        &CommitMetadata {
+                            username,
+                            branch_id: None,
+                            merge_metadata: None,
+                            reverted_to: None,
+                            changed_files: None,
+                            is_setup: Some(true),
+                        },
+                    );
+                    Ok(())
+                },
+            )
+            .await?;
         Ok(())
     }
 

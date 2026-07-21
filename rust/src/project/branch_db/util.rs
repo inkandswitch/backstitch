@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use automerge::{Automerge, ChangeMetadata};
-use samod::SedimentreeId;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     helpers::branch::Branch,
@@ -66,8 +66,10 @@ impl BranchDb {
 
         let st = state.lock().await;
         let handle = st.canonical_doc.clone();
-        let heads =
-            tokio::task::spawn_blocking(move || handle.with_document(|d| d.get_heads())).await?;
+        let heads = self
+            .repo
+            .with_document(&handle, async |d| d.get_heads())
+            .await?;
         Ok(HistoryRef::new(branch.clone(), heads))
     }
 
@@ -180,7 +182,10 @@ impl BranchDb {
     }
 
     /// Get ALL change metadata on the current branch canonical document, including those changes made before the document was created.
-    pub async fn get_canonical_changes(&self, id: &SedimentreeId) -> Option<Vec<ChangeMetadata<'_>>> {
+    pub async fn get_canonical_changes(
+        &self,
+        id: &SedimentreeId,
+    ) -> Option<Vec<ChangeMetadata<'_>>> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(id).cloned() else {
             tracing::error!(
@@ -189,17 +194,17 @@ impl BranchDb {
             return None;
         };
         let handle = state.lock().await.canonical_doc.clone();
-        tokio::task::spawn_blocking(move || {
-            handle.with_document(|d| {
+        self.repo
+            .with_document(&handle, |d| {
                 d.get_changes_meta(&[])
                     .iter()
                     // this may be slow? we could consider putting it in a struct with only the info we need like CommitInfo.
                     .map(|i| i.clone().into_owned())
                     .collect()
             })
-        })
-        .await
-        .ok()
+            .await
+            .inspect_err(|e| tracing::error!("Failed to get_canonical_changes {e}"))
+            .ok()
     }
 
     /// Dumps a branch document to disk, at ./.backstitch/DUMP_{id}.bin
@@ -208,17 +213,14 @@ impl BranchDb {
             .get_project_dir()
             .join("./.backstitch/")
             .join(format!("DUMP_{id}.bin"));
-        let handle = {
-            let states = self.branch_sync_states.lock().await;
-            let Some(state) = states.get(id) else {
+
+        let bytes = match self.repo.with_document(id, async |d| d.save()).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::error!("Error dumping branch doc {id}: {e}");
                 return;
-            };
-            let state = state.lock().await;
-            state.canonical_doc.clone()
+            }
         };
-        let bytes = tokio::task::spawn_blocking(move || handle.with_document(|d| d.save()))
-            .await
-            .unwrap();
 
         if let Err(e) = tokio::fs::write(path.clone(), bytes).await {
             tracing::error!("Error dumping branch {id} to {:?}: {:?}", path, e);

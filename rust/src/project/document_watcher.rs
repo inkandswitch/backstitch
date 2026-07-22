@@ -300,7 +300,7 @@ impl DocumentWatcherInner {
             .await;
         // check if there are new branches that haven't loaded yet
         let mut tracked_branches = self.tracked_branches.lock().await;
-        for (branch_id, _) in meta.branches.iter() {
+        for branch_id in meta.branches.keys() {
             if !tracked_branches.contains_key(branch_id) {
                 tracked_branches.insert(
                     branch_id.clone(),

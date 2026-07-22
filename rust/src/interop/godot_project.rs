@@ -41,20 +41,21 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
 -> Option<(Callable, Callable)> {
     // get the editor node
     let editor_file_system = EditorInterface::singleton().get_resource_filesystem();
-    let editor_node = if let Some(editor_file_system) = editor_file_system {
+    let editor_node = {
+        let editor_file_system = editor_file_system?;
         // get the parent of the editor file system, that's the editor node
         editor_file_system.get_parent()
-    } else {
-        return None;
     };
     if let Some(editor_node) = editor_node {
         // get the first Panel child of the editor node, that's the gui base
         let children = editor_node.get_children();
         // it should be the first panel
-        if let Some(gui_base) = children.iter_shared().find(|c| c.get_class() == "Panel") {
+        {
+            let gui_base = children.iter_shared().find(|c| c.get_class() == "Panel")?;
             // find the disk_changed dialog child of the gui base
             let children = gui_base.get_children();
-            if let Some(disk_changed_dialog_node) = children.iter_shared().find(|c| {
+            {
+                let disk_changed_dialog_node = children.iter_shared().find(|c| {
                 if c.get_class() == "ConfirmationDialog" {
                     // check that one of the children is a VBoxContainer
                     let children = c.get_children();
@@ -74,7 +75,7 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                     }
                 }
                 false
-            }) {
+            })?;
                 let disk_changed_dialog =
                     match disk_changed_dialog_node.try_cast::<ConfirmationDialog>() {
                         Ok(dialog) => dialog,
@@ -102,11 +103,7 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                 } else {
                     return None;
                 }
-            } else {
-                return None;
             }
-        } else {
-            return None;
         }
     }
     None

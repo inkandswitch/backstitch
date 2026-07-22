@@ -56,26 +56,26 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
             let children = gui_base.get_children();
             {
                 let disk_changed_dialog_node = children.iter_shared().find(|c| {
-                if c.get_class() == "ConfirmationDialog" {
-                    // check that one of the children is a VBoxContainer
-                    let children = c.get_children();
-                    if let Some(vbox_container) = children
-                        .iter_shared()
-                        .find(|c| c.get_class() == "VBoxContainer")
-                    {
-                        // check that one of the children is a Tree
-                        let children = vbox_container.get_children();
-                        if children
+                    if c.get_class() == "ConfirmationDialog" {
+                        // check that one of the children is a VBoxContainer
+                        let children = c.get_children();
+                        if let Some(vbox_container) = children
                             .iter_shared()
-                            .find(|c| c.get_class() == "Tree")
-                            .is_some()
+                            .find(|c| c.get_class() == "VBoxContainer")
                         {
-                            return true;
+                            // check that one of the children is a Tree
+                            let children = vbox_container.get_children();
+                            if children
+                                .iter_shared()
+                                .find(|c| c.get_class() == "Tree")
+                                .is_some()
+                            {
+                                return true;
+                            }
                         }
                     }
-                }
-                false
-            })?;
+                    false
+                })?;
                 let disk_changed_dialog =
                     match disk_changed_dialog_node.try_cast::<ConfirmationDialog>() {
                         Ok(dialog) => dialog,

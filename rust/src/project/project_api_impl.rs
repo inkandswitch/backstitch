@@ -471,7 +471,7 @@ impl ProjectViewModel for Project {
         };
 
         // generate the summary
-        
+
         let title = if self.is_merge_preview_branch_active() {
             let source_name = self
                 .get_branch(branch_state.forked_from.as_ref()?.branch())?

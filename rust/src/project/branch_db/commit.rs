@@ -159,7 +159,7 @@ impl BranchDb {
             let _ = tx.put(
                 &file_entry,
                 "url",
-                format!("automerge:{}", &binary_doc_handle.document_id()),
+                format!("automerge:{}", binary_doc_handle.document_id()),
             );
             let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
 

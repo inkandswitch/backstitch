@@ -58,7 +58,7 @@ pub enum ProjectStartError {
 
 impl From<ProjectLoadError> for ProjectStartError {
     fn from(value: ProjectLoadError) -> Self {
-        ProjectStartError::DriverLoad(Box::new(value))
+        Self::DriverLoad(Box::new(value))
     }
 }
 

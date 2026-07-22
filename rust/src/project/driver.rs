@@ -102,10 +102,16 @@ pub enum ProjectLoadError {
     RepoStopped(#[from] samod::Stopped),
 
     #[error("branch db error: {0}")]
-    Db(#[from] DbError),
+    Db(Box<DbError>),
 
     #[error("branch wasn't successfully ingested")]
     NotIngested,
+}
+
+impl From<DbError> for ProjectLoadError {
+    fn from(value: DbError) -> Self {
+        Self::Db(Box::new(value))
+    }
 }
 
 impl Drop for Driver {

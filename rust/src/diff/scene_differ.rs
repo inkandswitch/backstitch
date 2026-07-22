@@ -769,13 +769,13 @@ impl Differ {
         ext_resource_ids: &mut HashSet<String>,
         sub_resource_ids: &mut HashSet<String>,
     ) {
-        for (ext_id, _) in scene.ext_resources.iter() {
+        for ext_id in scene.ext_resources.keys() {
             ext_resource_ids.insert(ext_id.clone());
         }
-        for (node_id, _) in scene.nodes.iter() {
+        for node_id in scene.nodes.keys() {
             node_ids.insert(node_id.clone());
         }
-        for (sub_id, _) in scene.sub_resources.iter() {
+        for sub_id in scene.sub_resources.keys() {
             sub_resource_ids.insert(sub_id.clone());
         }
     }

@@ -7,6 +7,9 @@ inputs:
   version:
     required: true
     description: Version of the launcher to install
+  godot_version:
+    required: true
+    description: Version of Godot to set the launcher to
 
 runs:
   using: composite

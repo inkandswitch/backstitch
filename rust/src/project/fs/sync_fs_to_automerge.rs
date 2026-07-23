@@ -1,4 +1,8 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use futures::{StreamExt, stream};
 use tokio::{select, sync::Mutex};
@@ -37,6 +41,12 @@ impl Drop for SyncFileSystemToAutomerge {
     fn drop(&mut self) {
         self.token.cancel();
     }
+}
+
+#[derive(Clone)]
+pub struct CommitStatus {
+    pub hash_before_commit: Option<blake3::Hash>,
+    pub hash_after_commit: Option<blake3::Hash>,
 }
 
 impl SyncFileSystemToAutomerge {
@@ -84,13 +94,19 @@ impl SyncFileSystemToAutomerge {
     }
 
     /// Make a commit of all changes from the filesystem to the given automerge ref.
-    /// Returns true on success.
+    /// Returns a map of committed files, with their hashes before and after.
+    /// skip_files will skip the commit for files that have the same hash.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub async fn commit(&self, ref_: &HistoryRef, force: bool) -> HashSet<PathBuf> {
+    pub async fn commit(
+        &self,
+        ref_: &HistoryRef,
+        force: bool,
+        skip_files: &HashMap<PathBuf, blake3::Hash>,
+    ) -> Option<(HistoryRef, HashMap<PathBuf, CommitStatus>)> {
         let mut pending_changes = self.pending_changes.lock().await;
 
         if !force && pending_changes.is_empty() {
-            return HashSet::new();
+            return None;
         }
 
         tracing::info!(
@@ -116,19 +132,30 @@ impl SyncFileSystemToAutomerge {
                 tracing::error!("Failed to get current files! Canceling commit. Reason: {e}")
             })
         else {
-            return HashSet::new();
+            return None;
         };
 
         let old_files = old_files
             .into_iter()
             .map(|(k, v)| (self.branch_db.globalize_path(&k), v))
             .collect();
-        let diff = FileSystemTraversal::get_file_changes(old_files, current_files);
+        let diff: HashMap<_, _> = FileSystemTraversal::get_file_changes(&old_files, &current_files)
+            .into_iter()
+            .filter(|(path, _)| {
+                let Some(skip_hash) = skip_files.get(path) else {
+                    return true;
+                };
+                let Some(current_hash) = current_files.get(path) else {
+                    return true;
+                };
+                skip_hash != current_hash
+            })
+            .collect();
 
         if diff.is_empty() {
             tracing::info!("Did not commit anything because there's no diff.");
             pending_changes.clear();
-            return HashSet::new();
+            return None;
         }
 
         tracing::debug!("Current changes: {:?}", diff);
@@ -142,17 +169,32 @@ impl SyncFileSystemToAutomerge {
             .commit_fs_changes(contents, ref_, None, false)
             .instrument(tracing::debug_span!("commit_fs_changes"))
             .await;
-        if let Some(new_ref) = new_ref {
+        if let Some((new_ref, hashes)) = new_ref {
             tracing::info!("Successfully made a commit! {:?}", new_ref);
-            return keys;
+            let ret = hashes
+                .into_iter()
+                .map(|(path, v)| {
+                    let path = self.branch_db.globalize_path(&path);
+                    let hash_before = current_files.get(&path).cloned();
+                    (
+                        path,
+                        CommitStatus {
+                            hash_after_commit: v,
+                            hash_before_commit: hash_before,
+                        },
+                    )
+                })
+                .collect();
+            return Some((new_ref, ret));
         } else {
             tracing::info!("Did not commit pending files!");
-            return HashSet::new();
+            return None;
         }
     }
 
     /// Make an initial commit of ALL files from the filesystem to automerge.
     /// Makes the commit on the currently checked-out branch, and checks out the new heads.
+    // Awkward: This doesn't support re-writing upgraded scenes back to the FS... But that'll happen on future commits ig.
     pub async fn checkin(&self) {
         // Because we always change the checked out ref after committing, we need to lock this in write mode.
         let r = self.branch_db.get_checked_out_ref_mut();
@@ -183,7 +225,7 @@ impl SyncFileSystemToAutomerge {
             .commit_fs_changes(contents, checked_out_ref.as_ref().unwrap(), None, true)
             .await;
 
-        if let Some(new_ref) = new_ref {
+        if let Some((new_ref, _)) = new_ref {
             *checked_out_ref = Some(new_ref);
         } else {
             tracing::error!("Could not check in files! Making no changes.");

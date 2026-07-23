@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use automerge::{Automerge, ObjId, ObjType, ROOT, ReadDoc, transaction::Transaction};
 use autosurgeon::Doc;
 use samod::DocHandle;
@@ -16,13 +18,14 @@ use crate::{
 impl BranchDb {
     /// Commit a list of files from the filesystem, while ensuring they've actually been changed before including them.
     /// Returns a HistoryRef referring to the new heads. We may or may not have reconciled to the canonical doc at this point.
+    /// Also returns a map of the committed files to the hash.
     pub async fn commit_fs_changes(
         &self,
         files: Vec<(String, Option<FileContent>)>,
         ref_: &HistoryRef,
         revert: Option<&HistoryRef>,
         is_checking_in: bool,
-    ) -> Option<HistoryRef> {
+    ) -> Option<(HistoryRef, HashMap<String, Option<blake3::Hash>>)> {
         tracing::info!("Attempting to commit {} changes...", files.len());
 
         // TODO (Lilith): Once upon a time, we checked contentwise to make sure we're not committing empty changes.
@@ -36,12 +39,14 @@ impl BranchDb {
         let mut text_entries: Vec<(String, String, blake3::Hash)> = Vec::new();
         let mut scene_entries: Vec<(String, GodotScene, blake3::Hash)> = Vec::new();
         let mut deleted_entries: Vec<String> = Vec::new();
+        let mut ret = HashMap::new();
 
         for (path, content) in files {
             // This is fairly cheap from my estimation.
             // If this becomes a bottleneck, we can reuse the previously computed hash by having callers provide file hashes.
             // If we do this, though, we still have to compute scene hashes when putting things into Automerge.
             let hash = content.as_ref().map(|c| c.to_hash());
+            ret.insert(path.clone(), hash);
             match content {
                 Some(FileContent::Binary(content)) => {
                     let handle = self.create_new_binary_doc(content).await;
@@ -219,7 +224,7 @@ impl BranchDb {
             );
         }
 
-        Some(HistoryRef::new(ref_.branch().clone(), new_heads))
+        Some((HistoryRef::new(ref_.branch().clone(), new_heads), ret))
     }
 
     fn get_existing_hash(tx: &Transaction<'_>, obj_id: &ObjId) -> Option<blake3::Hash> {

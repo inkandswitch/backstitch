@@ -421,7 +421,7 @@ impl Driver {
         tracing::debug!("Getting ref for local changes commit...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
         tracing::debug!("Committing local changes...");
-        self.inner.commit(&ref_).await;
+        self.inner.commit(&ref_, true).await;
         Ok(())
     }
 
@@ -764,7 +764,7 @@ impl DriverInner {
 
         // We gotta commit our disk stuff before checking out anything. This ensures we always get our disk changes in!
         if let Some(ref_) = &old_checked_out_ref {
-            self.commit(ref_).await;
+            self.commit(ref_, false).await;
         }
 
         // Now, checkout the stuff.
@@ -789,7 +789,7 @@ impl DriverInner {
         tracing::trace!("Done with sync.");
     }
 
-    async fn commit(&self, ref_: &HistoryRef) {
+    async fn commit(&self, ref_: &HistoryRef, force: bool) {
         // Apply any watched FS updates to Automerge.
         // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
 
@@ -803,7 +803,7 @@ impl DriverInner {
         // .. this means we already committed them and we're waiting to update them from automerge.
         let committed_changes = self
             .sync_fs_to_automerge
-            .commit(ref_, false, &normalized_files)
+            .commit(ref_, force, &normalized_files)
             .await;
 
         if let Some((new_ref, committed_changes)) = committed_changes {

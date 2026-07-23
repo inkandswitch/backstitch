@@ -35,11 +35,6 @@ jobs:
           # Arm64 and arm32
           sudo apt install gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
 
-      - name: Restore Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: backstitch_rust_plugin_linux-${{ matrix.arch.id }}
-
       - name: Build
         uses: ./.github/actions/build-plugin
         with:

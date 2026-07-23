@@ -7,6 +7,9 @@ inputs:
   version:
     required: true
     description: Version of the launcher to install
+  godot_version:
+    required: true
+    description: Version of Godot to set the launcher to
 
 runs:
   using: composite
@@ -32,8 +35,22 @@ runs:
     - name: Merge .gitignore
       shell: bash
       run: cat ./backstitch-launcher/.gitignore.template >> ${{ inputs.project_path }}/.gitignore
+    - name: Compute version
+      shell: bash
+      run: |
+        CURRENT_RELEASE=$(git -C backstitch-tmp describe --tags "$(git -C backstitch-tmp rev-list --tags --max-count=1)")
+
+        if [[ "${{ github.ref_type }}" == "tag" ]]; then
+          VERSION="${{ github.ref_name }}"
+        else
+          VERSION="${CURRENT_RELEASE}/${{ github.ref_name }}"
+        fi
+
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
     - name: Write .backstitch_version
       shell: bash
-      run: echo "${{ github.ref_name }}" >> ${{ inputs.project_path }}/.backstitch_version
-
+      run: |
+        cat <<EOF > ${{ inputs.project_path }}/.backstitch_version
+        {"backstitch_version":"$VERSION","godot_version":"${{ inputs.godot_version }}"}
+        EOF
 

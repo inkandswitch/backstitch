@@ -28,6 +28,10 @@ runs:
       shell: sh
       run: |
         rustup target add ${{ inputs.arch }}
+    - name: Restore Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: backstitch_rust_plugin-${{ inputs.arch }}
     - name: Build for Windows and Linux
       shell: sh
       env:

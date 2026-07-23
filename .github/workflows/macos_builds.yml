@@ -17,11 +17,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Restore Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: backstitch_rust_plugin_macos-${{ matrix.arch }}
-
       - name: Build
         uses: ./.github/actions/build-plugin
         with:

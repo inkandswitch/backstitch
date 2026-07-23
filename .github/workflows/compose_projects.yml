@@ -75,7 +75,7 @@ jobs:
       - name: Compute version
         shell: bash
         run: |
-          CURRENT_RELEASE=$(git describe -C backstitch-tmp --tags "$(git rev-list --tags --max-count=1)")
+          CURRENT_RELEASE=$(git -C backstitch-tmp describe --tags "$(git -C backstitch-tmp rev-list --tags --max-count=1)")
 
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             VERSION="${{ github.ref_name }}"

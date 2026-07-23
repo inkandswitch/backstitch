@@ -40,7 +40,7 @@ runs:
         if [[ "${{ github.ref_type }}" == "tag" ]]; then
           VERSION="${{ github.ref_name }}"
         else
-          VERSION="${CURRENT_RELEASE}+${{ github.ref_name }}"
+          VERSION="${CURRENT_RELEASE}/${{ github.ref_name }}"
         fi
 
         echo "VERSION=$VERSION" >> "$GITHUB_ENV"

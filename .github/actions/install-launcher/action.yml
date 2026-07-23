@@ -48,6 +48,6 @@ runs:
       shell: bash
       run: |
         cat <<EOF > ${{ inputs.project_path }}/.backstitch_version
-        {"backstitch_version":"$VERSION","godot_version":"0.0"}
+        {"backstitch_version":"$VERSION","godot_version":""}
         EOF
 

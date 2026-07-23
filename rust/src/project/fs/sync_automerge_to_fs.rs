@@ -62,7 +62,7 @@ impl SyncAutomergeToFileSystem {
                 "Couldn't get changed file content between refs; canceling ref checkout of {goal_ref:?}. Reason: {e}"
             )}).ok()?;
 
-        let changes = FileSystemTraversal::get_file_changes(current_files, goal_files);
+        let changes = FileSystemTraversal::get_file_changes(&current_files, &goal_files);
 
         if changes.is_empty() {
             return Some(Default::default());

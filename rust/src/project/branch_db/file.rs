@@ -235,7 +235,9 @@ impl BranchDb {
         let old_ref = old_ref.unwrap();
         let old_index = self.get_hash_index(old_ref).await?;
 
-        Ok(FileSystemTraversal::get_file_changes(old_index, new_index))
+        Ok(FileSystemTraversal::get_file_changes(
+            &old_index, &new_index,
+        ))
     }
 
     async fn get_linked_file(&self, doc_id: &DocumentId) -> Option<FileContent> {

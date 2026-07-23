@@ -67,8 +67,8 @@ impl FileSystemTraversal {
     }
 
     pub fn get_file_changes<K>(
-        before: HashMap<K, blake3::Hash>,
-        after: HashMap<K, blake3::Hash>,
+        before: &HashMap<K, blake3::Hash>,
+        after: &HashMap<K, blake3::Hash>,
     ) -> HashMap<K, ChangeType>
     where
         K: AsRef<Path> + Eq + std::hash::Hash + Clone,
@@ -78,7 +78,7 @@ impl FileSystemTraversal {
         let before_keys: HashSet<_> = before.keys().cloned().collect();
         let after_keys: HashSet<_> = after.keys().cloned().collect();
 
-        for (path, after_hash) in &after {
+        for (path, after_hash) in after {
             match before.get(path) {
                 None => {
                     changes.insert(path.clone(), ChangeType::Created);

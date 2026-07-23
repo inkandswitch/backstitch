@@ -17,6 +17,7 @@ use futures::StreamExt;
 use futures::future::join_all;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,6 +54,44 @@ pub struct DriverInner {
     // internal synchronization
     requested_checkout: Arc<Mutex<Option<DocumentId>>>,
     fs_index: FileSystemIndex,
+
+    // Really annoying thing...
+    // In the process of committing files into automerge, we may need to "normalize" weird scenes, after hydrating and then reconciling.
+    // Usually, Godot does this automatically when saving, but maybe our saves aren't from Godot
+    //      (i.e. someone hand-authored a scene, adding some nonsense)?
+    // Or maybe the scene is being upgraded?
+    // We of-course need to write the normalized file to disk!
+    // But we can't do that immediately, since we can only write files during safe blocks, which could be in like, an hour.
+    // So we need to save those files, and maybe way later, write them to disk next we get a chance.
+    // This map stores a map of filepath to the UN-normalized hash.
+    // Gotchas:
+    // - During committing, we ignore any pending changes from these normalized files...
+    //      - ... UNLESS the hash-on-disk has changed
+    //        And if the hash on-disk has changed, we need to remove them from pending_normalized_files and re-add if necessary.
+    // - During a safe block, we must always resolve this array and clear it!
+    //      - ... UNLESS the hash-on-disk has changed, in which case we skip that one and still clear
+    //        Oh dear: What if this means a user's change is overwritten?! Well, Commit should've happened first!
+    // - Also, we need to resolve these to the filesystem BEFORE we check anything out, or shit might get weird (maybe)?
+    // - One day, when we fix all our problems and everything is lovely, we'll abstract the backend of Backstitch to a separate library.
+    //   We'll need crazy weird hooks to support this behavior, OR we can consider an alternative for this case.
+    //      Alternative A: We ban files from being committed til we're able to normalize them on disk.
+    //      Alternative B: ???
+    //
+    // The Old Bad Way:
+    // Until adding this, we did a stupid thing: "just commit, and let Backstitch checkout the new ref like any other ref."
+    // This works great, until some files are committed while we're UNSAFE to update the FS. (Because we have an unsaved new scene z.B.)
+    // When we then save that scene, immediately the block is resolved, and we checkout the previous commits... before committing the scene!
+    // Then Backstitch checks out that old ref, goes "this scene you just saved is not consistent with the ref we're checking out", and deletes it.
+    // So commit never gets a chance to checkout that scene. Oops!
+    //
+    // A better way that seems to fix this, but might not:
+    // We'd like to eventually allow syncing even with unsaved files open, by tracking *which* unsaved files are open and syncing the rest of the disk.
+    // That means that we're 99% less likely to ever run into this bug in the first place (from the Old Bad Way).
+    // But sometimes, the editor is scanning/importing, and is unsafe to write the FS. At this point, if a scene is saved at exactly the right time,
+    // the checkout might happen before it's committed, and we get the evil bug again.
+    // So, realistically, even with this solution, we still want to track these explicitly. That way we maintain an invariant of always updating the
+    // checked-out ref EVERY time we commit, so that we NEVER are able to lose data by checking out a new commit when the FS is actually dirty.
+    pending_normalized_files: Arc<Mutex<HashMap<PathBuf, blake3::Hash>>>,
 
     // subtasks
     connection: Arc<Mutex<Option<RemoteConnection>>>,
@@ -363,7 +402,7 @@ impl Driver {
         tracing::debug!("Canonical file fetch complete.");
 
         Ok(
-            FileSystemTraversal::get_file_changes(canonical_files, current_files)
+            FileSystemTraversal::get_file_changes(&canonical_files, &current_files)
                 .into_iter()
                 .collect(),
         )
@@ -376,7 +415,7 @@ impl Driver {
         tracing::debug!("Getting ref for local changes commit...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
         tracing::debug!("Committing local changes...");
-        self.inner.sync_fs_to_automerge.commit(&ref_, true).await;
+        self.inner.commit(&ref_).await;
         Ok(())
     }
 
@@ -451,6 +490,7 @@ impl Driver {
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
+                pending_normalized_files: Default::default(),
                 connection: Default::default(),
                 branch_db,
                 peer_watcher,
@@ -708,6 +748,7 @@ impl DriverInner {
     #[tracing::instrument(skip_all, level = "trace")]
     async fn sync(&self) {
         tracing::trace!("Syncing...");
+
         let old_checked_out_ref = self
             .branch_db
             .get_checked_out_ref_mut()
@@ -715,6 +756,12 @@ impl DriverInner {
             .await
             .clone();
 
+        // We gotta commit our disk stuff before checking out anything. This ensures we always get our disk changes in!
+        if let Some(ref_) = &old_checked_out_ref {
+            self.commit(ref_).await;
+        }
+
+        // Now, checkout the stuff.
         self.sync_correct_ref().await;
 
         let new_checked_out_ref = self
@@ -724,30 +771,7 @@ impl DriverInner {
             .await
             .clone();
 
-        // If we've changed branches, send the new checked out ref.
-        if let Some(ref_) = &new_checked_out_ref {
-            tracing::trace!("CHECKED OUT REF: {}", ref_.branch());
-            tracing::trace!("Attempting to sync FS to automerge...");
-            // Apply any watched FS updates to Automerge.
-            // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-            // We need to grab the most current heads in case we haven't marked them as officially checked-out yet. (I think?)
-            match self.branch_db.get_latest_ref_on_branch(ref_.branch()).await {
-                Ok(current_shadow_ref) => {
-                    let committed_changes = self
-                        .sync_fs_to_automerge
-                        .commit(&current_shadow_ref, false)
-                        .await;
-                    if !committed_changes.is_empty() {
-                        self.change_ingester.request_ingestion();
-                    }
-                }
-                // this may be overly verbose
-                Err(e) => tracing::error!("Couldn't get latest ref on branch {e}"),
-            }
-        } else {
-            tracing::trace!("NO CHECKED OUT REF");
-        }
-
+        // Did our branch change? If so, we gotta send a message.
         if new_checked_out_ref.as_ref().map(|r| r.branch())
             != old_checked_out_ref.as_ref().map(|r| r.branch())
         {
@@ -757,6 +781,100 @@ impl DriverInner {
             self.ref_tx.send(new_checked_out_ref).unwrap();
         }
         tracing::trace!("Done with sync.");
+    }
+
+    async fn commit(&self, ref_: &HistoryRef) {
+        // Apply any watched FS updates to Automerge.
+        // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
+
+        let c = self.branch_db.get_checked_out_ref_mut();
+        let mut checked_out_ref = c.write().await;
+        tracing::trace!("CHECKED OUT REF: {ref_:?}");
+        tracing::trace!("Attempting to sync FS to automerge...");
+        let mut normalized_files = self.pending_normalized_files.lock().await;
+
+        // Skip any pending normalized files with matching hashes...
+        // .. this means we already committed them and we're waiting to update them from automerge.
+        let committed_changes = self
+            .sync_fs_to_automerge
+            .commit(ref_, false, &*normalized_files)
+            .await;
+
+        if let Some((new_ref, committed_changes)) = committed_changes {
+            for (path, status) in committed_changes {
+                normalized_files.remove(&path);
+                // normalizing can ONLY update, so ignore remove/add
+                let Some(hash_after) = status.hash_after_commit else {
+                    continue;
+                };
+                let Some(hash_before) = status.hash_before_commit else {
+                    continue;
+                };
+                if hash_after == hash_before {
+                    continue;
+                }
+                // This is the rare case of normalization: track these so we can write the automerge content to FS later
+                tracing::debug!("Queueing normalization of file {path:?}");
+                normalized_files.insert(path, hash_before);
+            }
+
+            *checked_out_ref = Some(new_ref);
+            self.change_ingester.request_ingestion();
+        }
+    }
+
+    async fn resolve_pending_normalized_files(&self, ref_: &HistoryRef) {
+        let mut pending_norms = self.pending_normalized_files.lock().await;
+        let contents = match self
+            .branch_db
+            .get_files_at_ref(
+                ref_,
+                &pending_norms
+                    .keys()
+                    .map(|p| self.branch_db.localize_path(p))
+                    .collect(),
+            )
+            .await
+        {
+            Ok(contents) => contents,
+            Err(e) => {
+                tracing::error!(
+                    "Couldn't get file content at ref; canceling pending resolution for {ref_:?}. Reason: {e}",
+                );
+                return;
+            }
+        };
+
+        // this isn't common enough to do in parallel
+        for (path, hash) in &*pending_norms {
+            tracing::debug!("Normalizing {path:?}...");
+            let current_hash = match self.fs_index.get_hash(path).await {
+                Ok(hash) => hash,
+                Err(e) => match e {
+                    // this is normal-ish; don't log an error;
+                    IndexError::FileNotFound => continue,
+                    _ => {
+                        tracing::error!("Couldn't get hash for pending normalized file: {e}");
+                        continue;
+                    }
+                },
+            };
+
+            // If the hash isn't the same, the file has changed on-disk underneath us! Don't overwrite it!
+            if hash != &current_hash {
+                continue;
+            }
+
+            let Some(content) = contents.get(&self.branch_db.localize_path(path)) else {
+                continue;
+            };
+
+            tracing::debug!("Updating file {path:?}...");
+            self.sync_automerge_to_fs
+                .handle_file_update(&path, content)
+                .await;
+        }
+        pending_norms.clear();
     }
 
     async fn sync_correct_ref(&self) {
@@ -776,30 +894,34 @@ impl DriverInner {
             .await
             .clone();
 
-        let Some(proposed_changes) = self
+        let proposed_changes = self
             .sync_automerge_to_fs
             .checkout_ref(checked_out_ref.as_ref(), &goal_ref)
-            .await
-        else {
-            return;
-        };
+            .await;
 
         // Consider instead using a Tokio join set here...
-        let futures = proposed_changes
-            .into_iter()
-            .map(async |(path, (change_type, content))| {
-                match change_type {
-                    ChangeType::Created | ChangeType::Modified => {
-                        self.sync_automerge_to_fs
-                            .handle_file_update(&path, content.as_ref().unwrap())
-                            .await?
-                    }
-                    ChangeType::Deleted => {
-                        self.sync_automerge_to_fs.handle_file_delete(&path).await?
-                    }
-                };
-                Some((path, change_type, content))
-            });
+        let checkout_futures = proposed_changes.map(|changes| {
+            changes
+                .into_iter()
+                .map(async |(path, (change_type, content))| {
+                    match change_type {
+                        ChangeType::Created | ChangeType::Modified => {
+                            self.sync_automerge_to_fs
+                                .handle_file_update(&path, content.as_ref().unwrap())
+                                .await?
+                        }
+                        ChangeType::Deleted => {
+                            self.sync_automerge_to_fs.handle_file_delete(&path).await?
+                        }
+                    };
+                    Some((path, change_type, content))
+                })
+        });
+
+        // Exit early if we don't need to block
+        if checkout_futures.is_none() && self.pending_normalized_files.lock().await.is_empty() {
+            return;
+        }
 
         // Ensure we block the main thread inside of Rust while checking out a ref.
         // Very important to not allow Godot to explode while we're writing files!
@@ -828,22 +950,31 @@ impl DriverInner {
             if !self.safe_to_update_editor.load(Ordering::Relaxed) {
                 return;
             }
-            let results: Vec<FileSystemEvent> = join_all(futures)
-                .await
-                .into_iter()
-                .flatten()
-                .map(|(path, change_type, content)| match change_type {
-                    ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
-                    ChangeType::Deleted => FileSystemEvent::Deleted(path),
-                    ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
-                })
-                .collect();
 
-            tracing::info!("Wrote {:?} files!", results.len());
+            // First, we always do the annoying thing, updating the filesystem for *those* files...
+            if let Some(ref_) = checked_out_ref {
+                self.resolve_pending_normalized_files(&ref_).await;
+            }
 
-            *now_checked_out_ref = Some(goal_ref);
-            for change in results {
-                self.file_changes_tx.send(change).unwrap();
+            // ... Then run the actual normal checkout.
+            if let Some(checkout_futures) = checkout_futures {
+                let results: Vec<FileSystemEvent> = join_all(checkout_futures)
+                    .await
+                    .into_iter()
+                    .flatten()
+                    .map(|(path, change_type, content)| match change_type {
+                        ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
+                        ChangeType::Deleted => FileSystemEvent::Deleted(path),
+                        ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
+                    })
+                    .collect();
+
+                tracing::info!("Wrote {:?} files!", results.len());
+
+                *now_checked_out_ref = Some(goal_ref);
+                for change in results {
+                    self.file_changes_tx.send(change).unwrap();
+                }
             }
         }
     }

@@ -5,7 +5,7 @@ on:
 jobs:
   build-windows:
     runs-on: "windows-latest"
-    name: 📐 Build ${{ matrix.arch }}
+    name: 🔨 Build ${{ matrix.arch }}
     permissions:
       contents: 'read'
       id-token: 'write'

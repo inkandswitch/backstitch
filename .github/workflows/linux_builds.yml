@@ -5,7 +5,7 @@ on:
 jobs:
   linux:
     runs-on: ${{ matrix.arch.runner }}
-    name: 📐 Build ${{ matrix.arch.id }}
+    name: 🔨 Build ${{ matrix.arch.id }}
     strategy:
       fail-fast: false
       matrix:

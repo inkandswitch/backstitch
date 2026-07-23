@@ -8,7 +8,7 @@ env:
 jobs:
   macos:
     runs-on: "macos-14"
-    name: 📐 Build ${{ matrix.arch }}
+    name: 🔨 Build ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:

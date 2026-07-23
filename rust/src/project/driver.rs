@@ -803,7 +803,7 @@ impl DriverInner {
         // .. this means we already committed them and we're waiting to update them from automerge.
         let committed_changes = self
             .sync_fs_to_automerge
-            .commit(ref_, false, &*normalized_files)
+            .commit(ref_, false, &normalized_files)
             .await;
 
         if let Some((new_ref, committed_changes)) = committed_changes {
@@ -877,7 +877,7 @@ impl DriverInner {
 
             tracing::debug!("Updating file {path:?}...");
             self.sync_automerge_to_fs
-                .handle_file_update(&path, content)
+                .handle_file_update(path, content)
                 .await;
         }
         pending_norms.clear();

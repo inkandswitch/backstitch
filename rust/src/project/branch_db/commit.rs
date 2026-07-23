@@ -46,7 +46,7 @@ impl BranchDb {
             // If this becomes a bottleneck, we can reuse the previously computed hash by having callers provide file hashes.
             // If we do this, though, we still have to compute scene hashes when putting things into Automerge.
             let hash = content.as_ref().map(|c| c.to_hash());
-            ret.insert(path.clone(), hash.clone());
+            ret.insert(path.clone(), hash);
             match content {
                 Some(FileContent::Binary(content)) => {
                     let handle = self.create_new_binary_doc(content).await;

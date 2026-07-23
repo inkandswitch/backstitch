@@ -72,6 +72,10 @@ jobs:
           server_url="alpha.backstitch.dev:8085"
           available_servers="alpha.backstitch.dev:8085"
           EOF
+      - name: Write .backstitch_version
+        run: |
+          cat <<'EOF' > ${{ matrix.project.name }}/.backstitch_version
+          {"backstitch_version":"${{ github.ref_name }}","godot_version":"0.0"}
       - name: Copy to addons
         shell: sh
         run: |

@@ -16,6 +16,7 @@ jobs:
       MODDABLE_PONG_REPO: ${{ steps.dotenv.outputs.MODDABLE_PONG_REPO }}
       MODDABLE_PONG_REF: ${{ steps.dotenv.outputs.MODDABLE_PONG_REF }}
       RECOMMENDED_LAUNCHER: ${{ steps.dotenv.outputs.RECOMMENDED_LAUNCHER }}
+      RECOMMENDED_GODOT: ${{ steps.dotenv.outputs.RECOMMENDED_GODOT }}
     steps:
       - uses: actions/checkout@v7
       - id: dotenv
@@ -82,6 +83,7 @@ jobs:
         with:
           project_path: ${{ matrix.project.name }}
           version: v${{ needs.load-env.outputs.RECOMMENDED_LAUNCHER }}
+          godot_version: ${{ needs.load-env.outputs.RECOMMENDED_GODOT }}
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

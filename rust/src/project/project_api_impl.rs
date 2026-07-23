@@ -471,34 +471,34 @@ impl ProjectViewModel for Project {
         };
 
         // generate the summary
-        let title;
-        if self.is_merge_preview_branch_active() {
+
+        let title = if self.is_merge_preview_branch_active() {
             let source_name = self
                 .get_branch(branch_state.forked_from.as_ref()?.branch())?
                 .get_name();
             let target_name = self
                 .get_branch(branch_state.merge_into.as_ref()?.branch())?
                 .get_name();
-            title = format!("Showing changes for {} -> {}", source_name, target_name);
+            format!("Showing changes for {} -> {}", source_name, target_name)
         } else if self.is_revert_preview_branch_active() {
             let source_name = self
                 .get_branch(branch_state.forked_from.as_ref()?.branch())?
                 .get_name();
             // assume reverted_to is always just 1 hash
             let short_heads = &branch_state.reverted_to?.heads().first()?.to_string()[..7];
-            title = format!(
+            format!(
                 "Showing changes for {} reverted to {}",
                 source_name, short_heads
-            );
+            )
         } else {
             let source_name = self
                 .get_branch(branch_state.forked_from.as_ref()?.branch())?
                 .get_name();
-            title = format!(
+            format!(
                 "Showing changes from {} -> {}",
                 source_name, branch_state.name
-            );
-        }
+            )
+        };
 
         let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
         let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());

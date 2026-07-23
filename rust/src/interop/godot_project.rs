@@ -41,40 +41,41 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
 -> Option<(Callable, Callable)> {
     // get the editor node
     let editor_file_system = EditorInterface::singleton().get_resource_filesystem();
-    let editor_node = if let Some(editor_file_system) = editor_file_system {
+    let editor_node = {
+        let editor_file_system = editor_file_system?;
         // get the parent of the editor file system, that's the editor node
         editor_file_system.get_parent()
-    } else {
-        return None;
     };
     if let Some(editor_node) = editor_node {
         // get the first Panel child of the editor node, that's the gui base
         let children = editor_node.get_children();
         // it should be the first panel
-        if let Some(gui_base) = children.iter_shared().find(|c| c.get_class() == "Panel") {
+        {
+            let gui_base = children.iter_shared().find(|c| c.get_class() == "Panel")?;
             // find the disk_changed dialog child of the gui base
             let children = gui_base.get_children();
-            if let Some(disk_changed_dialog_node) = children.iter_shared().find(|c| {
-                if c.get_class() == "ConfirmationDialog" {
-                    // check that one of the children is a VBoxContainer
-                    let children = c.get_children();
-                    if let Some(vbox_container) = children
-                        .iter_shared()
-                        .find(|c| c.get_class() == "VBoxContainer")
-                    {
-                        // check that one of the children is a Tree
-                        let children = vbox_container.get_children();
-                        if children
+            {
+                let disk_changed_dialog_node = children.iter_shared().find(|c| {
+                    if c.get_class() == "ConfirmationDialog" {
+                        // check that one of the children is a VBoxContainer
+                        let children = c.get_children();
+                        if let Some(vbox_container) = children
                             .iter_shared()
-                            .find(|c| c.get_class() == "Tree")
-                            .is_some()
+                            .find(|c| c.get_class() == "VBoxContainer")
                         {
-                            return true;
+                            // check that one of the children is a Tree
+                            let children = vbox_container.get_children();
+                            if children
+                                .iter_shared()
+                                .find(|c| c.get_class() == "Tree")
+                                .is_some()
+                            {
+                                return true;
+                            }
                         }
                     }
-                }
-                false
-            }) {
+                    false
+                })?;
                 let disk_changed_dialog =
                     match disk_changed_dialog_node.try_cast::<ConfirmationDialog>() {
                         Ok(dialog) => dialog,
@@ -102,11 +103,7 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                 } else {
                     return None;
                 }
-            } else {
-                return None;
             }
-        } else {
-            return None;
         }
     }
     None
@@ -273,9 +270,19 @@ impl GodotProject {
 
     #[func]
     fn load_project(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id)
-            && let Err(e) = self.project.load_project(&id, false)
-        {
+        let id = match DocumentId::from_str(&id) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Error regular starting {:?}", e);
+                self.base_mut().call_deferred(
+                    "emit_signal",
+                    &["create_failed".to_variant(), e.to_string().to_variant()],
+                );
+                return;
+            }
+        };
+
+        if let Err(e) = self.project.load_project(&id, false) {
             tracing::error!("Error regular starting {:?}", e);
             self.base_mut().call_deferred(
                 "emit_signal",

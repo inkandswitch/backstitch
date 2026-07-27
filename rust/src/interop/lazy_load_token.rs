@@ -32,8 +32,7 @@ impl IResource for LazyLoadToken {
 impl LazyLoadToken {
     pub fn new(path: String, original_path: Option<String>) -> Gd<LazyLoadToken> {
         let mut tok = Self::new_gd();
-        tok.bind_mut()
-            .set_path_cache(GString::from(original_path.as_ref().unwrap_or(&path)));
+        tok.set_path_cache(&GString::from(original_path.as_ref().unwrap_or(&path)));
         tok.bind_mut().set_paths(path, original_path);
         tok
     }

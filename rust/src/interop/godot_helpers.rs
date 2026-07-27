@@ -5,9 +5,11 @@ use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
 use automerge::ChangeHash;
 use godot::builtin::Variant;
+use godot::classes::{Control, Font, StyleBox};
 use godot::meta::conv::{ArgPassing, ByValue};
 use godot::meta::shape::GodotShape;
 use godot::meta::{GodotType, ToArg};
+use godot::obj::WithBaseField;
 use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
 use samod::DocumentId;
 use std::fmt::Display;
@@ -291,4 +293,52 @@ impl ToVariantExt for Option<TypeOrInstance> {
             None => Variant::nil(),
         }
     }
+}
+
+pub trait ThemeGetter: WithBaseField
+where
+    Self::Base: Inherits<Control>,
+{
+    fn get_theme_constant(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_constant_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_stylebox(&self, name: &str, theme_type: &str) -> Option<Gd<StyleBox>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_stylebox_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_color(&self, name: &str, theme_type: &str) -> Color {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_color_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font(&self, name: &str, theme_type: &str) -> Option<Gd<Font>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font_size(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_size_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+}
+
+impl<T> ThemeGetter for T
+where
+    T: WithBaseField,
+    T::Base: Inherits<Control>,
+{
 }

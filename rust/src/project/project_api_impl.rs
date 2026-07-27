@@ -15,8 +15,10 @@ use crate::{
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
+        branch_db::DbError,
         project_api::{
-            BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
+            BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
+            CreateRevertPreviewBranchError, DiffViewModel, ProjectStartError, ProjectViewModel,
             RequestDiffError, SyncStatus,
         },
         project_base::{Project, ProjectCreateMode},
@@ -130,23 +132,28 @@ impl ProjectViewModel for Project {
         }
     }
 
-    fn create_merge_preview_branch(&mut self) {
+    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
-            return;
+            return Err(CreateMergePreviewBranchError::NoCheckedOutBranch);
         };
         let Some(fork_info) = checked_out_branch.forked_from else {
-            return;
+            return Err(CreateMergePreviewBranchError::NoForkedFrom);
         };
 
         let source = checked_out_branch.id;
         let target = fork_info.branch().clone();
         self.with_driver_blocking("Create merge preview branch", |driver| async move {
             driver
-                .as_ref()?
+                .as_ref()
+                .ok_or_else(|| CreateMergePreviewBranchError::NoDriver)?
                 .create_merge_preview_branch(&source, &target)
-                .await;
-            Some(())
-        });
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateMergePreviewBranchError::NoChangesToMerge,
+                    _ => CreateMergePreviewBranchError::DbError(e),
+                })?;
+            Ok(())
+        })
     }
 
     fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool {
@@ -161,18 +168,27 @@ impl ProjectViewModel for Project {
         }
         false
     }
-    fn create_revert_preview_branch(&mut self, head: ChangeHash) {
+
+    fn create_revert_preview_branch(
+        &mut self,
+        head: ChangeHash,
+    ) -> Result<(), CreateRevertPreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
-            return;
+            return Err(CreateRevertPreviewBranchError::NoCheckedOutBranch);
         };
 
         self.with_driver_blocking("Create revert preview branch", move |driver| async move {
             driver
-                .as_ref()?
+                .as_ref()
+                .ok_or_else(|| CreateRevertPreviewBranchError::NoDriver)?
                 .create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head]))
-                .await;
-            Some(())
-        });
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateRevertPreviewBranchError::NoChangesToRevert,
+                    _ => CreateRevertPreviewBranchError::DbError(e),
+                })?;
+            Ok(())
+        })
     }
 
     fn is_revert_preview_branch_active(&self) -> bool {

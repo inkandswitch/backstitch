@@ -531,7 +531,8 @@ func create_merge_preview_branch():
 		return
 
 	task_modal.do_task("Creating merge preview", func():
-		GodotProject.create_merge_preview_branch()
+		if GodotProject.create_merge_preview_branch() != OK:
+			return
 		await branch_checked_out
 	)
 
@@ -542,7 +543,8 @@ func create_revert_preview_branch(head):
 	if !GodotProject.can_create_revert_preview_branch(head): return
 
 	task_modal.do_task("Creating revert preview", func():
-		GodotProject.create_revert_preview_branch(head)
+		if GodotProject.create_revert_preview_branch(head) != OK:
+			return
 		await branch_checked_out
 	)
 

@@ -613,7 +613,11 @@ impl Driver {
         self.request_checkout(fork_info.branch()).await;
     }
 
-    pub async fn create_merge_preview_branch(&self, source: &DocumentId, target: &DocumentId) {
+    pub async fn create_merge_preview_branch(
+        &self,
+        source: &DocumentId,
+        target: &DocumentId,
+    ) -> Result<(), DbError> {
         match self
             .inner
             .branch_db
@@ -622,14 +626,18 @@ impl Driver {
         {
             Ok(id) => {
                 self.request_checkout(&id).await;
+                Ok(())
             }
-            Err(e) => tracing::error!(
-                "Could not create merge preview branch from {source} to {target}: {e}"
-            ),
+            Err(e) => {
+                tracing::error!(
+                    "Could not create merge preview branch from {source} to {target}: {e}"
+                );
+                Err(e)
+            }
         }
     }
 
-    pub async fn create_revert_preview_branch(&self, ref_: &HistoryRef) {
+    pub async fn create_revert_preview_branch(&self, ref_: &HistoryRef) -> Result<(), DbError> {
         match self
             .get_branch_db()
             .create_revert_preview_branch(ref_.branch(), ref_)
@@ -637,8 +645,12 @@ impl Driver {
         {
             Ok(id) => {
                 self.request_checkout(&id).await;
+                Ok(())
             }
-            Err(e) => tracing::error!("Could not create revert preview branch: {e}"),
+            Err(e) => {
+                tracing::error!("Could not create revert preview branch: {e}");
+                Err(e)
+            }
         }
     }
 

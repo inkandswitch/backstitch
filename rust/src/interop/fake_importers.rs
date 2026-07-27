@@ -7,15 +7,18 @@ use godot::classes::audio_stream_wav::LoopMode;
 use godot::classes::class_macros::private::virtuals::Os::{
     Array, Encoding, PackedByteArray, Rect2i, VarDictionary, Vector2i, vdict,
 };
+use godot::classes::gltf_state::HandleBinaryImageMode;
 use godot::classes::text_server::{
     FixedSizeScaleMode, FontAntialiasing, Hinting, SubpixelPositioning,
 };
 use godot::classes::{
-    AudioStreamMp3, AudioStreamOggVorbis, AudioStreamWav, Cubemap, CubemapArray, DpiTexture, Font,
-    FontFile, Image, ImageTexture, ImageTexture3D, ImageTextureLayered, Resource, Texture2DArray,
+    AudioStreamMp3, AudioStreamOggVorbis, AudioStreamWav, Cubemap, CubemapArray, DpiTexture,
+    FbxDocument, FbxState, Font, FontFile, GltfDocument, GltfState, Image, ImageTexture,
+    ImageTexture3D, ImageTextureLayered, PackedScene, Resource, Texture2DArray,
 };
 use godot::meta::FromGodot;
 use godot::obj::{EngineEnum, NewGd};
+use godot::tools::try_load;
 use godot::{builtin::GString, meta::ToGodot, obj::Gd};
 use uuid::Uuid;
 
@@ -664,13 +667,53 @@ impl FakeResourceImporter for FakeResourceImporterScene {
 
     fn import_file(
         &self,
-        _path: &str,
+        path: &str,
         _importer_name: &str,
-        _content: &[u8],
+        content: &[u8],
         _params: &VarDictionary,
     ) -> Result<Gd<Resource>, godot::global::Error> {
-        // FAR too complicated to implement, just return an error
-        Err(godot::global::Error::ERR_UNAVAILABLE)
+        let path = PathBuf::from(path);
+        let ext = path
+            .extension()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        if ext == "escn" {
+            // save it as a temporary file with "tscn"
+            let temp_path = get_temp_path(&path, Some("tscn"));
+            write_content_to_temp_file(&temp_path, content)?;
+            return try_load(&GString::from(temp_path.to_str().unwrap_or_default()))
+                .map_err(|_| godot::global::Error::ERR_CANT_ACQUIRE_RESOURCE);
+        }
+
+        let (mut gltf_document, mut gltf_state) = match ext {
+            "glb" | "gltf" => (GltfDocument::new_gd(), GltfState::new_gd()),
+            "fbx" => (
+                // Fbx objects are derived from the GLTF objects, so we can use the same methods
+                FbxDocument::new_gd().upcast::<GltfDocument>(),
+                FbxState::new_gd().upcast::<GltfState>(),
+            ),
+            _ => {
+                // TODO: the importer methods for blender and dae aren't public
+                return Err(godot::global::Error::ERR_UNAVAILABLE);
+            }
+        };
+        gltf_state.set_handle_binary_image_mode(HandleBinaryImageMode::EMBED_AS_UNCOMPRESSED);
+        gltf_document
+            .append_from_buffer(
+                &PackedByteArray::from(content),
+                &GString::from(path.to_str().unwrap_or_default()),
+                &gltf_state,
+            )
+            .into_result()?;
+        let scene_root = gltf_document
+            .generate_scene(&gltf_state)
+            .ok_or(godot::global::Error::ERR_CANT_CREATE)?;
+
+        let mut packed_scene = PackedScene::new_gd();
+        packed_scene.pack(&scene_root).into_result()?;
+
+        return Ok(packed_scene.upcast::<Resource>());
     }
 }
 

@@ -713,7 +713,7 @@ impl FakeResourceImporter for FakeResourceImporterScene {
         let mut packed_scene = PackedScene::new_gd();
         packed_scene.pack(&scene_root).into_result()?;
 
-        return Ok(packed_scene.upcast::<Resource>());
+        Ok(packed_scene.upcast::<Resource>())
     }
 }
 

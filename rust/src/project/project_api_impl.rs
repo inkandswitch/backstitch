@@ -150,7 +150,7 @@ impl ProjectViewModel for Project {
                 .await
                 .map_err(|e| match e {
                     DbError::NoFilters => CreateMergePreviewBranchError::NoChangesToMerge,
-                    _ => CreateMergePreviewBranchError::DbError(e),
+                    _ => CreateMergePreviewBranchError::DbError(Box::new(e)),
                 })?;
             Ok(())
         })
@@ -185,7 +185,7 @@ impl ProjectViewModel for Project {
                 .await
                 .map_err(|e| match e {
                     DbError::NoFilters => CreateRevertPreviewBranchError::NoChangesToRevert,
-                    _ => CreateRevertPreviewBranchError::DbError(e),
+                    _ => CreateRevertPreviewBranchError::DbError(Box::new(e)),
                 })?;
             Ok(())
         })

@@ -39,7 +39,7 @@ pub enum CreateRevertPreviewBranchError {
     #[error("no changes to revert!")]
     NoChangesToRevert,
     #[error(transparent)]
-    DbError(#[from] DbError),
+    DbError(#[from] Box<DbError>),
 }
 
 #[derive(Error, Debug)]
@@ -53,7 +53,7 @@ pub enum CreateMergePreviewBranchError {
     #[error("no changes to merge!")]
     NoChangesToMerge,
     #[error(transparent)]
-    DbError(#[from] DbError),
+    DbError(#[from] Box<DbError>),
 }
 
 #[derive(Error, Debug)]

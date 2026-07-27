@@ -36,16 +36,14 @@ impl LazyLoadTokenEditorProperty {
                 // TODO: figure out how to create this ourselves once statically
                 "res://addons/backstitch/public/gdscript/loading_circle.tres",
             ),
-            token: token,
+            token,
             resource: None,
         }
     }
 
     #[func]
     pub fn create(token: Gd<LazyLoadToken>) -> Gd<Self> {
-        Gd::from_init_fn(|base| {
-            return Self::create_instance(base, Some(token));
-        })
+        Gd::from_init_fn(|base| Self::create_instance(base, Some(token)))
     }
 
     fn create_loading_rect(&self) -> Gd<Node> {
@@ -129,7 +127,6 @@ impl IEditorProperty for LazyLoadTokenEditorProperty {
                 if let Some(resource) = resource {
                     self.update_to_real_editor_property(resource);
                 }
-                return;
             }
         }
     }

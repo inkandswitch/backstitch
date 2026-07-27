@@ -142,7 +142,7 @@ impl Project {
                 DiffWrapper {
                     id: diff_id.clone(),
                     diff: self.get_cached_diff(diff_id.clone()),
-                    title: title,
+                    title,
                 },
             ));
             return Ok(diff_id);
@@ -644,10 +644,10 @@ impl Project {
         }
 
         for (diff_id, result) in diff_results {
-            if result.is_some() {
+            if let Some(result) = result.as_ref() {
                 self.diff_cache
                     .borrow_mut()
-                    .insert(diff_id.clone(), result.as_ref().unwrap().diff.clone());
+                    .insert(diff_id.clone(), result.diff.clone());
             }
             signals.push(GodotProjectSignal::DiffGenerated(
                 diff_id,

@@ -56,4 +56,3 @@ static func create_unsaved_files_dialog(parent: Control, message: String):
 		dialog.popup_centered()
 		return true
 	return false
-

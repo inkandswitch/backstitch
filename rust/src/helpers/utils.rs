@@ -97,7 +97,7 @@ pub struct BranchWrapper {
     pub children: Vec<DocumentId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DiffID {
     pub before: HistoryRef,
     pub after: HistoryRef,

@@ -1,15 +1,15 @@
 use godot::prelude::*;
 use godot::{
-    classes::{RefCounted, Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
+    classes::{Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
     global,
     obj::Base,
     prelude::GodotClass,
 };
 
 #[derive(GodotClass, Debug)]
-#[class(base=RefCounted, tool)]
+#[class(base=Resource, tool)]
 pub struct LazyLoadToken {
-    base: Base<RefCounted>,
+    base: Base<Resource>,
     original_path: Option<String>,
     path: String,
     resource: Option<Gd<Resource>>,
@@ -17,8 +17,8 @@ pub struct LazyLoadToken {
 }
 
 #[godot_api]
-impl IRefCounted for LazyLoadToken {
-    fn init(base: Base<RefCounted>) -> Self {
+impl IResource for LazyLoadToken {
+    fn init(base: Base<Resource>) -> Self {
         Self {
             base,
             path: String::new(),
@@ -32,6 +32,8 @@ impl IRefCounted for LazyLoadToken {
 impl LazyLoadToken {
     pub fn new(path: String, original_path: Option<String>) -> Gd<LazyLoadToken> {
         let mut tok = Self::new_gd();
+        tok.bind_mut()
+            .set_path_cache(GString::from(original_path.as_ref().unwrap_or(&path)));
         tok.bind_mut().set_paths(path, original_path);
         tok
     }

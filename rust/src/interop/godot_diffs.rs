@@ -360,6 +360,7 @@ impl ToGodot for VariantValue {
             VariantValue::LazyLoadData(original_path, load_path) => {
                 LazyLoadToken::new(load_path.clone(), Some(original_path.clone())).to_variant()
             }
+            VariantValue::Script(path) => format!("<Script: {}>", path).to_variant(),
         }
     }
 }

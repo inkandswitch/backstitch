@@ -492,6 +492,10 @@ impl GodotProject {
             Err(e) => {
                 match e {
                     RequestDiffError::NoDiffAvailable => {}
+                    RequestDiffError::NoBranchCheckedOut => {
+                        // Don't surface to the user, just log it
+                        tracing::error!("Error requesting diff for commit {hash}: {e}");
+                    }
                     _ => {
                         godot_error!("Error requesting diff for commit {hash}: {e}");
                     }
@@ -508,6 +512,10 @@ impl GodotProject {
             Err(e) => {
                 match e {
                     RequestDiffError::NoDiffAvailable => {}
+                    RequestDiffError::NoBranchCheckedOut => {
+                        // Don't surface to the user, just log it
+                        tracing::error!("Error requesting default diff: {e}");
+                    }
                     _ => {
                         godot_error!("Error requesting default diff: {e}");
                     }

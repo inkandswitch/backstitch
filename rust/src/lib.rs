@@ -1,3 +1,4 @@
+mod auth;
 mod diff;
 mod fs;
 mod helpers;

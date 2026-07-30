@@ -49,7 +49,7 @@ pub enum ProjectStartError {
     MainBranchNotFound,
     #[error(
         "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \
-        The only supported schemes are tcp://, ws://, and wss://."
+        The only supported schemes are http:// and https://."
     )]
     ServerUrlInvalid(String),
     #[error("the document ID {0} is invalid!")]

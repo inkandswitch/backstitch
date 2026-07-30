@@ -1,5 +1,5 @@
 use futures::{Stream, StreamExt};
-use samod::{BackoffConfig, DialerHandle, Repo, Stopped, Url, tokio_io::TcpDialerError};
+use samod::{BackoffConfig, DialerHandle, Repo, Stopped, Url};
 use thiserror::Error;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
@@ -24,22 +24,21 @@ impl Drop for RemoteConnection {
 pub enum RemoteConnectionError {
     #[error(transparent)]
     RepoStopped(#[from] Stopped),
-    #[error(transparent)]
-    Tcp(#[from] TcpDialerError),
 }
 
 impl RemoteConnection {
     /// Starts a connection to the server.
-    pub async fn new(repo: Repo, server_url: Url) -> Result<Self, RemoteConnectionError> {
-        let handle = if server_url.scheme() == "ws" || server_url.scheme() == "wss" {
-            repo.dial_websocket(server_url, BackoffConfig::default())?
-        } else if server_url.scheme() == "tcp" {
-            repo.dial_tcp(server_url, BackoffConfig::default())?
-        } else {
-            panic!(
-                "Could not initialize server connection; the URL {server_url} has an invalid scheme (must be tcp://, ws://, or wss://)"
-            );
-        };
+    pub async fn new(repo: Repo, mut server_url: Url) -> Result<Self, RemoteConnectionError> {
+        server_url.set_scheme(match server_url.scheme() {
+            "http" => "ws",
+            "https" => "wss",
+            _ => panic!("Could not initialize server connection; the URL {server_url} has an invalid scheme (must be http:// or https://)")
+        }).expect("something went wrong in scheme setting??");
+
+        let handle = repo.dial_websocket(
+            server_url.join("sync").expect("Weird URL parsing error"),
+            BackoffConfig::default(),
+        )?;
 
         // run a subtask to cancel when requested
         let token = CancellationToken::new();

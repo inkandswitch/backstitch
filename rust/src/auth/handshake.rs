@@ -22,7 +22,8 @@ pub enum AuthConfig {
 
 #[derive(Debug, Deserialize)]
 struct HandshakeResponse {
-    auth_type: String,
+    version: String,
+    auth: String,
     webviewer: Option<Url>,
     oidc_endpoint: Option<Url>,
     oidc_client_id: Option<String>,
@@ -54,7 +55,7 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
         .await
         .map_err(|e| HandshakeError::MalformedResponse(e.to_string()))?;
 
-    let auth = match response.auth_type.as_str() {
+    let auth = match response.auth.as_str() {
         "none" => AuthConfig::None,
         "oidc" => AuthConfig::Oidc(OidcAuthConfig {
             client_id: ClientId::new(response.oidc_client_id.ok_or(

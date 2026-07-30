@@ -183,7 +183,7 @@ impl Driver {
         gitignore.build().unwrap()
     }
 
-    /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
+    /// Start the connection task. URL must be valid, and have a scheme of http(s)://
     pub async fn start_connection(
         &mut self,
         server_url: &Url,

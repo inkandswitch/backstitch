@@ -149,12 +149,13 @@ impl Project {
         let url = if server_url.contains("://") {
             server_url
         } else {
-            format!("tcp://{}", server_url)
+            // TODO: Detect HTTPS and upgrade during handshake
+            format!("http://{}", server_url)
         };
 
         let url = Url::parse(&url)
             .ok()
-            .filter(|url| url.scheme() == "tcp" || url.scheme() == "ws" || url.scheme() == "wss")
+            .filter(|url| url.scheme() == "https" || url.scheme() == "http")
             .ok_or(ProjectStartError::ServerUrlInvalid(url))?;
 
         Ok(Some(url))

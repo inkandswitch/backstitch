@@ -45,7 +45,7 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
 
     let response: HandshakeResponse = http_client
         .get(
-            url.join("backstitch-info")
+            url.join("describe")
                 .expect("URL parsing error in handshake"),
         )
         .send()

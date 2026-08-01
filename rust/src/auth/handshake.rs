@@ -10,7 +10,7 @@ pub struct ServerInfo {
 }
 
 pub struct OidcAuthConfig {
-    pub endpoint: Url,
+    pub issuer: Url,
     pub redirect_port: u16,
     pub client_id: ClientId,
 }
@@ -25,7 +25,7 @@ struct HandshakeResponse {
     version: String,
     auth: String,
     webviewer: Option<Url>,
-    oidc_endpoint: Option<Url>,
+    oidc_issuer: Option<Url>,
     oidc_client_id: Option<String>,
     oidc_redirect_port: Option<u16>,
 }
@@ -61,10 +61,10 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
             client_id: ClientId::new(response.oidc_client_id.ok_or(
                 HandshakeError::MalformedResponse("expected oidc_client_id to exist".to_string()),
             )?),
-            endpoint: response
-                .oidc_endpoint
+            issuer: response
+                .oidc_issuer
                 .ok_or(HandshakeError::MalformedResponse(
-                    "expected oidc_endpoint to exist".to_string(),
+                    "expected oidc_issuer to exist".to_string(),
                 ))?,
             redirect_port: response
                 .oidc_redirect_port

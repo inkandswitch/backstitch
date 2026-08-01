@@ -61,8 +61,8 @@ pub async fn authenticate(auth: &OidcAuthConfig) -> Result<OidcUserInfo, AuthErr
 
     // Use OpenID Connect Discovery to fetch the provider metadata
     let provider_metadata = CoreProviderMetadata::discover_async(
-        IssuerUrl::new(auth.endpoint.to_string())
-            .expect(&format!("URL {} didn't parse right????", auth.endpoint)),
+        IssuerUrl::new(auth.issuer.to_string())
+            .expect(&format!("URL {} didn't parse right????", auth.issuer)),
         &http_client,
     )
     .await

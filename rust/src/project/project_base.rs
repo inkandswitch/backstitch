@@ -131,11 +131,11 @@ impl Project {
         spawn_named_on("Request diff", self.runtime.handle(), async move {
             let status = Self::get_diff(driver, &diff_id).await;
             let mut cache = diff_cache.lock().await;
-            cache.insert(diff_id, status.map(|d| DiffStatus::Ready(d)));
+            cache.insert(diff_id, status.map(DiffStatus::Ready));
         });
 
         // While that's working, we just tell the caller it's loading
-        return Ok(DiffStatus::Loading);
+        Ok(DiffStatus::Loading)
     }
 
     async fn get_diff(

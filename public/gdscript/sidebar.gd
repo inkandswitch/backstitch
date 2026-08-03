@@ -81,7 +81,6 @@ class ActionMenuItems:
 	const CLEAR_PROJECT = 2
 	const DEV_MODE = 3
 	const CLEAR_FS_CACHE = 4
-	const AUTO_GENERATE_DIFFS = 5
 
 var task_modal: TaskModal = TaskModal.new()
 var item_context_menu_icon: Texture2D = preload("../icons/GuiTabMenuHlHorizontal.svg")
@@ -93,10 +92,8 @@ var all_changes_count = 0
 var history_item_count = 0
 var history_saved_selection = null # hash string
 
-var pending_diff_id = null
-var current_diff_id = null
 var last_diff = null
-
+var diff_poll_timeout = -1
 
 const CREATE_BRANCH_IDX = 1
 const MERGE_BRANCH_IDX = 2
@@ -129,11 +126,6 @@ func _on_reload_ui_button_pressed():
 
 func _is_dev_mode() -> bool:
 	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.DEV_MODE)
-	var checked = action_menu_button.get_popup().is_item_checked(idx)
-	return checked
-
-func _auto_generate_diffs() -> bool:
-	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
 
@@ -206,7 +198,6 @@ func update_init_panel():
 	copy_project_id_button.disabled = !has_project
 	share_button.disabled = !(has_project && _share_available())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
-	_set_action_disabled(!has_project, ActionMenuItems.AUTO_GENERATE_DIFFS)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
@@ -311,7 +302,6 @@ func bind_listeners(godot_project):
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
 	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
-	godot_project.diff_generated.connect(self._on_diff_generated)
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)
@@ -407,6 +397,11 @@ func _process(delta: float) -> void:
 		for callable in callables:
 			callable.call()
 		waiting_callables.clear()
+
+	if diff_poll_timeout > 0:
+		diff_poll_timeout -= delta
+		if diff_poll_timeout <= 0:
+			update_diff()
 
 func init() -> void:
 	print("Sidebar initialized!")
@@ -963,44 +958,34 @@ func _on_history_tree_empty_clicked(_vec2, _idx):
 	history_tree.deselect_all()
 	update_diff()
 
-func _on_diff_generated(diff_id: String, diff: Dictionary):
-	if diff_id != pending_diff_id:
-		return
-	if diff_id == current_diff_id:
-		return
-	current_diff_id = diff_id
-	if diff == null:
-		show_invalid_diff()
-		return
-	show_diff(diff, true)
-	pass
-
 # Read the selection from the tree, and update the diff visualization accordingly.
 func update_diff():
 	if !GodotProject.has_project(): return
 	var selected_item = history_tree.get_selected()
-	var diff_id = null
+	var diff = null
+	var is_change := false
 
 	if (selected_item == null
 			and !(GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active())):
 
-		# TODO: remove this, and the auto generate setting, when we fix diff speed
-		if _auto_generate_diffs():
-			diff_id = GodotProject.request_default_diff()
+		diff = GodotProject.try_get_default_diff()
 	elif (selected_item == null
 			or GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active()):
-		diff_id = GodotProject.request_default_diff()
+		diff = GodotProject.try_get_default_diff()
 	else:
 		var hash = get_history_item_hash(selected_item)
-		diff_id = GodotProject.request_commit_diff(hash)
-	if diff_id != null:
-		pending_diff_id = diff_id
-	else:
-		pending_diff_id = null
-		current_diff_id = null
+		diff = GodotProject.try_get_diff(hash)
+		is_change = true
+
+	if diff == null:
 		show_diff(null, false)
+	elif diff.dict is String && diff.dict == "loading":
+		diff_poll_timeout = 0.2
+	else:
+		diff_poll_timeout = -1
+		show_diff(diff, is_change)
 
 # Inspect the diff dictionary.
 func show_diff(diff, is_change) -> void:
@@ -1070,11 +1055,6 @@ func _on_action_menu_item_selected(id: int) -> void:
 		ActionMenuItems.CLEAR_FS_CACHE:
 			GodotProject.clear_fs_cache()
 			toaster.push_toast("Cleared File System Cache.")
-		ActionMenuItems.AUTO_GENERATE_DIFFS:
-			var popup := action_menu_button.get_popup()
-			var idx := popup.get_item_index(id)
-			popup.toggle_item_checked(idx)
-			update_ui()
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):

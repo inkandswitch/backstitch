@@ -6,12 +6,9 @@ use thiserror::Error;
 use tokio::task::JoinError;
 
 use crate::{
-    diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
-    helpers::{
-        history_ref::HistoryRef,
-        utils::{ChangedFile, DiffID},
-    },
+    helpers::{history_ref::HistoryRef, utils::ChangedFile},
+    project::project_base::DiffStatus,
 };
 
 pub use crate::project::branch_db::DbError;
@@ -91,7 +88,7 @@ impl From<ProjectLoadError> for ProjectStartError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum RequestDiffError {
     #[error("No diff available for selection")]
     NoDiffAvailable,
@@ -195,15 +192,13 @@ pub trait ProjectViewModel {
     /// Get a [ChangeViewModel] for a given commit hash, or [None] if we haven't ingested the desired commit.
     fn get_change(&self, hash: ChangeHash) -> Option<&impl ChangeViewModel>;
 
-    /// Get a [DiffViewModel] for a given commit hash, or [None] if the commit has no valid diff.
-    fn get_diff(&self, selected_hash: ChangeHash) -> Option<impl DiffViewModel>;
-    /// Get a [DiffViewModel] for the current branch against its fork, or [None] if the current branch is main.
-    fn get_default_diff(&self) -> Option<impl DiffViewModel>;
-
-    /// async version of get_diff for a single commit
-    fn request_commit_diff(&self, selected_hash: ChangeHash) -> Result<DiffID, RequestDiffError>;
-    /// async version of get_default_diff
-    fn request_default_diff(&self) -> Result<DiffID, RequestDiffError>;
+    /// Get a [DiffViewModel] for a given commit hash, containing a [DiffStatus] of the diff's loading status.
+    fn try_get_diff(
+        &self,
+        selected_hash: ChangeHash,
+    ) -> Result<impl DiffViewModel, RequestDiffError>;
+    /// Get a [DiffViewModel] for the default display, containing a [DiffStatus] of the diff's loading status.
+    fn try_get_default_diff(&self) -> Result<impl DiffViewModel, RequestDiffError>;
 
     fn get_current_ref(&self) -> Option<HistoryRef>;
     /// Get the file at a given history reference.
@@ -260,12 +255,8 @@ pub trait BranchViewModel {
 
 /// API surface for a Diff exposed to the UI.
 pub trait DiffViewModel {
-    /// Get the [DiffWrapper] containing the diff data.
-    fn get_diff(&self) -> &ProjectDiff;
+    /// Get the [ProjectDiff] containing the diff data.
+    fn get_diff(&self) -> &DiffStatus;
     /// Get the display title of the diff.
     fn get_title(&self) -> &String;
-    /// Get the before history reference.
-    fn get_before(&self) -> &HistoryRef;
-    /// Get the after history reference.
-    fn get_after(&self) -> &HistoryRef;
 }

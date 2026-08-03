@@ -2,7 +2,7 @@ use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named;
-use crate::helpers::utils::{ChangeType, CommitInfo, DiffID, DiffWrapper};
+use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{RemoteConnection, RemoteConnectionError};
@@ -30,12 +30,6 @@ use tokio_util::sync::CancellationToken;
 #[cfg(test)]
 mod tests;
 
-// typedef for the diff result type
-pub(super) type DiffResult = (DiffID, Option<DiffWrapper>);
-
-type DiffResultSender = mpsc::UnboundedSender<DiffResult>;
-pub(super) type DiffResultReceiver = mpsc::UnboundedReceiver<DiffResult>;
-
 /// The main driver for the project.
 /// Hooks together all the various controllers.
 /// When this object is constructed, it is started. When the handle is dropped, it shuts down.
@@ -44,9 +38,7 @@ pub struct Driver {
     inner: Arc<DriverInner>,
     repo: Repo,
     token: CancellationToken,
-    // receivers go outside Inner, so we don't have to mutex them
-    file_changes_rx: mpsc::UnboundedReceiver<FileSystemEvent>,
-    diff_result_rx: DiffResultReceiver,
+    file_changes_rx: Mutex<mpsc::UnboundedReceiver<FileSystemEvent>>,
 }
 
 #[derive(Debug)]
@@ -55,7 +47,6 @@ pub struct DriverInner {
     main_thread_block: MainThreadBlock,
     file_changes_tx: mpsc::UnboundedSender<FileSystemEvent>,
     ref_tx: watch::Sender<Option<HistoryRef>>,
-    diff_result_tx: Arc<Mutex<DiffResultSender>>,
     safe_to_update_editor: AtomicBool,
     token: CancellationToken,
 
@@ -192,10 +183,7 @@ impl Driver {
     }
 
     /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
-    pub async fn start_connection(
-        &mut self,
-        server_url: &Url,
-    ) -> Result<(), RemoteConnectionError> {
+    pub async fn start_connection(&self, server_url: &Url) -> Result<(), RemoteConnectionError> {
         if self.inner.connection.lock().await.is_some() {
             return Ok(());
         }
@@ -251,7 +239,7 @@ impl Driver {
         })
     }
 
-    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle, poll_time: u64) {
+    async fn create_document_watcher(&self, metadata_handle: &DocHandle, poll_time: u64) {
         let mut doc_watcher = self.inner.document_watcher.lock().await;
 
         // If there's an existing doc watcher, this'll drop it and cancel.
@@ -268,7 +256,7 @@ impl Driver {
 
     /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
     pub async fn load_project(
-        &mut self,
+        &self,
         metadata_id: &DocumentId,
         branch_id: Option<&DocumentId>,
     ) -> Result<(), ProjectLoadError> {
@@ -361,7 +349,7 @@ impl Driver {
         }
     }
 
-    pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
+    pub async fn create_project(&self) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.inner.branch_db.create_metadata_doc().await?;
         self.create_document_watcher(&metadata_handle, 30000).await;
         // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
@@ -436,7 +424,7 @@ impl Driver {
     /// Begin the sync task. This will automatically check out the latest relevant ref, check in stuff from the FS,
     /// and constantly try to check out the next correct ref. Make sure any local changes are resolved, since this
     /// will reset all files to canonical.
-    pub async fn start_sync(&mut self, branch: Option<&DocumentId>) {
+    pub async fn start_sync(&self, branch: Option<&DocumentId>) {
         // TODO: protect this so it can't be started twice
         // Spawn off the sync task
         let inner_clone = self.inner.clone();
@@ -494,16 +482,13 @@ impl Driver {
         let (file_changes_tx, file_changes_rx) = mpsc::unbounded_channel();
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
-        let (diff_result_tx, diff_result_rx) = mpsc::unbounded_channel();
 
         Ok(Driver {
-            diff_result_rx,
-            file_changes_rx,
+            file_changes_rx: Mutex::new(file_changes_rx),
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
                 ref_tx,
-                diff_result_tx: Arc::new(Mutex::new(diff_result_tx)),
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
@@ -697,26 +682,6 @@ impl Driver {
             .get_diff(before, after)
             .await
             .unwrap_or(ProjectDiff::default())
-        // ProjectDiff::default()
-    }
-
-    pub async fn request_diff(&self, title: String, diff_id: &DiffID) {
-        let inner = self.inner.clone();
-        let diff_id = diff_id.clone();
-        spawn_named("Request diff", async move {
-            let diff = inner.differ.get_diff(&diff_id.before, &diff_id.after).await;
-            let result = diff.map(|diff| DiffWrapper {
-                id: diff_id.clone(),
-                diff,
-                title,
-            });
-            inner
-                .diff_result_tx
-                .lock()
-                .await
-                .send((diff_id, result))
-                .unwrap();
-        });
     }
 
     pub async fn get_metadata_doc(&self) -> Result<DocumentId, ProjectLoadError> {
@@ -756,20 +721,13 @@ impl Driver {
     }
 
     // awkward
-    pub fn get_filesystem_changes(&mut self) -> Vec<FileSystemEvent> {
+    pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
+        let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
-        while let Ok(msg) = self.file_changes_rx.try_recv() {
+        while let Ok(msg) = file_changes_rx.try_recv() {
             fs_changes.push(msg);
         }
         fs_changes
-    }
-
-    pub fn get_diff_results(&mut self) -> Vec<DiffResult> {
-        let mut diff_results = Vec::new();
-        while let Ok(msg) = self.diff_result_rx.try_recv() {
-            diff_results.push(msg);
-        }
-        diff_results
     }
 
     // also awkward

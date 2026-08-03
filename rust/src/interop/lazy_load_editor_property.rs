@@ -118,8 +118,7 @@ impl IEditorProperty for LazyLoadTokenEditorProperty {
         if self.token.is_some() {
             if !self.token.as_ref().unwrap().bind().is_started() {
                 self.token.as_mut().unwrap().bind_mut().start_load();
-            }
-            if self.token.as_ref().unwrap().bind().is_load_finished() {
+            } else if self.token.as_ref().unwrap().bind().is_load_finished() {
                 // NOTE: we need to keep a reference to the token until we've finished updating the property editor,
                 // or it'll be freed while there are still dangling pointers to it
                 let mut token = self.token.take().unwrap();

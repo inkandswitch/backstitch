@@ -72,10 +72,7 @@ impl Differ {
         let history_ref_path = HistoryRefPath::make_path_string(ref_, path)
             .map_err(|_| "Invalid history ref path".to_string())?;
 
-        match ResourceLoader::singleton().load_threaded_request(&history_ref_path) {
-            global::Error::OK => Ok(history_ref_path),
-            e => Err(format!("load_threaded_request failed ({})", e.as_str())),
-        }
+        Ok(history_ref_path)
     }
 
     /// Computes the diff between the two sets of heads.

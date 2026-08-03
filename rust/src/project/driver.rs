@@ -38,8 +38,7 @@ pub struct Driver {
     inner: Arc<DriverInner>,
     repo: Repo,
     token: CancellationToken,
-    // receivers go outside Inner, so we don't have to mutex them
-    file_changes_rx: mpsc::UnboundedReceiver<FileSystemEvent>,
+    file_changes_rx: Mutex<mpsc::UnboundedReceiver<FileSystemEvent>>,
 }
 
 #[derive(Debug)]
@@ -184,10 +183,7 @@ impl Driver {
     }
 
     /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
-    pub async fn start_connection(
-        &mut self,
-        server_url: &Url,
-    ) -> Result<(), RemoteConnectionError> {
+    pub async fn start_connection(&self, server_url: &Url) -> Result<(), RemoteConnectionError> {
         if self.inner.connection.lock().await.is_some() {
             return Ok(());
         }
@@ -243,7 +239,7 @@ impl Driver {
         })
     }
 
-    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle, poll_time: u64) {
+    async fn create_document_watcher(&self, metadata_handle: &DocHandle, poll_time: u64) {
         let mut doc_watcher = self.inner.document_watcher.lock().await;
 
         // If there's an existing doc watcher, this'll drop it and cancel.
@@ -260,7 +256,7 @@ impl Driver {
 
     /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
     pub async fn load_project(
-        &mut self,
+        &self,
         metadata_id: &DocumentId,
         branch_id: Option<&DocumentId>,
     ) -> Result<(), ProjectLoadError> {
@@ -353,7 +349,7 @@ impl Driver {
         }
     }
 
-    pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
+    pub async fn create_project(&self) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.inner.branch_db.create_metadata_doc().await?;
         self.create_document_watcher(&metadata_handle, 30000).await;
         // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
@@ -428,7 +424,7 @@ impl Driver {
     /// Begin the sync task. This will automatically check out the latest relevant ref, check in stuff from the FS,
     /// and constantly try to check out the next correct ref. Make sure any local changes are resolved, since this
     /// will reset all files to canonical.
-    pub async fn start_sync(&mut self, branch: Option<&DocumentId>) {
+    pub async fn start_sync(&self, branch: Option<&DocumentId>) {
         // TODO: protect this so it can't be started twice
         // Spawn off the sync task
         let inner_clone = self.inner.clone();
@@ -488,7 +484,7 @@ impl Driver {
         let token = CancellationToken::new();
 
         Ok(Driver {
-            file_changes_rx,
+            file_changes_rx: Mutex::new(file_changes_rx),
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
@@ -725,9 +721,10 @@ impl Driver {
     }
 
     // awkward
-    pub fn get_filesystem_changes(&mut self) -> Vec<FileSystemEvent> {
+    pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
+        let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
-        while let Ok(msg) = self.file_changes_rx.try_recv() {
+        while let Ok(msg) = file_changes_rx.try_recv() {
             fs_changes.push(msg);
         }
         fs_changes

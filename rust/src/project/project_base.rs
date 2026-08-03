@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 use tokio::runtime::Runtime;
-use tokio::sync::{Mutex, OwnedMutexGuard, watch};
+use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock, watch};
 
 #[derive(Debug, PartialEq, Clone)]
 pub(super) enum ProjectCreateMode {
@@ -41,9 +41,8 @@ pub struct Project {
     connection_info_rx: Option<watch::Receiver<Option<ConnectionInfo>>>,
 
     // Project driver. If some, is running.
-    // I'd prefer this not be a mutex, but we need to move it into temporary threads in order to dispatch async code from sync code.
-    // What's annoying is that we never actually block on this mutex!
-    pub(super) driver: Arc<Mutex<Option<Driver>>>,
+    // Most operations read on the driver -- only replacing the driver is a write operation.
+    pub(super) driver: Arc<RwLock<Option<Driver>>>,
     pub(super) local_changes: Vec<ChangedFile>,
     pub(super) server_url: Option<Url>,
     pub(super) initial_branch: Option<DocumentId>, // the initial branch to checkout, only valid before finalize_start is called
@@ -85,7 +84,7 @@ impl Project {
             main_thread_block: MainThreadBlock::new(),
             changes_rx: None,
             checked_out_ref_rx: None,
-            driver: Arc::new(Mutex::new(None)),
+            driver: Arc::new(RwLock::new(None)),
             project_dir,
             runtime,
             history: None,
@@ -139,10 +138,10 @@ impl Project {
     }
 
     async fn get_diff(
-        driver: Arc<Mutex<Option<Driver>>>,
+        driver: Arc<RwLock<Option<Driver>>>,
         id: &DiffId,
     ) -> Result<ProjectDiff, RequestDiffError> {
-        let guard = driver.lock().await;
+        let guard = driver.read().await;
         let driver = guard.as_ref().ok_or(RequestDiffError::NoDriver)?;
         let diff = driver.get_diff(&id.before, &id.after).await;
         Ok(diff)
@@ -371,7 +370,7 @@ impl Project {
     /// If we're creating a new project, instead of loading, we can skip most of this!
     pub(super) fn start(&mut self, mode: ProjectCreateMode) -> Result<(), ProjectStartError> {
         tracing::info!("Creating with mode: {:?}", mode);
-        if self.driver.blocking_lock().is_some() {
+        if self.driver.blocking_read().is_some() {
             tracing::error!("Driver is already started!");
             return Ok(());
         }
@@ -474,7 +473,7 @@ impl Project {
             .map(|(path, change_type)| ChangedFile { change_type, path })
             .collect();
 
-        *self.driver.blocking_lock() = Some(driver);
+        *self.driver.blocking_write() = Some(driver);
 
         if !local_changes.is_empty() {
             // we can't start the sync until we confirm or reject the local changes
@@ -493,8 +492,8 @@ impl Project {
         tracing::info!("Finalizing start...");
         let server_url = self.server_url.clone();
         let initial_branch = self.initial_branch.take();
-        let metadata = self.with_driver_blocking("Finalize start", |mut driver| async move {
-            let driver = driver.as_mut().ok_or(ProjectStartError::NoDriver)?;
+        let metadata = self.with_driver_blocking("Finalize start", |driver| async move {
+            let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
             // start the connection, if we didn't before.
             if let Some(server_url) = server_url {
                 match driver.start_connection(&server_url).await {
@@ -513,7 +512,7 @@ impl Project {
     }
 
     pub fn stop(&mut self) {
-        self.driver.blocking_lock().take();
+        self.driver.blocking_write().take();
         self.server_url = None;
         self.local_changes = Default::default();
         self.changes_rx = None;
@@ -539,7 +538,7 @@ impl Project {
     /// Allows us to easily block on async code when we need the driver.
     pub(super) fn with_driver_blocking<F, Fut, R>(&self, name: &str, f: F) -> R
     where
-        F: FnOnce(OwnedMutexGuard<Option<Driver>>) -> Fut + Send + 'static,
+        F: FnOnce(OwnedRwLockReadGuard<Option<Driver>>) -> Fut + Send + 'static,
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
@@ -548,7 +547,7 @@ impl Project {
         self.runtime
             .block_on(spawn_named_on(name, self.runtime.handle(), async move {
                 tracing::trace!("Starting block on {name_clone}...");
-                let driver = driver.lock_owned().await;
+                let driver = driver.read_owned().await;
                 let res = f(driver).await;
                 tracing::trace!("Finishing block on {name_clone}!");
                 res
@@ -564,7 +563,7 @@ impl Project {
     ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
         let fs_changes = {
-            let mut driver_guard = self.driver.blocking_lock();
+            let driver_guard = self.driver.blocking_read();
             if driver_guard.is_none() {
                 return (Vec::new(), Vec::new());
             }
@@ -587,7 +586,7 @@ impl Project {
             tracing::trace!("Done blocking.");
 
             // Consume any modified files to send to Godot
-            driver_guard.as_mut().unwrap().get_filesystem_changes()
+            driver_guard.as_ref().unwrap().get_filesystem_changes()
         };
 
         let mut signals = Vec::new();

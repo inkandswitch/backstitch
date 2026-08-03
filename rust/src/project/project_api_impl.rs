@@ -28,7 +28,7 @@ use crate::{
 // In general I kind of hate this, but I guess a sync/async divide is never going to look pretty.
 impl ProjectViewModel for Project {
     fn has_project(&self) -> bool {
-        self.driver.blocking_lock().is_some()
+        self.driver.blocking_read().is_some()
     }
 
     fn get_project_id(&self) -> Option<DocumentId> {

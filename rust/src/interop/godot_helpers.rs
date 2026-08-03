@@ -1,8 +1,9 @@
 use crate::fs::file_utils::FileContent;
 use crate::helpers::history_ref::HistoryRef;
-use crate::helpers::utils::{ChangedFile, DiffID};
+use crate::helpers::utils::{ChangedFile, DiffId};
 use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
+use crate::project::project_base::DiffStatus;
 use automerge::ChangeHash;
 use godot::builtin::Variant;
 use godot::classes::{Control, Font, StyleBox};
@@ -146,14 +147,14 @@ impl ToGodot for HistoryRef {
     }
 }
 
-impl GodotConvert for DiffID {
+impl GodotConvert for DiffId {
     type Via = GString;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for DiffID {
+impl ToGodot for DiffId {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
@@ -181,8 +182,6 @@ pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary
     vdict! {
         "dict" => &diff.get_diff().to_godot(),
         "title" => &diff.get_title().to_variant(),
-        "before" => &diff.get_before().to_variant(),
-        "after" => &diff.get_after().to_variant(),
     }
 }
 
@@ -291,6 +290,24 @@ impl ToVariantExt for Option<TypeOrInstance> {
         match self {
             Some(type_or_instance) => type_or_instance.to_variant(),
             None => Variant::nil(),
+        }
+    }
+}
+
+impl GodotConvert for DiffStatus {
+    type Via = Variant;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> Variant {
+        match self {
+            DiffStatus::Loading => "loading".to_variant(),
+            DiffStatus::Ready(project_diff) => project_diff.to_variant(),
         }
     }
 }

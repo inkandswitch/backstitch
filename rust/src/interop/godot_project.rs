@@ -463,66 +463,42 @@ impl GodotProject {
     }
 
     #[func]
-    fn get_diff(&self, selected_hash: String) -> Variant {
-        let Ok(hash) = ChangeHash::from_str(&selected_hash) else {
-            return Variant::nil();
-        };
-        let Some(diff) = ProjectViewModel::get_diff(&self.project, hash) else {
-            return Variant::nil();
-        };
-        Variant::from(diff_view_model_to_dict(&diff))
-    }
-
-    #[func]
-    fn get_default_diff(&self) -> Variant {
-        let Some(diff) = self.project.get_default_diff() else {
-            return Variant::nil();
-        };
-        Variant::from(diff_view_model_to_dict(&diff))
-    }
-
-    #[func]
-    fn request_commit_diff(&self, hash: String) -> Variant {
+    fn try_get_diff(&self, hash: String) -> Variant {
         let Ok(hash) = ChangeHash::from_str(&hash) else {
             godot_error!("Invalid hash: {hash}");
             return Variant::nil();
         };
-        match self.project.request_commit_diff(hash) {
-            Ok(diff_id) => diff_id.to_variant(),
+        match self.project.try_get_diff(hash) {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
             Err(e) => {
-                match e {
-                    RequestDiffError::NoDiffAvailable => {}
-                    RequestDiffError::NoBranchCheckedOut => {
-                        // Don't surface to the user, just log it
-                        tracing::error!("Error requesting diff for commit {hash}: {e}");
-                    }
-                    _ => {
-                        godot_error!("Error requesting diff for commit {hash}: {e}");
-                    }
-                };
+                Self::consume_diff_error(e);
                 Variant::nil()
             }
         }
     }
 
     #[func]
-    fn request_default_diff(&self) -> Variant {
-        match self.project.request_default_diff() {
-            Ok(diff_id) => diff_id.to_variant(),
+    fn try_get_default_diff(&self) -> Variant {
+        match self.project.try_get_default_diff() {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
             Err(e) => {
-                match e {
-                    RequestDiffError::NoDiffAvailable => {}
-                    RequestDiffError::NoBranchCheckedOut => {
-                        // Don't surface to the user, just log it
-                        tracing::error!("Error requesting default diff: {e}");
-                    }
-                    _ => {
-                        godot_error!("Error requesting default diff: {e}");
-                    }
-                };
+                Self::consume_diff_error(e);
                 Variant::nil()
             }
         }
+    }
+
+    fn consume_diff_error(e: RequestDiffError) {
+        match e {
+            RequestDiffError::NoDiffAvailable => {}
+            RequestDiffError::NoBranchCheckedOut => {
+                // Don't surface to the user, just log it
+                tracing::error!("Error requesting default diff: {e}");
+            }
+            _ => {
+                godot_error!("Error requesting default diff: {e}");
+            }
+        };
     }
 
     #[func]
@@ -771,17 +747,6 @@ impl INode for GodotProject {
                 }
                 // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
                 GodotProjectSignal::BranchCheckedOut => {}
-                GodotProjectSignal::DiffGenerated(diff_id, result) => {
-                    let result = match result {
-                        Some(result) => diff_view_model_to_dict(result.as_ref()).to_variant(),
-                        None => Variant::nil(),
-                    };
-                    self.signals().diff_generated().to_future();
-                    self.base_mut().call_deferred(
-                        "emit_signal",
-                        &["diff_generated".to_variant(), diff_id.to_variant(), result],
-                    );
-                }
             }
         }
     }

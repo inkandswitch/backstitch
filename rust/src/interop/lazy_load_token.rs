@@ -19,26 +19,26 @@ pub struct LazyLoadToken {
 #[godot_api]
 impl IResource for LazyLoadToken {
     fn init(base: Base<Resource>) -> Self {
-        Self {
-            base,
-            path: String::new(),
-            original_path: None,
-            resource: None,
-            failed: false,
-        }
+        Self::create_instance(base, String::new(), None)
     }
 }
 
 impl LazyLoadToken {
-    pub fn new(path: String, original_path: Option<String>) -> Gd<LazyLoadToken> {
-        let mut tok = Self::new_gd();
-        tok.set_path_cache(&GString::from(original_path.as_ref().unwrap_or(&path)));
-        tok.bind_mut().set_paths(path, original_path);
+    fn create_instance(base: Base<Resource>, path: String, original_path: Option<String>) -> Self {
+        let mut tok = Self {
+            base,
+            path,
+            original_path,
+            resource: None,
+            failed: false,
+        };
+        if !tok.path.is_empty() {
+            tok.start_load();
+        }
         tok
     }
-    fn set_paths(&mut self, path: String, original_path: Option<String>) {
-        self.path = path;
-        self.original_path = original_path;
+    pub fn new(path: String, original_path: Option<String>) -> Gd<LazyLoadToken> {
+        Gd::from_init_fn(|base| Self::create_instance(base, path, original_path))
     }
 }
 

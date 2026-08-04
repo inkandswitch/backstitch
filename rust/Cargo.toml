@@ -76,6 +76,7 @@ open = "5.4.0"
 axum = "0.8.9"
 html-escape = "0.2.14"
 reqwest = { version = "0.13.4", features = ["json"] }
+semver = { version = "1.0.28", features = ["serde"] }
 
 [build-dependencies]
 cbindgen = "^0.27"

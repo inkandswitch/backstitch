@@ -1,7 +1,11 @@
+use std::str::FromStr;
+
 use openidconnect::ClientId;
 use serde::Deserialize;
 use thiserror::Error;
 use url::Url;
+
+const MINIMUM_SERVER_VERSION: &str = "2.0.0";
 
 pub struct ServerInfo {
     pub url: Url,
@@ -22,7 +26,8 @@ pub enum AuthConfig {
 
 #[derive(Debug, Deserialize)]
 struct HandshakeResponse {
-    version: String,
+    version: semver::Version,
+    minimum_backstitch_version: semver::Version,
     auth: String,
     webviewer: Option<Url>,
     oidc_issuer: Option<Url>,
@@ -36,6 +41,20 @@ pub enum HandshakeError {
     Reqwest(#[from] reqwest::Error),
     #[error("the handshake response was malformed: {0}")]
     MalformedResponse(String),
+    #[error(
+        "our Backstitch version is too old (v{current_version}). Please update Backstitch to at least v{minimum_version} to connect to this server."
+    )]
+    UnsupportedClient {
+        current_version: String,
+        minimum_version: String,
+    },
+    #[error(
+        "the server you're trying to connect to is too old (v{current_version}). Please update your server to at least {minimum_version}"
+    )]
+    UnsupportedServer {
+        current_version: String,
+        minimum_version: String,
+    },
 }
 
 pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
@@ -54,6 +73,22 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
         .json()
         .await
         .map_err(|e| HandshakeError::MalformedResponse(e.to_string()))?;
+
+    if response.version < semver::Version::from_str(MINIMUM_SERVER_VERSION).unwrap() {
+        return Err(HandshakeError::UnsupportedServer {
+            current_version: response.version.to_string(),
+            minimum_version: MINIMUM_SERVER_VERSION.to_string(),
+        });
+    }
+
+    if response.minimum_backstitch_version
+        < semver::Version::from_str(env!("CARGO_PKG_VERSION")).unwrap()
+    {
+        return Err(HandshakeError::UnsupportedClient {
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            minimum_version: response.minimum_backstitch_version.to_string(),
+        });
+    }
 
     let auth = match response.auth.as_str() {
         "none" => AuthConfig::None,

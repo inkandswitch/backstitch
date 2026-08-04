@@ -3,25 +3,30 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
-use crate::helpers::utils::{ChangedFile, CommitInfo};
+use crate::helpers::utils::{ChangedFile, CommitInfo, DiffId};
 use crate::interop::godot_accessors::BackstitchConfigAccessor;
 use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
-use crate::project::project_api::{ProjectStartError, ProjectViewModel};
+use crate::project::project_api::{ProjectStartError, ProjectViewModel, RequestDiffError};
 use automerge::ChangeHash;
 use samod::{ConnectionInfo, DocumentId, Url};
-use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 use tokio::runtime::Runtime;
-use tokio::sync::{Mutex, OwnedMutexGuard, watch};
+use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock, watch};
 
 #[derive(Debug, PartialEq, Clone)]
 pub(super) enum ProjectCreateMode {
     New,
     ManuallyLoaded,
     AutoLoaded,
+}
+
+#[derive(Debug, Clone)]
+pub enum DiffStatus {
+    Loading,
+    Ready(ProjectDiff),
 }
 
 /// Manages the state and operations of a Backstitch project within Godot.
@@ -36,9 +41,8 @@ pub struct Project {
     connection_info_rx: Option<watch::Receiver<Option<ConnectionInfo>>>,
 
     // Project driver. If some, is running.
-    // I'd prefer this not be a mutex, but we need to move it into temporary threads in order to dispatch async code from sync code.
-    // What's annoying is that we never actually block on this mutex!
-    pub(super) driver: Arc<Mutex<Option<Driver>>>,
+    // Most operations read on the driver -- only replacing the driver is a write operation.
+    pub(super) driver: Arc<RwLock<Option<Driver>>>,
     pub(super) local_changes: Vec<ChangedFile>,
     pub(super) server_url: Option<Url>,
     pub(super) initial_branch: Option<DocumentId>, // the initial branch to checkout, only valid before finalize_start is called
@@ -50,7 +54,7 @@ pub struct Project {
     pub(super) changes: HashMap<ChangeHash, CommitInfo>,
 
     // Cached diffs between refs
-    pub(super) diff_cache: RefCell<HashMap<(HistoryRef, HistoryRef), ProjectDiff>>,
+    pub(super) diff_cache: Arc<Mutex<HashMap<DiffId, Result<DiffStatus, RequestDiffError>>>>,
 }
 
 /// Notifications that can be emitted via process and consumed by GodotProject, in order to trigger signals to GDScript.
@@ -80,12 +84,12 @@ impl Project {
             main_thread_block: MainThreadBlock::new(),
             changes_rx: None,
             checked_out_ref_rx: None,
-            driver: Arc::new(Mutex::new(None)),
+            driver: Arc::new(RwLock::new(None)),
             project_dir,
             runtime,
             history: None,
             changes: HashMap::new(),
-            diff_cache: RefCell::new(HashMap::new()),
+            diff_cache: Default::default(),
             local_changes: Default::default(),
             server_url: None,
             initial_branch: None,
@@ -108,16 +112,46 @@ impl Project {
         }
     }
 
-    pub fn get_cached_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
-        self.diff_cache
-            .borrow_mut()
-            .entry((before.clone(), after.clone()))
-            .or_insert_with(|| self.get_diff(before, after))
-            .clone()
+    /// Get the diff status of a particular [DiffId]
+    pub(super) fn request_diff(&self, diff_id: DiffId) -> Result<DiffStatus, RequestDiffError> {
+        // If we've already spun off a task to handle this, return whatever's the current result.
+        let mut cache = self.diff_cache.blocking_lock();
+        if let Some(status) = cache.get(&diff_id) {
+            return status.clone();
+        }
+
+        // Set the status to "Loading"
+        cache.insert(diff_id.clone(), Ok(DiffStatus::Loading));
+        drop(cache);
+
+        // Spawn off a task to handle the load
+        let driver = self.driver.clone();
+        let diff_cache = self.diff_cache.clone();
+        spawn_named_on("Request diff", self.runtime.handle(), async move {
+            let status = Self::get_diff(driver, &diff_id).await;
+            let mut cache = diff_cache.lock().await;
+            cache.insert(diff_id, status.map(DiffStatus::Ready));
+        });
+
+        // While that's working, we just tell the caller it's loading
+        Ok(DiffStatus::Loading)
+    }
+
+    async fn get_diff(
+        driver: Arc<RwLock<Option<Driver>>>,
+        id: &DiffId,
+    ) -> Result<ProjectDiff, RequestDiffError> {
+        let guard = driver.read().await;
+        let driver = guard.as_ref().ok_or(RequestDiffError::NoDriver)?;
+        let diff = driver.get_diff(&id.before, &id.after).await;
+        Ok(diff)
     }
 
     pub fn clear_diff_cache(&self) {
-        self.diff_cache.borrow_mut().clear();
+        let mut cache = self.diff_cache.blocking_lock();
+        // Keep those that are still loading, so we don't double-spawn a task.
+        // If we reaaalllly want we could stick a token inside DiffStatus::Loading to cancel those tasks explicitly.
+        cache.retain(|_, v| matches!(v, Ok(DiffStatus::Loading)));
     }
 
     pub fn clear_fs_cache(&self) {
@@ -130,12 +164,6 @@ impl Project {
                 .inspect_err(|e| tracing::error!("error clearing cache: {e}"))
                 .ok();
         });
-    }
-
-    pub fn get_diff(&self, before: HistoryRef, after: HistoryRef) -> ProjectDiff {
-        self.with_driver_blocking("Get diff", |driver| async move {
-            driver.as_ref().unwrap().get_diff(&before, &after).await
-        })
     }
 
     fn acquire_server_url(&self) -> Result<Option<Url>, ProjectStartError> {
@@ -343,7 +371,7 @@ impl Project {
     /// If we're creating a new project, instead of loading, we can skip most of this!
     pub(super) fn start(&mut self, mode: ProjectCreateMode) -> Result<(), ProjectStartError> {
         tracing::info!("Creating with mode: {:?}", mode);
-        if self.driver.blocking_lock().is_some() {
+        if self.driver.blocking_read().is_some() {
             tracing::error!("Driver is already started!");
             return Ok(());
         }
@@ -446,7 +474,7 @@ impl Project {
             .map(|(path, change_type)| ChangedFile { change_type, path })
             .collect();
 
-        *self.driver.blocking_lock() = Some(driver);
+        *self.driver.blocking_write() = Some(driver);
 
         if !local_changes.is_empty() {
             // we can't start the sync until we confirm or reject the local changes
@@ -465,8 +493,8 @@ impl Project {
         tracing::info!("Finalizing start...");
         let server_url = self.server_url.clone();
         let initial_branch = self.initial_branch.take();
-        let metadata = self.with_driver_blocking("Finalize start", |mut driver| async move {
-            let driver = driver.as_mut().ok_or(ProjectStartError::NoDriver)?;
+        let metadata = self.with_driver_blocking("Finalize start", |driver| async move {
+            let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
             // start the connection, if we didn't before.
             if let Some(server_url) = server_url {
                 match driver.start_connection(&server_url).await {
@@ -485,7 +513,7 @@ impl Project {
     }
 
     pub fn stop(&mut self) {
-        self.driver.blocking_lock().take();
+        self.driver.blocking_write().take();
         self.server_url = None;
         self.local_changes = Default::default();
         self.changes_rx = None;
@@ -511,7 +539,7 @@ impl Project {
     /// Allows us to easily block on async code when we need the driver.
     pub(super) fn with_driver_blocking<F, Fut, R>(&self, name: &str, f: F) -> R
     where
-        F: FnOnce(OwnedMutexGuard<Option<Driver>>) -> Fut + Send + 'static,
+        F: FnOnce(OwnedRwLockReadGuard<Option<Driver>>) -> Fut + Send + 'static,
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
@@ -520,7 +548,7 @@ impl Project {
         self.runtime
             .block_on(spawn_named_on(name, self.runtime.handle(), async move {
                 tracing::trace!("Starting block on {name_clone}...");
-                let driver = driver.lock_owned().await;
+                let driver = driver.read_owned().await;
                 let res = f(driver).await;
                 tracing::trace!("Finishing block on {name_clone}!");
                 res
@@ -536,7 +564,7 @@ impl Project {
     ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
         tracing::trace!("Running project process...");
         let fs_changes = {
-            let mut driver_guard = self.driver.blocking_lock();
+            let driver_guard = self.driver.blocking_read();
             if driver_guard.is_none() {
                 return (Vec::new(), Vec::new());
             }
@@ -559,7 +587,7 @@ impl Project {
             tracing::trace!("Done blocking.");
 
             // Consume any modified files to send to Godot
-            driver_guard.as_mut().unwrap().get_filesystem_changes()
+            driver_guard.as_ref().unwrap().get_filesystem_changes()
         };
 
         let mut signals = Vec::new();

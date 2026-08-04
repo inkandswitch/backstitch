@@ -1,6 +1,9 @@
 use std::{fmt, path::Path, str::FromStr, time::SystemTime};
 
-use crate::{diff::differ::ProjectDiff, helpers::branch::Branch};
+use crate::{
+    helpers::{branch::Branch, history_ref::HistoryRef},
+    project::project_base::DiffStatus,
+};
 use automerge::{
     ChangeHash,
     transaction::{CommitOptions, Transaction},
@@ -94,9 +97,27 @@ pub struct BranchWrapper {
     pub children: Vec<DocumentId>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DiffId {
+    pub before: HistoryRef,
+    pub after: HistoryRef,
+}
+
+impl std::fmt::Display for DiffId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.before, self.after)
+    }
+}
+
+impl DiffId {
+    pub fn new(before: HistoryRef, after: HistoryRef) -> Self {
+        Self { before, after }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct DiffWrapper {
-    pub diff: ProjectDiff,
+    pub diff: DiffStatus,
     pub title: String,
 }
 

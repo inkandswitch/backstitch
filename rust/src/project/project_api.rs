@@ -6,14 +6,14 @@ use thiserror::Error;
 use tokio::task::JoinError;
 
 use crate::{
-    diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
     helpers::{history_ref::HistoryRef, utils::ChangedFile},
-    project::{
-        connection::RemoteConnectionError,
-        driver::{DriverCreateError, ProjectLoadError},
-    },
+    project::project_base::DiffStatus,
 };
+
+pub use crate::project::branch_db::DbError;
+pub use crate::project::connection::RemoteConnectionError;
+pub use crate::project::driver::{DriverCreateError, ProjectLoadError};
 
 /// Represents synchronization status for a project.
 pub enum SyncStatus {
@@ -25,6 +25,32 @@ pub enum SyncStatus {
     Syncing,
     /// The server is up to date with our changes, or the project is not started.
     UpToDate,
+}
+
+#[derive(Error, Debug)]
+pub enum CreateRevertPreviewBranchError {
+    #[error("no checked out branch")]
+    NoCheckedOutBranch,
+    #[error("no driver found!")]
+    NoDriver,
+    #[error("no changes to revert!")]
+    NoChangesToRevert,
+    #[error(transparent)]
+    DbError(#[from] Box<DbError>),
+}
+
+#[derive(Error, Debug)]
+pub enum CreateMergePreviewBranchError {
+    #[error("no checked out branch")]
+    NoCheckedOutBranch,
+    #[error("no forked from branch found!")]
+    NoForkedFrom,
+    #[error("no driver found!")]
+    NoDriver,
+    #[error("no changes to merge!")]
+    NoChangesToMerge,
+    #[error(transparent)]
+    DbError(#[from] Box<DbError>),
 }
 
 #[derive(Error, Debug)]
@@ -60,6 +86,20 @@ impl From<ProjectLoadError> for ProjectStartError {
     fn from(value: ProjectLoadError) -> Self {
         Self::DriverLoad(Box::new(value))
     }
+}
+
+#[derive(Error, Debug, Clone)]
+pub enum RequestDiffError {
+    #[error("No diff available for selection")]
+    NoDiffAvailable,
+    #[error("the selected hash is invalid!")]
+    CommitNotFound,
+    #[error("no branch is checked out!")]
+    NoBranchCheckedOut,
+    #[error("no previous change found!")]
+    BranchesDiverge,
+    #[error("no driver found!")]
+    NoDriver,
 }
 
 /// Defines the surface for the UI layer interacting with the GodotProject core logic.
@@ -128,11 +168,14 @@ pub trait ProjectViewModel {
     /// Whether we can begin a merge preview for the current branch into its direct ancestor.
     fn can_create_merge_preview_branch(&self) -> bool;
     /// Create a new merge preview branch, for merging the current branch into its direct ancestor.
-    fn create_merge_preview_branch(&mut self);
+    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError>;
     /// Whether we can create a revert preview branch for the given head.
     fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool;
     /// Create a new revert preview branch for the given head.
-    fn create_revert_preview_branch(&mut self, head: ChangeHash);
+    fn create_revert_preview_branch(
+        &mut self,
+        head: ChangeHash,
+    ) -> Result<(), CreateRevertPreviewBranchError>;
     /// Whether there is currently a revert preview active.
     fn is_revert_preview_branch_active(&self) -> bool;
     /// Whether there is currently a merge preview active.
@@ -149,10 +192,13 @@ pub trait ProjectViewModel {
     /// Get a [ChangeViewModel] for a given commit hash, or [None] if we haven't ingested the desired commit.
     fn get_change(&self, hash: ChangeHash) -> Option<&impl ChangeViewModel>;
 
-    /// Get a [DiffViewModel] for a given commit hash, or [None] if the commit has no valid diff.
-    fn get_diff(&self, selected_hash: ChangeHash) -> Option<impl DiffViewModel>;
-    /// Get a [DiffViewModel] for the current branch against its fork, or [None] if the current branch is main.
-    fn get_default_diff(&self) -> Option<impl DiffViewModel>;
+    /// Get a [DiffViewModel] for a given commit hash, containing a [DiffStatus] of the diff's loading status.
+    fn try_get_diff(
+        &self,
+        selected_hash: ChangeHash,
+    ) -> Result<impl DiffViewModel, RequestDiffError>;
+    /// Get a [DiffViewModel] for the default display, containing a [DiffStatus] of the diff's loading status.
+    fn try_get_default_diff(&self) -> Result<impl DiffViewModel, RequestDiffError>;
 
     fn get_current_ref(&self) -> Option<HistoryRef>;
     /// Get the file at a given history reference.
@@ -209,8 +255,8 @@ pub trait BranchViewModel {
 
 /// API surface for a Diff exposed to the UI.
 pub trait DiffViewModel {
-    /// Get the [DiffWrapper] containing the diff data.
-    fn get_diff(&self) -> &ProjectDiff;
+    /// Get the [ProjectDiff] containing the diff data.
+    fn get_diff(&self) -> &DiffStatus;
     /// Get the display title of the diff.
     fn get_title(&self) -> &String;
 }

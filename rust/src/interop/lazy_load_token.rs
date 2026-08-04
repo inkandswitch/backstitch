@@ -1,15 +1,15 @@
 use godot::prelude::*;
 use godot::{
-    classes::{RefCounted, Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
+    classes::{Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
     global,
     obj::Base,
     prelude::GodotClass,
 };
 
 #[derive(GodotClass, Debug)]
-#[class(base=RefCounted, tool)]
+#[class(base=Resource, tool)]
 pub struct LazyLoadToken {
-    base: Base<RefCounted>,
+    base: Base<Resource>,
     original_path: Option<String>,
     path: String,
     resource: Option<Gd<Resource>>,
@@ -17,8 +17,8 @@ pub struct LazyLoadToken {
 }
 
 #[godot_api]
-impl IRefCounted for LazyLoadToken {
-    fn init(base: Base<RefCounted>) -> Self {
+impl IResource for LazyLoadToken {
+    fn init(base: Base<Resource>) -> Self {
         Self {
             base,
             path: String::new(),
@@ -32,6 +32,7 @@ impl IRefCounted for LazyLoadToken {
 impl LazyLoadToken {
     pub fn new(path: String, original_path: Option<String>) -> Gd<LazyLoadToken> {
         let mut tok = Self::new_gd();
+        tok.set_path_cache(&GString::from(original_path.as_ref().unwrap_or(&path)));
         tok.bind_mut().set_paths(path, original_path);
         tok
     }
@@ -44,7 +45,7 @@ impl LazyLoadToken {
 #[godot_api]
 impl LazyLoadToken {
     #[func]
-    fn is_started(&self) -> bool {
+    pub fn is_started(&self) -> bool {
         if self.failed
             || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
         {
@@ -58,7 +59,7 @@ impl LazyLoadToken {
     }
 
     #[func]
-    fn is_load_finished(&self) -> bool {
+    pub fn is_load_finished(&self) -> bool {
         if self.failed
             || self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid()
         {
@@ -85,11 +86,9 @@ impl LazyLoadToken {
         if self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid() {
             return self.resource.clone();
         }
-        // NOTE: This always starts a load_threaded_request due to a race condition in gdext
-        // The only downside is that, with how we already started one in the differ,
-        // we will increment the load count twice and the resource will stick around in the cache
-        // TODO: replace this with self.is_started() when gdext is fixed
-        if !self.failed {
+        // NOTE: This previously caused race conditions in gdext that seem to be fixed now in the current gdext version;
+        // if this happens again, change this back to `!self.failed`
+        if !self.is_started() {
             self.start_load();
         }
         if self.failed {

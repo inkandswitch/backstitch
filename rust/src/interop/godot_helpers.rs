@@ -1,12 +1,16 @@
 use crate::fs::file_utils::FileContent;
-use crate::helpers::utils::ChangedFile;
+use crate::helpers::history_ref::HistoryRef;
+use crate::helpers::utils::{ChangedFile, DiffId};
 use crate::parser::godot_parser::TypeOrInstance;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
+use crate::project::project_base::DiffStatus;
 use automerge::ChangeHash;
 use godot::builtin::Variant;
+use godot::classes::{Control, Font, StyleBox};
 use godot::meta::conv::{ArgPassing, ByValue};
 use godot::meta::shape::GodotShape;
 use godot::meta::{GodotType, ToArg};
+use godot::obj::WithBaseField;
 use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
 use samod::DocumentId;
 use std::fmt::Display;
@@ -129,6 +133,34 @@ impl ToGodotExt for PathBuf {
     }
 }
 
+impl GodotConvert for HistoryRef {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for HistoryRef {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
+impl GodotConvert for DiffId {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffId {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
 // I couldn't figure out how to use GodotConvert with impls, so just use methods for these.
 
 pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDictionary {
@@ -146,10 +178,10 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
     }
 }
 
-pub(crate) fn diff_view_model_to_dict(diff: &impl DiffViewModel) -> VarDictionary {
+pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary {
     vdict! {
         "dict" => &diff.get_diff().to_godot(),
-        "title" => &diff.get_title().to_variant()
+        "title" => &diff.get_title().to_variant(),
     }
 }
 
@@ -260,4 +292,70 @@ impl ToVariantExt for Option<TypeOrInstance> {
             None => Variant::nil(),
         }
     }
+}
+
+impl GodotConvert for DiffStatus {
+    type Via = Variant;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> Variant {
+        match self {
+            DiffStatus::Loading => "loading".to_variant(),
+            DiffStatus::Ready(project_diff) => project_diff.to_variant(),
+        }
+    }
+}
+
+pub trait ThemeGetter: WithBaseField
+where
+    Self::Base: Inherits<Control>,
+{
+    fn get_theme_constant(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_constant_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_stylebox(&self, name: &str, theme_type: &str) -> Option<Gd<StyleBox>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_stylebox_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_color(&self, name: &str, theme_type: &str) -> Color {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_color_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font(&self, name: &str, theme_type: &str) -> Option<Gd<Font>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font_size(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_size_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+}
+
+impl<T> ThemeGetter for T
+where
+    T: WithBaseField,
+    T::Base: Inherits<Control>,
+{
 }

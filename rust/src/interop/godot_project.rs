@@ -6,7 +6,10 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project_api::{BranchViewModel, ProjectViewModel};
+use crate::project::project_api::{
+    BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
+    ProjectViewModel, RequestDiffError,
+};
 use crate::project::project_base::{GodotProjectSignal, Project};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
@@ -18,6 +21,7 @@ use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
+use godot::global::Error;
 use godot::prelude::*;
 use samod::DocumentId;
 use std::collections::HashSet;
@@ -193,6 +197,9 @@ impl GodotProject {
 
     #[signal]
     fn create_failed();
+
+    #[signal]
+    fn diff_generated(diff_id: GString, diff: VarDictionary);
 
     #[func]
     fn has_user_name(&self) -> bool {
@@ -373,8 +380,18 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_merge_preview_branch(&mut self) {
-        self.project.create_merge_preview_branch();
+    fn create_merge_preview_branch(&mut self) -> Error {
+        match self.project.create_merge_preview_branch() {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating merge preview branch: {e}");
+                match e {
+                    CreateMergePreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateMergePreviewBranchError::NoChangesToMerge => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
+        }
     }
 
     #[func]
@@ -386,9 +403,21 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_revert_preview_branch(&mut self, head: String) {
-        if let Ok(hash) = ChangeHash::from_str(&head) {
-            self.project.create_revert_preview_branch(hash);
+    fn create_revert_preview_branch(&mut self, head: String) -> Error {
+        let Ok(hash) = ChangeHash::from_str(&head) else {
+            godot_error!("Invalid hash: {head}");
+            return Error::ERR_INVALID_PARAMETER;
+        };
+        match self.project.create_revert_preview_branch(hash) {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating revert preview branch: {e}");
+                match e {
+                    CreateRevertPreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateRevertPreviewBranchError::NoChangesToRevert => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
         }
     }
 
@@ -434,22 +463,42 @@ impl GodotProject {
     }
 
     #[func]
-    fn get_diff(&self, selected_hash: String) -> Variant {
-        let Ok(hash) = ChangeHash::from_str(&selected_hash) else {
+    fn try_get_diff(&self, hash: String) -> Variant {
+        let Ok(hash) = ChangeHash::from_str(&hash) else {
+            godot_error!("Invalid hash: {hash}");
             return Variant::nil();
         };
-        let Some(diff) = ProjectViewModel::get_diff(&self.project, hash) else {
-            return Variant::nil();
-        };
-        Variant::from(diff_view_model_to_dict(&diff))
+        match self.project.try_get_diff(hash) {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Err(e) => {
+                Self::consume_diff_error(e);
+                Variant::nil()
+            }
+        }
     }
 
     #[func]
-    fn get_default_diff(&self) -> Variant {
-        let Some(diff) = self.project.get_default_diff() else {
-            return Variant::nil();
+    fn try_get_default_diff(&self) -> Variant {
+        match self.project.try_get_default_diff() {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Err(e) => {
+                Self::consume_diff_error(e);
+                Variant::nil()
+            }
+        }
+    }
+
+    fn consume_diff_error(e: RequestDiffError) {
+        match e {
+            RequestDiffError::NoDiffAvailable => {}
+            RequestDiffError::NoBranchCheckedOut => {
+                // Don't surface to the user, just log it
+                tracing::error!("Error requesting default diff: {e}");
+            }
+            _ => {
+                godot_error!("Error requesting default diff: {e}");
+            }
         };
-        Variant::from(diff_view_model_to_dict(&diff))
     }
 
     #[func]

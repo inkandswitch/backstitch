@@ -7,5 +7,6 @@ pub mod godot_accessors;
 mod godot_diffs;
 pub mod godot_helpers;
 mod godot_project;
+mod lazy_load_editor_property;
 mod lazy_load_token;
 mod text_differ_view;

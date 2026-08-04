@@ -2,6 +2,8 @@ set dotenv-load
 set dotenv-filename := "build.env"
 set dotenv-required
 
+export RUST_BACKTRACE := "full"
+
 # Get the default architecture
 default_arch := shell("rustc --version --verbose | grep host | awk '{print $2}'")
 

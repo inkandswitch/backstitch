@@ -93,6 +93,9 @@ var all_changes_count = 0
 var history_item_count = 0
 var history_saved_selection = null # hash string
 
+var last_diff = null
+var diff_poll_timeout = -1
+
 const CREATE_BRANCH_IDX = 1
 const MERGE_BRANCH_IDX = 2
 
@@ -349,7 +352,7 @@ func bind_listeners(godot_project):
 	for item in action_menu_button.get_popup().get_item_count():
 		var menu: PopupMenu = action_menu_button.get_popup()
 		var icon = menu.get_item_icon(item)
-		if icon:
+		if is_instance_valid(icon):
 			icon.base_scale = EditorInterface.get_editor_scale()
 
 
@@ -401,6 +404,11 @@ func _process(delta: float) -> void:
 		for callable in callables:
 			callable.call()
 		waiting_callables.clear()
+
+	if diff_poll_timeout > 0:
+		diff_poll_timeout -= delta
+		if diff_poll_timeout <= 0:
+			update_diff()
 
 func init() -> void:
 	print("Sidebar initialized!")
@@ -525,7 +533,8 @@ func create_merge_preview_branch():
 		return
 
 	task_modal.do_task("Creating merge preview", func():
-		GodotProject.create_merge_preview_branch()
+		if GodotProject.create_merge_preview_branch() != OK:
+			return
 		await branch_checked_out
 	)
 
@@ -536,7 +545,8 @@ func create_revert_preview_branch(head):
 	if !GodotProject.can_create_revert_preview_branch(head): return
 
 	task_modal.do_task("Creating revert preview", func():
-		GodotProject.create_revert_preview_branch(head)
+		if GodotProject.create_revert_preview_branch(head) != OK:
+			return
 		await branch_checked_out
 	)
 
@@ -838,7 +848,6 @@ func update_highlight_changes(diff: Dictionary) -> void:
 		else:
 			HighlightChangesLayer.remove_highlight(edited_root)
 
-var last_diff = null
 
 func _on_node_hovered(file_path: String, node_paths: Array) -> void:
 	var node: Node = EditorInterface.get_edited_scene_root()
@@ -960,30 +969,32 @@ func _on_history_tree_empty_clicked(_vec2, _idx):
 func update_diff():
 	if !GodotProject.has_project(): return
 	var selected_item = history_tree.get_selected()
-	var diff;
+	var diff = null
+	var is_change := false
 
 	if (selected_item == null
 			and !(GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active())):
-
 		# TODO: remove this, and the auto generate setting, when we fix diff speed
 		if _auto_generate_diffs():
-			diff = GodotProject.get_default_diff()
-			show_diff(diff, false)
-		else:
-			show_diff(null, false)
+			diff = GodotProject.try_get_default_diff()
 	elif (selected_item == null
 			or GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active()):
-		diff = GodotProject.get_default_diff()
-		show_diff(diff, false)
+		diff = GodotProject.try_get_default_diff()
 	else:
 		var hash = get_history_item_hash(selected_item)
-		diff = GodotProject.get_diff(hash)
-		if (!diff):
-			show_invalid_diff()
-			return
-		show_diff(diff, true)
+		diff = GodotProject.try_get_diff(hash)
+		is_change = true
+
+	if diff == null:
+		show_diff(null, false)
+	elif diff.dict is String && diff.dict == "loading":
+		diff_poll_timeout = 0.2
+		show_diff(null, false)
+	else:
+		diff_poll_timeout = -1
+		show_diff(diff, is_change)
 
 # Inspect the diff dictionary.
 func show_diff(diff, is_change) -> void:

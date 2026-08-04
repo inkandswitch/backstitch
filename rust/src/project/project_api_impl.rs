@@ -4,22 +4,23 @@ use automerge::ChangeHash;
 use samod::DocumentId;
 
 use crate::{
-    diff::differ::ProjectDiff,
     fs::file_utils::FileContent,
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
-            human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffId, DiffWrapper,
+            exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
+        branch_db::DbError,
         project_api::{
-            BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
-            SyncStatus,
+            BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
+            CreateRevertPreviewBranchError, DiffViewModel, ProjectStartError, ProjectViewModel,
+            RequestDiffError, SyncStatus,
         },
-        project_base::{Project, ProjectCreateMode},
+        project_base::{DiffStatus, Project, ProjectCreateMode},
     },
 };
 
@@ -27,7 +28,7 @@ use crate::{
 // In general I kind of hate this, but I guess a sync/async divide is never going to look pretty.
 impl ProjectViewModel for Project {
     fn has_project(&self) -> bool {
-        self.driver.blocking_lock().is_some()
+        self.driver.blocking_read().is_some()
     }
 
     fn get_project_id(&self) -> Option<DocumentId> {
@@ -130,23 +131,28 @@ impl ProjectViewModel for Project {
         }
     }
 
-    fn create_merge_preview_branch(&mut self) {
+    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
-            return;
+            return Err(CreateMergePreviewBranchError::NoCheckedOutBranch);
         };
         let Some(fork_info) = checked_out_branch.forked_from else {
-            return;
+            return Err(CreateMergePreviewBranchError::NoForkedFrom);
         };
 
         let source = checked_out_branch.id;
         let target = fork_info.branch().clone();
         self.with_driver_blocking("Create merge preview branch", |driver| async move {
             driver
-                .as_ref()?
+                .as_ref()
+                .ok_or_else(|| CreateMergePreviewBranchError::NoDriver)?
                 .create_merge_preview_branch(&source, &target)
-                .await;
-            Some(())
-        });
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateMergePreviewBranchError::NoChangesToMerge,
+                    _ => CreateMergePreviewBranchError::DbError(Box::new(e)),
+                })?;
+            Ok(())
+        })
     }
 
     fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool {
@@ -161,18 +167,27 @@ impl ProjectViewModel for Project {
         }
         false
     }
-    fn create_revert_preview_branch(&mut self, head: ChangeHash) {
+
+    fn create_revert_preview_branch(
+        &mut self,
+        head: ChangeHash,
+    ) -> Result<(), CreateRevertPreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
-            return;
+            return Err(CreateRevertPreviewBranchError::NoCheckedOutBranch);
         };
 
         self.with_driver_blocking("Create revert preview branch", move |driver| async move {
             driver
-                .as_ref()?
+                .as_ref()
+                .ok_or_else(|| CreateRevertPreviewBranchError::NoDriver)?
                 .create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head]))
-                .await;
-            Some(())
-        });
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateRevertPreviewBranchError::NoChangesToRevert,
+                    _ => CreateRevertPreviewBranchError::DbError(Box::new(e)),
+                })?;
+            Ok(())
+        })
     }
 
     fn is_revert_preview_branch_active(&self) -> bool {
@@ -435,84 +450,16 @@ impl ProjectViewModel for Project {
         self.changes.get(&hash)
     }
 
-    fn get_default_diff(&self) -> Option<impl DiffViewModel> {
-        let (branch_state, heads_after) =
-            self.with_driver_blocking("Get default diff", |driver| async move {
-                let branch_db = driver.as_ref()?.get_branch_db();
-
-                let branch = branch_db.get_checked_out_ref().await?.branch().clone();
-
-                let state = branch_db
-                    .get_branch_state(&branch)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error getting branch state default diff {e}"))
-                    .ok()?;
-                let synced_heads = branch_db
-                    .get_latest_ref_on_branch(&branch)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error getting default diff {e}"))
-                    .ok()?
-                    .heads()
-                    .clone();
-                Some((state, synced_heads))
-            })?;
-
-        // There is no default diff for the main branch!
-        if branch_state.id == self.get_main_branch().unwrap().get_id() {
-            return None;
-        }
-
-        let heads_before = if self.is_merge_preview_branch_active() {
-            branch_state.merge_into.as_ref()?.heads()
-        }
-        // revert preview and regular branch both use forked_at
-        else {
-            branch_state.forked_from.as_ref()?.heads()
-        };
-
-        // generate the summary
-
-        let title = if self.is_merge_preview_branch_active() {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            let target_name = self
-                .get_branch(branch_state.merge_into.as_ref()?.branch())?
-                .get_name();
-            format!("Showing changes for {} -> {}", source_name, target_name)
-        } else if self.is_revert_preview_branch_active() {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            // assume reverted_to is always just 1 hash
-            let short_heads = &branch_state.reverted_to?.heads().first()?.to_string()[..7];
-            format!(
-                "Showing changes for {} reverted to {}",
-                source_name, short_heads
-            )
-        } else {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            format!(
-                "Showing changes from {} -> {}",
-                source_name, branch_state.name
-            )
-        };
-
-        let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
-        let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
-
-        Some(DiffWrapper {
-            diff: self.get_cached_diff(before, after),
-            title,
-        })
-    }
-
-    fn get_diff(&self, selected_hash: ChangeHash) -> Option<impl DiffViewModel> {
-        let change = self.changes.get(&selected_hash)?;
+    fn try_get_diff(
+        &self,
+        selected_hash: ChangeHash,
+    ) -> Result<impl DiffViewModel, RequestDiffError> {
+        let change = self
+            .changes
+            .get(&selected_hash)
+            .ok_or(RequestDiffError::CommitNotFound)?;
         if change.is_setup() {
-            return None;
+            return Err(RequestDiffError::NoDiffAvailable);
         }
         let heads_before;
         let heads_after = vec![change.hash];
@@ -526,25 +473,141 @@ impl ProjectViewModel for Project {
             }
         }
 
-        let branch_state = self.get_checked_out_branch_state()?;
+        let branch_state = self
+            .get_checked_out_branch_state()
+            .ok_or(RequestDiffError::NoBranchCheckedOut)?;
 
         if let Some(prev_hash) = prev_hash {
             heads_before = vec![prev_hash];
         } else {
-            heads_before = branch_state.forked_from.as_ref()?.heads().clone();
+            heads_before = branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+                .clone();
         }
 
         let before = HistoryRef::new(branch_state.id.clone(), heads_before);
         let after = HistoryRef::new(branch_state.id.clone(), heads_after);
+        let title = format!(
+            "Showing changes from {} - {}",
+            change.get_summary(),
+            change.get_human_timestamp()
+        );
+        let diff = self.request_diff(DiffId::new(before, after))?;
+        Ok(DiffWrapper { title, diff })
+    }
 
-        Some(DiffWrapper {
-            diff: self.get_cached_diff(before, after),
-            title: format!(
-                "Showing changes from {} - {}",
-                change.get_summary(),
-                change.get_human_timestamp()
-            ),
-        })
+    fn try_get_default_diff(&self) -> Result<impl DiffViewModel, RequestDiffError> {
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return Err(RequestDiffError::NoBranchCheckedOut);
+        };
+        let doc_id = branch_state.id.clone();
+
+        let heads_after = self.with_driver_blocking("Get default diff", |driver| async move {
+            Ok(driver
+                .as_ref()
+                .ok_or(RequestDiffError::NoDriver)?
+                .get_branch_db()
+                .get_latest_ref_on_branch(&doc_id)
+                .await
+                .map_err(|_| RequestDiffError::NoBranchCheckedOut)?
+                .heads()
+                .clone())
+        })?;
+
+        // There is no default diff for the main branch!
+        if branch_state.id == self.get_main_branch().unwrap().get_id() {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        let heads_before = if self.is_merge_preview_branch_active() {
+            branch_state
+                .merge_into
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        }
+        // revert preview and regular branch both use forked_at
+        else {
+            branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        };
+
+        if heads_before == &heads_after {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        // generate the summary
+        let title = if self.is_merge_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            let target_name = self
+                .get_branch(
+                    branch_state
+                        .merge_into
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            format!("Showing changes for {} -> {}", source_name, target_name)
+        } else if self.is_revert_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+
+            let short_heads = &branch_state
+                .reverted_to
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .short_heads();
+            format!(
+                "Showing changes for {} reverted to {}",
+                source_name, short_heads
+            )
+        } else {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            format!(
+                "Showing changes from {} -> {}",
+                source_name, branch_state.name
+            )
+        };
+
+        let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
+        let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
+
+        let diff = self.request_diff(DiffId::new(before, after))?;
+        Ok(DiffWrapper { diff, title })
     }
 
     fn get_current_ref(&self) -> Option<HistoryRef> {
@@ -740,7 +803,7 @@ impl BranchViewModel for BranchWrapper {
 }
 
 impl DiffViewModel for DiffWrapper {
-    fn get_diff(&self) -> &ProjectDiff {
+    fn get_diff(&self) -> &DiffStatus {
         &self.diff
     }
 

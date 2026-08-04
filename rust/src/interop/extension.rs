@@ -8,7 +8,6 @@ use godot::{
 use crate::{
     helpers::tracing::initialize_tracing,
     interop::{
-        backstitch_config::BackstitchConfig,
         backstitch_resource_loader::{BackstitchResourceFormatSaver, BackstitchResourceLoader},
         godot_project::GodotProject,
     },
@@ -28,8 +27,6 @@ unsafe impl ExtensionLibrary for MyExtension {
         if level == InitStage::Scene {
             initialize_tracing();
             tracing::info!("** on_level_init: Scene");
-            Engine::singleton()
-                .register_singleton("BackstitchConfig", &BackstitchConfig::new_alloc());
             Engine::singleton().register_singleton("GodotProject", &GodotProject::new_alloc());
             let loader = BackstitchResourceLoader::new_gd();
             let saver = BackstitchResourceFormatSaver::new_gd();
@@ -72,7 +69,6 @@ unsafe impl ExtensionLibrary for MyExtension {
             }
             tracing::info!("** on_level_deinit: Scene");
             unregister_singleton("GodotProject");
-            unregister_singleton("BackstitchConfig");
         }
     }
 }

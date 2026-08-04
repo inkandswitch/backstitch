@@ -1,8 +1,6 @@
 use crate::fs::file_utils::{FileContent, FileSystemEvent};
 use crate::helpers::history_ref::HistoryRef;
-use crate::interop::godot_accessors::{
-    BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
-};
+use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
@@ -15,6 +13,7 @@ use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;
 use godot::classes::EditorInterface;
+use godot::classes::Os;
 use godot::classes::ProjectSettings;
 use godot::classes::ResourceLoader;
 use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
@@ -660,6 +659,12 @@ impl INode for GodotProject {
                     .globalize_path("res://")
                     .to_string()
                     .into(),
+                // the user data dir points at "user://", which is project-specific, so take its parent (which should be `app_userdata`)
+                Os::singleton()
+                    .get_user_data_dir()
+                    .get_base_dir()
+                    .to_string()
+                    .into(),
             ),
             pending_editor_update: PendingEditorUpdate::default(),
             reload_project_settings_callable: None,
@@ -676,8 +681,7 @@ impl INode for GodotProject {
             // if we rebase and this fails, we're going to have to do something else
             panic!("Failed to steal reload methods from dialog signal handlers");
         }
-        let project_id = BackstitchConfigAccessor::get_project_doc_id();
-        if project_id.is_empty() {
+        if self.project.get_project_doc_id().is_none() {
             tracing::info!("Backstitch config has no project id, not autostarting...");
             return;
         }
@@ -709,8 +713,7 @@ impl INode for GodotProject {
         if self.deferred_start > 0 {
             self.deferred_start -= 1;
             if self.deferred_start == 0
-                && let Ok(id) =
-                    DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
+                && let Some(id) = self.project.get_project_doc_id()
                 && let Err(e) = self.project.load_project(&id, true)
             {
                 tracing::error!("Error autostarting {:?}", e);

@@ -7,18 +7,21 @@ use url::Url;
 
 const MINIMUM_SERVER_VERSION: &str = "2.0.0";
 
+#[derive(Clone)]
 pub struct ServerInfo {
     pub url: Url,
     pub auth: AuthConfig,
     pub webviewer: Option<Url>,
 }
 
+#[derive(Clone)]
 pub struct OidcAuthConfig {
     pub issuer: Url,
     pub redirect_port: u16,
     pub client_id: ClientId,
 }
 
+#[derive(Clone)]
 pub enum AuthConfig {
     Oidc(OidcAuthConfig),
     None,

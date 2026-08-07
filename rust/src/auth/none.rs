@@ -3,6 +3,7 @@ use futures::{
     StreamExt,
     stream::{self, BoxStream},
 };
+use secrecy::SecretString;
 
 use crate::auth::server_manager::{AuthError, AuthStatus, Authenticator, UserInfo};
 
@@ -18,6 +19,10 @@ impl UserInfo for NoneUserInfo {
 
     fn is_valid(&self) -> bool {
         true
+    }
+
+    fn bearer_token(&self) -> Option<SecretString> {
+        None
     }
 
     fn clone_box(&self) -> Box<dyn UserInfo> {

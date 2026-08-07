@@ -1,3 +1,4 @@
+use crate::auth::server_manager::AuthStatus;
 use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
@@ -720,7 +721,7 @@ impl Driver {
         self.inner.fs_index.clone()
     }
 
-    // awkward
+    // awkward; turn this into a stream and DON'T provide the full file content!!
     pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
         let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
@@ -730,7 +731,7 @@ impl Driver {
         fs_changes
     }
 
-    // also awkward
+    // also awkward; return these as streams
     pub fn get_changes_rx(&self) -> watch::Receiver<Vec<CommitInfo>> {
         self.inner.change_ingester.get_changes_rx()
     }
@@ -742,6 +743,8 @@ impl Driver {
     pub fn get_connection_info_rx(&self) -> watch::Receiver<Option<ConnectionInfo>> {
         self.inner.peer_watcher.subscribe()
     }
+
+    pub fn get_auth_status_rx(&self) -> watch::Receiver<AuthStatus> {}
 }
 
 impl DriverInner {

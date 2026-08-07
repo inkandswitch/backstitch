@@ -3,17 +3,13 @@ use std::collections::{HashMap, HashSet};
 use automerge::ChangeHash;
 use samod::DocumentId;
 use thiserror::Error;
-use tokio::task::JoinError;
 
 use crate::{
-    fs::file_utils::FileContent,
-    helpers::{history_ref::HistoryRef, utils::ChangedFile},
+    fs::file_utils::FileContent, helpers::history_ref::HistoryRef,
     project::project_base::DiffStatus,
 };
 
 pub use crate::project::branch_db::DbError;
-pub use crate::project::connection::RemoteConnectionError;
-pub use crate::project::driver::{DriverCreateError, ProjectLoadError};
 
 /// Represents synchronization status for a project.
 pub enum SyncStatus {
@@ -51,41 +47,6 @@ pub enum CreateMergePreviewBranchError {
     NoChangesToMerge,
     #[error(transparent)]
     DbError(#[from] Box<DbError>),
-}
-
-#[derive(Error, Debug)]
-pub enum ProjectStartError {
-    #[error("there wasn't a created driver")]
-    NoDriver,
-    #[error(transparent)]
-    DriverLoad(Box<ProjectLoadError>),
-    #[error(transparent)]
-    DriverCreate(#[from] DriverCreateError),
-    #[error(transparent)]
-    Connection(#[from] RemoteConnectionError),
-    #[error(transparent)]
-    Join(#[from] JoinError),
-    #[error(
-        "we couldn't find a document of the given ID on your computer or on the provided server"
-    )]
-    DocumentIdNotFound,
-    #[error(
-        "we couldn't find the referenced main branch on your computer or on the provided server"
-    )]
-    MainBranchNotFound,
-    #[error(
-        "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \
-        The only supported schemes are http:// and https://."
-    )]
-    ServerUrlInvalid(String),
-    #[error("the document ID {0} is invalid!")]
-    DocumentIdInvalid(String),
-}
-
-impl From<ProjectLoadError> for ProjectStartError {
-    fn from(value: ProjectLoadError) -> Self {
-        Self::DriverLoad(Box::new(value))
-    }
 }
 
 #[derive(Error, Debug, Clone)]
@@ -128,21 +89,17 @@ pub trait ProjectViewModel {
     fn has_project(&self) -> bool;
     /// Get the current project [DocumentId], if it exists. Otherwise, return [None]
     fn get_project_id(&self) -> Option<DocumentId>;
-    /// Creates a new project.
-    fn new_project(&mut self) -> Result<(), ProjectStartError>;
-    /// Loads a project, given a [DocumentId]. If `autostart` is true, this is treated as automatically restarting a loaded project.
+    /// Starts the creation of a new project, in the background.
+    fn new_project(&mut self);
+    /// Starts the load of a project, in the background, given a [DocumentId].
+    /// If `autostart` is true, this is treated as automatically restarting a loaded project.
     /// Otherwise, it behaves as if the user is loading into a project.
-    /// If this returns an error, it contains a helpful [ProjectStartError] error message that should be propagated to the user.
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError>;
-
-    /// Get the current unresolved local changes from the project.
-    /// We'll need to ask the user if they want to check these in.
-    fn local_changes(&self) -> Vec<ChangedFile>;
+    fn load_project(&mut self, id: &DocumentId, autostart: bool);
 
     /// Check in the unresolved local changes to the project.
-    fn checkin_local_changes(&mut self);
+    fn check_in_local_changes(&self);
     /// Discard the local changes, reverting the project to its canonical state.
-    fn discard_local_changes(&mut self);
+    fn discard_local_changes(&self);
 
     /// Gets the current project [SyncStatus].
     fn get_sync_status(&self) -> SyncStatus;

@@ -8,19 +8,20 @@ use crate::{
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, ChangedFile, CommitInfo, DiffId, DiffWrapper,
-            exact_human_readable_timestamp, human_readable_timestamp,
+            BranchWrapper, CommitInfo, DiffId, DiffWrapper, exact_human_readable_timestamp,
+            human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
+        LocalChangesResult, Project,
         branch_db::DbError,
         project_api::{
             BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
-            CreateRevertPreviewBranchError, DiffViewModel, ProjectStartError, ProjectViewModel,
-            RequestDiffError, SyncStatus,
+            CreateRevertPreviewBranchError, DiffViewModel, ProjectViewModel, RequestDiffError,
+            SyncStatus,
         },
-        project_base::{DiffStatus, Project, ProjectCreateMode},
+        project_base::{DiffStatus, ProjectCreateMode},
     },
 };
 
@@ -42,60 +43,51 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) -> Result<(), ProjectStartError> {
+    fn new_project(&mut self) {
         if self.has_project() {
-            return Ok(());
+            return;
         }
         self.start(ProjectCreateMode::New)
     }
 
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
+    fn load_project(&mut self, id: &DocumentId, autostart: bool) {
         if self.has_project() {
-            return Ok(());
+            return;
         }
         BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
         self.start(if autostart {
             ProjectCreateMode::AutoLoaded
         } else {
             ProjectCreateMode::ManuallyLoaded
-        })?;
-        Ok(())
+        });
     }
 
-    fn local_changes(&self) -> Vec<ChangedFile> {
-        self.local_changes.clone()
+    fn check_in_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't check in local changes, because we don't have anything to check in!"
+            );
+            return;
+        };
+
+        tx.send(LocalChangesResult::CheckIn);
     }
 
-    fn checkin_local_changes(&mut self) {
-        let branch = self.initial_branch.clone();
-        let res: Result<(), ProjectStartError> =
-            self.with_driver_blocking("Checkin local changes", |driver| async move {
-                let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
-                driver.commit_local_changes(branch.as_ref()).await?;
-                Ok(())
-            });
+    fn discard_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't discard local changes, because we don't have anything to check in!"
+            );
+            return;
+        };
 
-        // TODO: Do we want to give up and propagate this to the user, and clear the project?
-        // This could turn into a discard, depending on the error. Idk what it'd be though
-        match res {
-            Ok(_) => {}
-            Err(e) => tracing::error!(
-                "Unknown error while checking in local changes. Proceeding with start. {e}"
-            ),
-        }
-
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start: {e}"),
-        }
+        tx.send(LocalChangesResult::Discard);
     }
 
-    fn discard_local_changes(&mut self) {
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start. {e}"),
-        }
-    }
     fn clear_project(&mut self) {
         if !self.has_project() {
             return;

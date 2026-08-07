@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt, stream::BoxStream};
+use secrecy::SecretString;
 use thiserror::Error;
 use tokio::{
     select,
@@ -24,6 +25,8 @@ pub trait UserInfo: Send + Sync {
     fn username(&self) -> String;
     /// Whether the user is valid. This might be false if the user needs an authentication refresh.
     fn is_valid(&self) -> bool;
+    /// Get the authorized bearer token to include with HTTP requests, if relevant.
+    fn bearer_token(&self) -> Option<SecretString>;
     fn clone_box(&self) -> Box<dyn UserInfo>;
 }
 

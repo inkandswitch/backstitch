@@ -62,7 +62,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -73,7 +73,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -176,11 +176,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "automerge"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09b78abcbba93428b9465b26cb2816a5b4654cce507f099a84a8c1b311cb3633"
+dependencies = [
+ "cfg-if",
+ "flate2",
+ "getrandom 0.4.2",
+ "hex",
+ "hexane",
+ "itertools 0.14.0",
+ "leb128",
+ "rand 0.10.1",
+ "rustc-hash",
+ "serde",
+ "sha2 0.11.0",
+ "smol_str",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "tracing",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "autosurgeon"
 version = "0.11.0"
 source = "git+https://github.com/LilithSilver/autosurgeon.git?branch=upgrade-automerge#e8815cc45a3976ddd99f3fd8328c3320ec082ea5"
 dependencies = [
- "automerge",
+ "automerge 0.9.0",
  "autosurgeon-derive",
  "similar",
  "thiserror 1.0.69",
@@ -279,7 +303,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
- "automerge",
+ "automerge 0.9.0",
  "autosurgeon",
  "axum",
  "base64 0.22.1",
@@ -311,6 +335,7 @@ dependencies = [
  "rlimit",
  "safer-ffi",
  "samod",
+ "secrecy",
  "semver 1.0.28",
  "serde",
  "serde_json",
@@ -1113,7 +1138,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2531,7 +2556,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2941,7 +2966,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3026,7 +3051,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3369,7 +3394,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3427,7 +3452,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3502,12 +3527,11 @@ dependencies = [
 
 [[package]]
 name = "samod"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ff902577d864df4bd40b9129a853a7c8fb92ae7aeef8dc6aa19b6382a77053"
+version = "0.12.3"
+source = "git+https://github.com/LilithSilver/samod.git?branch=bearer-token#4d5516ddbdda5c8505e99836daca87482539b011"
 dependencies = [
  "async-channel",
- "automerge",
+ "automerge 0.10.0",
  "bytes",
  "chrono",
  "futures",
@@ -3526,11 +3550,10 @@ dependencies = [
 
 [[package]]
 name = "samod-core"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803ab5f5cc21bc2892c8333e8fa91ef1efb35da22c62e3a60568fd7ccf707878"
+version = "0.12.3"
+source = "git+https://github.com/LilithSilver/samod.git?branch=bearer-token#4d5516ddbdda5c8505e99836daca87482539b011"
 dependencies = [
- "automerge",
+ "automerge 0.10.0",
  "base64 0.21.7",
  "bs58",
  "hex",
@@ -3594,6 +3617,15 @@ dependencies = [
  "generic-array",
  "pkcs8",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
  "zeroize",
 ]
 
@@ -3925,7 +3957,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4111,7 +4143,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4931,7 +4963,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

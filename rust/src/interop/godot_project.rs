@@ -6,11 +6,12 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
+use crate::project::Project;
 use crate::project::project_api::{
     BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
     ProjectViewModel, RequestDiffError,
 };
-use crate::project::project_base::{GodotProjectSignal, Project};
+use crate::project::project_base::GodotProjectSignal;
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;

@@ -55,7 +55,7 @@ rlimit = "0.10.2"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
-samod = { version = "0.10.0", features = ["tokio", "threadpool", "tungstenite"] }
+samod = { git = "https://github.com/LilithSilver/samod.git", branch = "bearer-token", features = ["tokio", "threadpool", "tungstenite"] }
 rayon = "1.11.0"
 regex = "1.12.2"
 tokio-tungstenite = "0.27.0"
@@ -78,6 +78,7 @@ html-escape = "0.2.14"
 reqwest = { version = "0.13.4", features = ["json"] }
 semver = { version = "1.0.28", features = ["serde"] }
 async-trait = "0.1.91"
+secrecy = "0.10.3"
 
 [build-dependencies]
 cbindgen = "^0.27"

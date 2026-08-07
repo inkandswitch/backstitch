@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use futures::{Stream, StreamExt, stream::BoxStream};
+use futures::{StreamExt, stream::BoxStream};
 use openidconnect::{
     AccessToken, AccessTokenHash, ClaimsVerificationError, ClientId, ConfigurationError, CsrfToken,
     IssuerUrl, LanguageTag, Nonce, OAuth2TokenResponse, PkceCodeChallenge, RedirectUrl,
@@ -7,6 +7,7 @@ use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
     reqwest,
 };
+use secrecy::SecretString;
 use thiserror::Error;
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
@@ -14,7 +15,7 @@ use tokio_stream::wrappers::WatchStream;
 use crate::auth::{
     handshake::{OidcAuthConfig, ServerInfo},
     redirect_server::{RedirectServer, RedirectServerError},
-    server_manager::{self, AuthError, AuthStatus, Authenticator, UserInfo},
+    server_manager::{AuthError, AuthStatus, Authenticator, UserInfo},
 };
 
 #[derive(Error, Debug)]
@@ -65,6 +66,10 @@ impl UserInfo for OidcUserInfo {
     fn is_valid(&self) -> bool {
         // TODO: implement correctly
         true
+    }
+
+    fn bearer_token(&self) -> Option<SecretString> {
+        Some(self.access_token.secret().into())
     }
 
     fn clone_box(&self) -> Box<dyn UserInfo> {

@@ -1,10 +1,14 @@
 use futures::{Stream, StreamExt};
-use samod::{BackoffConfig, DialerHandle, Repo, Stopped, Url};
+use samod::{BackoffConfig, DialerHandle, Repo, Stopped, Url, websocket::TungsteniteDialer};
+use secrecy::ExposeSecret;
 use thiserror::Error;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
-use crate::helpers::spawn_utils::spawn_named;
+use crate::{
+    auth::{handshake::ServerInfo, server_manager::UserInfo},
+    helpers::spawn_utils::spawn_named,
+};
 
 /// Connects a repo to the remote server. Shuts down when dropped.
 #[derive(Debug)]
@@ -28,12 +32,29 @@ pub enum RemoteConnectionError {
 
 impl RemoteConnection {
     /// Starts a connection to the server.
-    pub async fn new(repo: Repo, mut server_url: Url) -> Result<Self, RemoteConnectionError> {
-        server_url.set_scheme(match server_url.scheme() {
+    pub async fn new(
+        repo: Repo,
+        server_info: &ServerInfo,
+        user_info: &Box<dyn UserInfo>,
+    ) -> Result<Self, RemoteConnectionError> {
+        // TODO (important): Detect authentication failures, re-auth, and reconnect.
+
+        let mut url = server_info
+            .url
+            .join("sync")
+            .expect("something went wrong in joining??");
+        url.set_scheme(match server_url.scheme() {
             "http" => "ws",
             "https" => "wss",
-            _ => panic!("Could not initialize server connection; the URL {server_url} has an invalid scheme (must be http:// or https://)")
+            _ => panic!("Could not initialize server connection; the URL {url} has an invalid scheme (must be http:// or https://)")
         }).expect("something went wrong in scheme setting??");
+
+        TungsteniteDialer::new(
+            url,
+            user_info
+                .bearer_token()
+                .map(|s| s.expose_secret().to_string()),
+        );
 
         let handle = repo.dial_websocket(
             server_url.join("sync").expect("Weird URL parsing error"),

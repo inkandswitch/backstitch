@@ -20,61 +20,48 @@ default = []
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
-automerge = "0.9.0"
-autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch = "upgrade-automerge" }
+automerge = "0.10.0"
+autosurgeon = "0.12.0"
 futures = "0.3.31"
-godot = {version = "0.5.4", features = ["experimental-threads"]}
+godot = { version = "0.5.4", features = ["experimental-threads"] }
 tokio = { version = "1.49.0", features = ["full"] }
 console-subscriber = { version = "0.5.0", optional = true }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-tree-sitter = "0.25.4"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+tree-sitter = "0.26.11"
 tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
 safer-ffi = "0.1.13"
 serde_json = "1.0.138"
-base64 = "0.22"
-lexical = { version = "7.0.5", features = ["format"] }
-num-traits = "0.2.19"
-indexmap = "2.13.0"
 uuid = "1.5.0"
-pretty_assertions = "1.4.1"
-similar = { version = "2.4.0", features = ["unicode"] }
-notify = { version = "8.2.0", features = [
-  "macos_fsevent",
-] }
-notify-debouncer-full = { version = "0.7.0", features = [
-  "macos_fsevent",
-] }
-rand = "0.9.2"
-
-# backstitch_rust_post_build_script = { path = "backstitch_rust_post_build_script" }
+similar = { version = "3.1.1", features = ["unicode"] }
+notify = { version = "8.2.0", features = ["macos_fsevent"] }
+notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
+rand = "0.10.2"
 serde = { version = "1.0", features = ["derive"] }
-md5 = "0.8.0"
-glob = "0.3.1"
 ignore = "0.4.22"
-rlimit = "0.10.2"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
-samod = { version = "0.10.0", features = ["tokio", "threadpool", "tungstenite"] }
+samod = { version = "0.12.3", features = [
+  "tokio",
+  "threadpool",
+  "tungstenite",
+] }
 rayon = "1.11.0"
 regex = "1.12.2"
-tokio-tungstenite = "0.27.0"
 async-stream = "0.3.6"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
 sys-locale = "0.3.2"
 blake3 = { version = "1.8.4", features = ["serde"] }
-wincode = { version = "0.5.3", features = ["derive"] }
+wincode = { version = "0.6.0", features = ["derive"] }
 fjall = "3.1.4"
-anyhow = "1.0.102"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
 
 [build-dependencies]
 cbindgen = "^0.27"
-cargo-post = "0.1.7"
-static_vcruntime = "2.0"
+static_vcruntime = "3.0"
 
 [dev-dependencies]
 tempfile = "3.0"

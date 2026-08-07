@@ -327,18 +327,12 @@ _configure-backstitch: _make-plugin-dir
     reloadable = true
 
     [libraries]
-    linux.editor.debug.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.editor.release.x86_64 =      "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.editor.debug.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.editor.release.arm64 =       "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.editor.debug.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    linux.editor.release.arm32 =       "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    windows.editor.debug.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.editor.release.x86_64 =    "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.editor.debug.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    windows.editor.release.arm64 =     "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    macos.editor.debug =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
-    macos.editor.release =             "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
+    linux.editor.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
+    linux.editor.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
+    linux.editor.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
+    windows.editor.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
+    windows.editor.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
+    macos.editor =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
     """)
 
 # Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures.

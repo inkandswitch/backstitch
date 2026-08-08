@@ -116,11 +116,8 @@ func _update_ui_on_state_change():
 			update_ui()
 	)
 
-func _update_ui_on_sync_change():
-	waiting_callables.append(
-		func():
-			update_sync_status()
-	)
+func _update_ui_on_sync_status_change():
+	update_sync_status()
 
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()
@@ -134,32 +131,6 @@ func _auto_generate_diffs() -> bool:
 	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
-
-# Display a "Loading Backstitch" modal until we notice the branch has changed, then initialize.
-# Used when creating a new project, manually loading an existing project from ID, or auto-loading
-# an existing project from the project.
-func wait_for_checked_out_branch():
-	if not GodotProject.get_checked_out_branch():
-		branch_checked_out.connect(_on_branch_checked_out)
-		GodotProject.create_failed.connect(_on_create_failed)
-		task_modal.start_task("Loading Backstitch")
-	else:
-		init()
-
-func _on_branch_checked_out():
-	branch_checked_out.disconnect(_on_branch_checked_out)
-	GodotProject.create_failed.disconnect(_on_create_failed)
-	task_modal.end_task("Loading Backstitch")
-	init()
-
-func _on_create_failed(message: String):
-	branch_checked_out.disconnect(_on_branch_checked_out)
-	GodotProject.create_failed.disconnect(_on_create_failed)
-	task_modal.end_task("Loading Backstitch")
-
-	# TODO: Turn this into an actual annoying popup
-	var toaster = EditorInterface.get_editor_toaster()
-	toaster.push_toast("Couldn't start the project! Reason: %s" % message);
 
 # Asks the user for their username, if there is none stored.
 # If they cancel or close, returns false. If the username is confirmed, returns true.
@@ -176,8 +147,7 @@ func _on_init_button_pressed():
 	if not await require_user_name():
 		return
 
-	GodotProject.new_project();
-	await wait_for_checked_out_branch()
+	GodotProject.new_project()
 
 func _on_load_project_button_pressed():
 	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before loading an existing project."):
@@ -191,8 +161,29 @@ func _on_load_project_button_pressed():
 
 	GodotProject.load_project(doc_id);
 	
-	if not _check_for_local_changes():
-		await wait_for_checked_out_branch()
+func _on_start_status_changed(status: Dictionary):
+	match status["status"]:
+		"not_started":
+			update_ui()
+		"starting":
+			# TODO: Don't do this; we need to allow the auth flow
+			task_modal.start_task("Loading Backstitch")
+			update_ui()
+		"needs_check_in":
+			_check_for_local_changes()
+			update_ui()
+		"done":
+			task_modal.end_task("Loading Backstitch")
+			_check_for_local_changes()
+			init()
+			update_ui()
+		"failed":
+			task_modal.end_task("Loading Backstitch")
+			_check_for_local_changes()
+			update_ui()
+			var toaster = EditorInterface.get_editor_toaster()
+			toaster.push_toast("Couldn't start the project! Reason: %s" % status["error"]);
+
 
 func update_init_panel():
 	var has_project = GodotProject.has_project()
@@ -308,7 +299,9 @@ func bind_listeners(godot_project):
 	%UserNameDialog.confirmed.connect(_on_user_name_confirmed)
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
-	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
+	godot_project.sync_status_changed.connect(self._update_ui_on_sync_status_change);
+	godot_project.start_status_changed.connect(self._on_start_status_changed);
+	# TODO: Auth status change
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)
@@ -375,7 +368,6 @@ func _try_init():
 			return
 		else:
 			print("Initialized, hiding init panel")
-			wait_for_checked_out_branch()
 	else:
 		print("No GodotProject singleton!!!!!!!!")
 
@@ -1112,5 +1104,4 @@ func _discard_changes(_action: String) -> void:
 
 func _checkin_changes() -> void:
 	%LocalChangesDialog.hide()
-	GodotProject.checkin_local_changes()
-	await wait_for_checked_out_branch()
+	GodotProject.check_in_local_changes()

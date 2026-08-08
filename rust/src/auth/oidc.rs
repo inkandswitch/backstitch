@@ -49,7 +49,7 @@ pub enum OidcAuthError {
 
 impl AuthError for OidcAuthError {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OidcUserInfo {
     pub access_token: AccessToken,
     pub refresh_token: RefreshToken,
@@ -64,12 +64,12 @@ impl UserInfo for OidcUserInfo {
     }
 
     fn is_valid(&self) -> bool {
-        // TODO: implement correctly
+        // TODO (oidc): implement correctly
         true
     }
 
     fn bearer_token(&self) -> Option<SecretString> {
-        Some(self.access_token.secret().into())
+        Some(SecretString::from(self.access_token.secret().as_str()))
     }
 
     fn clone_box(&self) -> Box<dyn UserInfo> {
@@ -77,6 +77,7 @@ impl UserInfo for OidcUserInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct OidcAuthenticator {
     status_tx: watch::Sender<AuthStatus>,
     config: OidcAuthConfig,
@@ -103,16 +104,31 @@ impl Authenticator for OidcAuthenticator {
             .map_err(|e| Box::new(e) as Box<dyn AuthError>)
     }
 
-    fn subscribe_status(&self) -> BoxStream<'static, AuthStatus> {
-        WatchStream::new(self.status_tx.subscribe()).boxed()
+    async fn status_changed(&self) -> AuthStatus {
+        let mut rx = self.status_tx.subscribe();
+        // I don't think we need to handle this expect
+        rx.changed().await.expect("Some recv error??");
+        rx.borrow_and_update().clone()
     }
 }
 
 impl OidcAuthenticator {
-    // TODO: cache a refresh token
+    // TODO (oidc): cache a refresh token
     async fn auth_inner(&self) -> Result<OidcUserInfo, OidcAuthError> {
+        // We only accept invalid certs if we've got a server at localhost that's *also* looking for an
+        // OIDC auth server at localhost that is ALSO https.
+        let localhost_https = self.config.issuer.scheme() == "https"
+            && matches!(
+                self.config.issuer.host_str(),
+                Some("localhost" | "127.0.0.1" | "::1")
+            )
+            && matches!(
+                self.server_info.url.host_str(),
+                Some("localhost" | "127.0.0.1" | "::1")
+            );
         let http_client = reqwest::ClientBuilder::new()
             .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(localhost_https)
             .build()?;
 
         // We'll need a redirect server to receieve the authorization code.
@@ -132,12 +148,12 @@ impl OidcAuthenticator {
 
         let client = CoreClient::from_provider_metadata(
             provider_metadata,
-            ClientId::new("backstitch".to_string()),
+            self.config.client_id.clone(),
             None,
         )
         // Set the URL the user will be redirected to after the authorization process.
         .set_redirect_uri(
-            RedirectUrl::new(format!("http://localhost:{}", redirect_server.port()))
+            RedirectUrl::new(format!("http://localhost:{}/", redirect_server.port()))
                 .expect("??? wtf"),
         );
 
@@ -154,6 +170,8 @@ impl OidcAuthenticator {
             // Set the desired scopes.
             .add_scope(Scope::new("read".to_string()))
             .add_scope(Scope::new("write".to_string()))
+            .add_scope(Scope::new("name".to_string()))
+            .add_scope(Scope::new("email".to_string()))
             .add_scope(Scope::new("offline_access".to_string())) // request refresh token
             // Set the PKCE code challenge.
             .set_pkce_challenge(pkce_challenge)
@@ -161,6 +179,7 @@ impl OidcAuthenticator {
 
         // User intervention required here!
         self.status_tx.send_replace(AuthStatus::NeedsUserLogin);
+        tracing::info!("Opening URL: {auth_url}");
         open::that(auth_url.to_string())?;
         let auth_code = redirect_server.wait_for_redirect(csrf_token).await?;
         self.status_tx.send_replace(AuthStatus::Ok);

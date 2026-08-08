@@ -6,17 +6,18 @@ use axum::{
 };
 use openidconnect::{AuthorizationCode, CsrfToken};
 use serde::Deserialize;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc};
 use thiserror::Error;
-use tokio::{
-    net::TcpListener,
-    sync::{Mutex, oneshot},
-};
+use tokio::{net::TcpListener, sync::oneshot};
 use tokio_util::sync::CancellationToken;
 
-// the hashmap key is CSRFToken. This is unsafe! Don't log this map!
-type PendingAuths =
-    Arc<Mutex<HashMap<String, oneshot::Sender<Result<AuthorizationCode, RedirectServerError>>>>>;
+// the hashmap key is CSRFToken, hashed with blake3 for security.
+// We use a synchronous mutex here because contention is rare and quick, and it works with the drop pattern we use later.
+type PendingAuths = Arc<
+    std::sync::Mutex<
+        HashMap<blake3::Hash, oneshot::Sender<Result<AuthorizationCode, RedirectServerError>>>,
+    >,
+>;
 
 #[derive(Error, Debug)]
 pub enum RedirectServerError {
@@ -26,6 +27,8 @@ pub enum RedirectServerError {
     AuthFailure(String),
     #[error("no authorization code was received during authentication")]
     NoAuthorizationCode,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 pub struct RedirectServer {
@@ -48,26 +51,25 @@ impl Drop for RedirectServer {
 }
 
 impl RedirectServer {
-    pub async fn new(port: u16) -> std::io::Result<Self> {
+    pub async fn new(port: u16) -> Result<Self, RedirectServerError> {
         let pending_auth: PendingAuths = Default::default();
         let router = Router::new()
-            .route("/redirect", get(Self::redirect))
+            .route("/", get(Self::redirect))
             .with_state(pending_auth.clone());
 
-        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
+        let listener =
+            TcpListener::bind(SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap()).await?;
 
         let token = CancellationToken::new();
         {
             let token = token.clone();
             tokio::spawn(async move {
-                if let Err(e) = axum::serve(listener, router)
+                // Although serve returns a result, the future never actually finishes.
+                let _ = axum::serve(listener, router)
                     .with_graceful_shutdown(async move {
                         token.cancelled().await;
                     })
-                    .await
-                {
-                    tracing::error!("redirect server failed {e}");
-                }
+                    .await;
             });
         }
 
@@ -94,8 +96,8 @@ impl RedirectServer {
         let state = CsrfToken::new(state.clone());
 
         let tx = {
-            let mut pending_auths = pending_auths.lock().await;
-            pending_auths.remove(state.secret())
+            let mut pending_auths = pending_auths.lock().unwrap();
+            pending_auths.remove(&blake3::hash(state.secret().as_bytes()))
         };
         let Some(tx) = tx else {
             return Self::html_error(
@@ -119,7 +121,7 @@ impl RedirectServer {
         Self::html_success()
     }
 
-    // TODO: it'd be wonderful to include_str!() some pretty HTML here.
+    // TODO (oidc): it'd be wonderful to include_str!() some pretty HTML here.
     fn html_error(message: &str) -> Html<String> {
         tracing::error!("Error in redirect server: {message}");
         let message = html_escape::encode_text(message);
@@ -152,8 +154,9 @@ impl RedirectServer {
         impl Drop for Guard {
             fn drop(&mut self) {
                 self.pending_auths
-                    .blocking_lock()
-                    .remove(self.state.secret());
+                    .lock()
+                    .unwrap()
+                    .remove(&blake3::hash(self.state.secret().as_bytes()));
             }
         }
 
@@ -164,9 +167,12 @@ impl RedirectServer {
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = self.pending_auths.lock().await;
+            let mut pending = self.pending_auths.lock().unwrap();
 
-            if pending.insert(state.secret().clone(), tx).is_some() {
+            if pending
+                .insert(blake3::hash(state.secret().as_bytes()), tx)
+                .is_some()
+            {
                 panic!("duplicate CSRF token?!?! some funny business is afoot...")
             }
         }

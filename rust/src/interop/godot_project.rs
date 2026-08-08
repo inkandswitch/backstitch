@@ -6,12 +6,12 @@ use crate::interop::godot_accessors::{
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::Project;
 use crate::project::project_api::{
     BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
     ProjectViewModel, RequestDiffError,
 };
 use crate::project::project_base::GodotProjectSignal;
+use crate::project::{Project, ProjectStartStatus};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;
@@ -194,13 +194,13 @@ impl GodotProject {
     fn state_changed();
 
     #[signal]
-    fn sync_changed();
+    fn sync_status_changed();
 
     #[signal]
-    fn create_failed();
+    fn start_status_changed(start_status: VarDictionary);
 
     #[signal]
-    fn diff_generated(diff_id: GString, diff: VarDictionary);
+    fn auth_status_changed(auth_status: GString);
 
     #[func]
     fn has_user_name(&self) -> bool {
@@ -267,13 +267,7 @@ impl GodotProject {
 
     #[func]
     fn new_project(&mut self) {
-        if let Err(e) = self.project.new_project() {
-            tracing::error!("Error creating {:?}", e);
-            self.base_mut().call_deferred(
-                "emit_signal",
-                &["create_failed".to_variant(), e.to_string().to_variant()],
-            );
-        }
+        self.project.new_project();
     }
 
     #[func]
@@ -284,34 +278,30 @@ impl GodotProject {
                 tracing::error!("Error regular starting {:?}", e);
                 self.base_mut().call_deferred(
                     "emit_signal",
-                    &["create_failed".to_variant(), e.to_string().to_variant()],
+                    &[
+                        "start_status_changed".to_variant(),
+                        ProjectStartStatus::Failed(e.to_string()).to_variant(),
+                    ],
                 );
                 return;
             }
         };
 
-        if let Err(e) = self.project.load_project(&id, false) {
-            tracing::error!("Error regular starting {:?}", e);
-            self.base_mut().call_deferred(
-                "emit_signal",
-                &["create_failed".to_variant(), e.to_string().to_variant()],
-            );
-        }
+        self.project.load_project(&id, false);
     }
 
     #[func]
-    fn local_changes(&self) -> Variant {
-        let local_changes = self.project.local_changes();
-        local_changes._to_variant()
+    fn local_changes(&self) -> Array<PackedStringArray> {
+        self.project.local_changes().to_godot()
     }
 
     #[func]
-    fn checkin_local_changes(&mut self) {
-        self.project.checkin_local_changes();
+    fn check_in_local_changes(&self) {
+        self.project.check_in_local_changes();
     }
 
     #[func]
-    fn discard_local_changes(&mut self) {
+    fn discard_local_changes(&self) {
         self.project.discard_local_changes();
     }
 
@@ -712,19 +702,12 @@ impl INode for GodotProject {
             if self.deferred_start == 0
                 && let Ok(id) =
                     DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
-                && let Err(e) = self.project.load_project(&id, true)
             {
-                tracing::error!("Error autostarting {:?}", e);
-                self.base_mut().call_deferred(
-                    "emit_signal",
-                    &["create_failed".to_variant(), e.to_string().to_variant()],
-                );
+                self.project.load_project(&id, true);
             }
             return;
         }
-        if !self.project.has_project() {
-            return;
-        }
+
         let (updates, signals) = self.project.process(_delta, self.safe_to_update_godot());
         if !updates.is_empty() {
             self.pending_editor_update.merge(
@@ -742,12 +725,24 @@ impl INode for GodotProject {
                     self.base_mut()
                         .call_deferred("emit_signal", &["state_changed".to_variant()]);
                 }
-                GodotProjectSignal::ServerStatusChanged => {
+                GodotProjectSignal::SyncStatusChanged => {
                     self.base_mut()
-                        .call_deferred("emit_signal", &["sync_changed".to_variant()]);
+                        .call_deferred("emit_signal", &["sync_status_changed".to_variant()]);
                 }
                 // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
                 GodotProjectSignal::BranchCheckedOut => {}
+                GodotProjectSignal::StartStatusChanged(status) => {
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["start_status_changed".to_variant(), status.to_variant()],
+                    );
+                }
+                GodotProjectSignal::AuthStatusChanged(status) => {
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["auth_status_changed".to_variant(), status.to_variant()],
+                    );
+                }
             }
         }
     }

@@ -7,21 +7,21 @@ use url::Url;
 
 const MINIMUM_SERVER_VERSION: &str = "2.0.0";
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ServerInfo {
     pub url: Url,
     pub auth: AuthConfig,
     pub webviewer: Option<Url>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OidcAuthConfig {
     pub issuer: Url,
     pub redirect_port: u16,
     pub client_id: ClientId,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum AuthConfig {
     Oidc(OidcAuthConfig),
     None,
@@ -61,10 +61,14 @@ pub enum HandshakeError {
 }
 
 pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
+    tracing::debug!("Building HTTP client...");
     let http_client = reqwest::ClientBuilder::new()
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
         .build()?;
 
+    tracing::debug!("Waiting for handshake response...");
     let response: HandshakeResponse = http_client
         .get(
             url.join("describe")
@@ -76,6 +80,8 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
         .json()
         .await
         .map_err(|e| HandshakeError::MalformedResponse(e.to_string()))?;
+
+    tracing::debug!("Response successfully received.");
 
     if response.version < semver::Version::from_str(MINIMUM_SERVER_VERSION).unwrap() {
         return Err(HandshakeError::UnsupportedServer {

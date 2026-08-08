@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use futures::{Stream, StreamExt};
-use samod::{BackoffConfig, DialerHandle, Repo, Stopped, Url, websocket::TungsteniteDialer};
+use samod::{BackoffConfig, DialerHandle, Repo, Stopped, websocket::TungsteniteDialer};
 use secrecy::ExposeSecret;
 use thiserror::Error;
 use tokio::select;
@@ -37,28 +39,33 @@ impl RemoteConnection {
         server_info: &ServerInfo,
         user_info: &Box<dyn UserInfo>,
     ) -> Result<Self, RemoteConnectionError> {
-        // TODO (important): Detect authentication failures, re-auth, and reconnect.
+        // TODO (oidc): Detect authentication failures, re-auth, and reconnect.
 
         let mut url = server_info
             .url
             .join("sync")
             .expect("something went wrong in joining??");
-        url.set_scheme(match server_url.scheme() {
+        url.set_scheme(match url.scheme() {
             "http" => "ws",
             "https" => "wss",
             _ => panic!("Could not initialize server connection; the URL {url} has an invalid scheme (must be http:// or https://)")
         }).expect("something went wrong in scheme setting??");
 
-        TungsteniteDialer::new(
-            url,
+        tracing::error!(
+            "REMOVE THIS REMOVE THIS secret {:?}",
             user_info
                 .bearer_token()
-                .map(|s| s.expose_secret().to_string()),
+                .map(|s| s.expose_secret().to_string())
         );
 
-        let handle = repo.dial_websocket(
-            server_url.join("sync").expect("Weird URL parsing error"),
+        let handle = repo.dial(
             BackoffConfig::default(),
+            Arc::new(TungsteniteDialer::new(
+                url.clone(),
+                user_info
+                    .bearer_token()
+                    .map(|s| s.expose_secret().to_string()),
+            )),
         )?;
 
         // run a subtask to cancel when requested

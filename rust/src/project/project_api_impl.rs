@@ -8,13 +8,13 @@ use crate::{
     helpers::{
         history_ref::HistoryRef,
         utils::{
-            BranchWrapper, CommitInfo, DiffId, DiffWrapper, exact_human_readable_timestamp,
-            human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffId, DiffWrapper,
+            exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
-        LocalChangesResult, Project,
+        LocalChangesResult, Project, ProjectStartStatus,
         branch_db::DbError,
         project_api::{
             BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
@@ -45,6 +45,7 @@ impl ProjectViewModel for Project {
 
     fn new_project(&mut self) {
         if self.has_project() {
+            tracing::warn!("Project already exists; can't create a new one.");
             return;
         }
         self.start(ProjectCreateMode::New)
@@ -62,6 +63,14 @@ impl ProjectViewModel for Project {
         });
     }
 
+    fn local_changes(&self) -> Vec<ChangedFile> {
+        let rx = self.start_status_tx.subscribe();
+        if let ProjectStartStatus::NeedsCheckIn(changes) = rx.borrow().clone() {
+            return changes.clone();
+        }
+        Vec::new()
+    }
+
     fn check_in_local_changes(&self) {
         let mut tx_guard = self.local_changes_tx.blocking_lock();
         let tx = tx_guard.take();
@@ -72,7 +81,7 @@ impl ProjectViewModel for Project {
             return;
         };
 
-        tx.send(LocalChangesResult::CheckIn);
+        let _ = tx.send(LocalChangesResult::CheckIn);
     }
 
     fn discard_local_changes(&self) {
@@ -85,7 +94,7 @@ impl ProjectViewModel for Project {
             return;
         };
 
-        tx.send(LocalChangesResult::Discard);
+        let _ = tx.send(LocalChangesResult::Discard);
     }
 
     fn clear_project(&mut self) {

@@ -1,17 +1,16 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use automerge::ChangeHash;
-use samod::{ConnectionInfo, DocumentId};
+use samod::ConnectionInfo;
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
-    sync::{Mutex, RwLock, mpsc, oneshot, watch},
+    sync::{Mutex, RwLock, oneshot, watch},
     task::JoinError,
 };
-use url::Url;
 
 use crate::{
-    auth::server_manager::AuthStatus,
+    auth::server_manager::{AuthStatus, ServerManager},
     helpers::{
         history_ref::HistoryRef,
         utils::{ChangedFile, CommitInfo, DiffId},
@@ -43,9 +42,9 @@ pub mod project_base;
 pub enum ProjectStartStatus {
     NotStarted,
     Starting,
-    NeedsCheckIn,
+    NeedsCheckIn(Vec<ChangedFile>),
     Done,
-    Failed,
+    Failed(String),
 }
 
 #[derive(Debug)]
@@ -56,8 +55,6 @@ enum LocalChangesResult {
 
 #[derive(Error, Debug)]
 pub enum ProjectStartError {
-    #[error("there wasn't a created driver")]
-    NoDriver,
     #[error(transparent)]
     DriverLoad(Box<ProjectLoadError>),
     #[error(transparent)]
@@ -101,7 +98,7 @@ pub struct Project {
     changes_rx: Option<watch::Receiver<Vec<CommitInfo>>>,
     checked_out_ref_rx: Option<watch::Receiver<Option<HistoryRef>>>,
     connection_info_rx: Option<watch::Receiver<Option<ConnectionInfo>>>,
-    auth_status_rx: Option<watch::Receiver<AuthStatus>>,
+    auth_status_rx: watch::Receiver<AuthStatus>,
     start_status_rx: watch::Receiver<ProjectStartStatus>,
 
     start_status_tx: watch::Sender<ProjectStartStatus>,
@@ -111,6 +108,7 @@ pub struct Project {
     // Project driver. If some, is running.
     // Most operations read on the driver -- only replacing the driver is a write operation.
     driver: Arc<RwLock<Option<Driver>>>,
+    server_manager: ServerManager,
     project_dir: PathBuf,
     runtime: Runtime,
 

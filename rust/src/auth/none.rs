@@ -7,7 +7,7 @@ use secrecy::SecretString;
 
 use crate::auth::server_manager::{AuthError, AuthStatus, Authenticator, UserInfo};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NoneUserInfo {
     name: String,
 }
@@ -30,6 +30,7 @@ impl UserInfo for NoneUserInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct NoneAuthenticator {}
 
 impl NoneAuthenticator {
@@ -41,15 +42,15 @@ impl NoneAuthenticator {
 #[async_trait]
 impl Authenticator for NoneAuthenticator {
     async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
-        // TODO: force the user to provide a name; get a name from storage; etc
+        // TODO (oidc): force the user to provide a name; get a name from storage; etc
         return Ok(Box::new(NoneUserInfo {
             name: "TEMP".to_string(),
         }) as Box<dyn UserInfo>);
     }
 
-    fn subscribe_status(&self) -> BoxStream<'static, AuthStatus> {
-        stream::once(async { AuthStatus::Ok })
-            .chain(stream::pending())
-            .boxed()
+    async fn status_changed(&self) -> AuthStatus {
+        // Wait forever lol
+        std::future::pending::<()>().await;
+        AuthStatus::Ok
     }
 }

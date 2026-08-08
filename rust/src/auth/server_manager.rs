@@ -1,14 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt, stream::BoxStream};
 use secrecy::SecretString;
 use thiserror::Error;
 use tokio::{
     select,
     sync::{Mutex, RwLock, watch},
 };
-use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -20,7 +18,7 @@ use crate::auth::{
 
 pub trait AuthError: Send + Sync + std::error::Error + 'static {}
 
-pub trait UserInfo: Send + Sync {
+pub trait UserInfo: Send + Sync + Debug {
     /// Get the username associated with this user
     fn username(&self) -> String;
     /// Whether the user is valid. This might be false if the user needs an authentication refresh.
@@ -37,24 +35,26 @@ impl Clone for Box<dyn UserInfo> {
 }
 
 #[async_trait]
-pub trait Authenticator: Send + Sync {
+pub trait Authenticator: Send + Sync + Debug {
     async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>>;
-    fn subscribe_status(&self) -> BoxStream<'static, AuthStatus>;
+    async fn status_changed(&self) -> AuthStatus;
 }
 
+#[derive(Debug)]
 struct Server {
     server_info: ServerInfo,
     user_info: Option<Box<dyn UserInfo>>,
-    authenticator: Arc<dyn Authenticator>,
+    authenticator: Option<Arc<dyn Authenticator>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct ServerManager {
     /// Allows the one-at-a-time authentication to be canceled.
     /// Note that ALL waiting authentications will be canceled when this is called, if there are
     /// multiple queued!
-    auth_token: RwLock<Option<CancellationToken>>,
-    servers: Mutex<HashMap<Url, Server>>,
-    status_tx: watch::Sender<AuthStatus>,
+    auth_token: Arc<RwLock<Option<CancellationToken>>>,
+    servers: Arc<Mutex<HashMap<Url, Server>>>,
+    status_tx: Arc<watch::Sender<AuthStatus>>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,14 +79,45 @@ impl ServerManager {
         Self {
             auth_token: Default::default(),
             servers: Default::default(),
-            status_tx: tx,
+            status_tx: Arc::new(tx),
         }
     }
 
-    /// Handshake and authenticate with the server, if needed.
+    pub async fn handshake(&self, url: &Url) -> Result<ServerInfo, ServerError> {
+        // If we have a cached handshake, just return that.
+        {
+            let servers = self.servers.lock().await;
+            if let Some(server) = servers.get(url) {
+                return Ok(server.server_info.clone());
+            }
+        }
+
+        let info = handshake::server_handshake(url).await?;
+        {
+            let mut servers = self.servers.lock().await;
+            // It's possible someone added this while we were handshaking. If so, don't overwrite it.
+            if let Some(server) = servers.get(url) {
+                return Ok(server.server_info.clone());
+            }
+            servers.insert(
+                url.clone(),
+                Server {
+                    server_info: info.clone(),
+                    user_info: None,
+                    authenticator: None,
+                },
+            );
+        }
+        Ok(info)
+    }
+
+    /// Authenticate with the server, if needed.
     /// If user intervention is required, will hang until user completes the flow.
     /// Subscribe to [status_changed] for updates.
-    pub async fn authenticate(&self, url: &Url) -> Result<Box<dyn UserInfo>, ServerError> {
+    pub async fn authenticate(
+        &self,
+        server_info: &ServerInfo,
+    ) -> Result<Box<dyn UserInfo>, ServerError> {
         // Lock: Only one authentication allowed at a time!
         let mut token = self.auth_token.write().await;
         if let Some(token) = token.take() {
@@ -102,7 +133,7 @@ impl ServerManager {
         // Attempt to grab the user info from the cache
         {
             let servers = self.servers.lock().await;
-            if let Some(server) = servers.get(url) {
+            if let Some(server) = servers.get(&server_info.url) {
                 if let Some(user_info) = &server.user_info {
                     if user_info.is_valid() {
                         return Ok(user_info.clone());
@@ -117,46 +148,43 @@ impl ServerManager {
                 self.status_tx.send_replace(AuthStatus::Ok);
                 return Err(ServerError::UserCancelled)
             },
-            res = self.authenticate_inner(url) => res
+            res = self.authenticate_inner(server_info) => res
         }
     }
 
-    async fn authenticate_inner(&self, url: &Url) -> Result<Box<dyn UserInfo>, ServerError> {
-        let info = handshake::server_handshake(url).await?;
-        let authenticator = match &info.auth {
-            handshake::AuthConfig::Oidc(config) => {
-                Arc::new(OidcAuthenticator::new(config.clone(), info.clone()))
-                    as Arc<dyn Authenticator>
-            }
-            handshake::AuthConfig::None => {
-                Arc::new(NoneAuthenticator::new()) as Arc<dyn Authenticator>
+    async fn authenticate_inner(
+        &self,
+        server_info: &ServerInfo,
+    ) -> Result<Box<dyn UserInfo>, ServerError> {
+        // Attempt to grab the authenticator from the cache, or make it if it hasn't been created.
+        let authenticator = {
+            let mut servers = self.servers.lock().await;
+            let server = servers
+                .get_mut(&server_info.url)
+                .expect("This should never happen; server_infos are never cleared once cached");
+            if let Some(authenticator) = &server.authenticator {
+                authenticator.clone()
+            } else {
+                let authenticator: Arc<dyn Authenticator> = match &server_info.auth {
+                    handshake::AuthConfig::Oidc(config) => {
+                        Arc::new(OidcAuthenticator::new(config.clone(), server_info.clone()))
+                    }
+                    handshake::AuthConfig::None => Arc::new(NoneAuthenticator::new()),
+                };
+                server.authenticator = Some(authenticator.clone());
+                authenticator
             }
         };
 
-        {
-            let mut servers = self.servers.lock().await;
-            servers.insert(
-                url.clone(),
-                Server {
-                    server_info: info,
-                    authenticator: authenticator.clone(),
-                    user_info: None,
-                },
-            );
-        }
+        let authenticate = authenticator.authenticate();
+        tokio::pin!(authenticate);
 
-        let mut status_stream = authenticator.subscribe_status();
         let user_info = loop {
             select! {
-                status = status_stream.next() => {
-                    if let Some(status) = status {
-                        self.status_tx.send_replace(status);
-                    }
-                    else {
-                        panic!("Authenticator status streams are not allowed to exit early.");
-                    }
+                status = authenticator.status_changed() => {
+                    self.status_tx.send_replace(status);
                 }
-                result = authenticator.authenticate() => {
+                result = &mut authenticate => {
                     self.status_tx.send_replace(AuthStatus::Ok);
                     break result.map_err(|e| ServerError::Auth(e))?;
                 }
@@ -164,9 +192,10 @@ impl ServerManager {
         };
 
         let mut servers = self.servers.lock().await;
-        if let Some(server) = servers.get_mut(url) {
-            server.user_info = Some(user_info.clone());
-        }
+        let server = servers
+            .get_mut(&server_info.url)
+            .expect("There had better be a cached server!");
+        server.user_info = Some(user_info.clone());
 
         Ok(user_info)
     }
@@ -179,7 +208,7 @@ impl ServerManager {
         }
     }
 
-    pub fn subscribe_status(&self) -> impl Stream<Item = AuthStatus> {
-        WatchStream::new(self.status_tx.subscribe())
+    pub fn subscribe_status(&self) -> watch::Receiver<AuthStatus> {
+        self.status_tx.subscribe()
     }
 }

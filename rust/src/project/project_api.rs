@@ -5,7 +5,8 @@ use samod::DocumentId;
 use thiserror::Error;
 
 use crate::{
-    fs::file_utils::FileContent, helpers::history_ref::HistoryRef,
+    fs::file_utils::FileContent,
+    helpers::{history_ref::HistoryRef, utils::ChangedFile},
     project::project_base::DiffStatus,
 };
 
@@ -96,6 +97,9 @@ pub trait ProjectViewModel {
     /// Otherwise, it behaves as if the user is loading into a project.
     fn load_project(&mut self, id: &DocumentId, autostart: bool);
 
+    /// Get the current unresolved local changes from the project.
+    /// We'll need to ask the user if they want to check these in.
+    fn local_changes(&self) -> Vec<ChangedFile>;
     /// Check in the unresolved local changes to the project.
     fn check_in_local_changes(&self);
     /// Discard the local changes, reverting the project to its canonical state.

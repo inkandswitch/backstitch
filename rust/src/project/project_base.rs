@@ -1,4 +1,4 @@
-use crate::auth::server_manager::AuthStatus;
+use crate::auth::server_manager::{AuthStatus, ServerManager};
 use crate::diff::differ::ProjectDiff;
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
@@ -32,7 +32,7 @@ pub enum DiffStatus {
 // Instead, [GodotProject] should handle converting streams into signals each frame via polling.
 // [Project] should simply provide the streams, forwarding them as needed from the driver on async tasks.
 pub enum GodotProjectSignal {
-    ServerStatusChanged,
+    SyncStatusChanged,
     ChangesIngested,
     BranchCheckedOut,
     StartStatusChanged(ProjectStartStatus),
@@ -52,6 +52,8 @@ impl Project {
 
         let (start_tx, start_rx) = watch::channel(ProjectStartStatus::NotStarted);
 
+        let server_manager = ServerManager::new();
+
         Self {
             main_thread_block: MainThreadBlock::new(),
             changes_rx: None,
@@ -67,7 +69,8 @@ impl Project {
             start_status_rx: start_rx,
             start_lock: Default::default(),
             local_changes_tx: Default::default(),
-            auth_status_rx: Default::default(),
+            auth_status_rx: server_manager.subscribe_status(),
+            server_manager,
         }
     }
 
@@ -152,7 +155,6 @@ impl Project {
         self.checked_out_ref_rx = None;
         self.connection_info_rx = None;
         self.history = None;
-        self.auth_status_rx = None;
     }
 
     // common utility function within this class
@@ -195,11 +197,30 @@ impl Project {
         _delta: f64,
         safe_to_update_godot: bool,
     ) -> (Vec<FileSystemEvent>, Vec<GodotProjectSignal>) {
+        // These signals aren't dependent on the driver's behavior; the driver might not be present
+        let mut signals = Vec::new();
+        if self.start_status_rx.has_changed().unwrap_or(false) {
+            tracing::info!(
+                "START STATUS CHANGED {:?}",
+                self.start_status_rx.borrow_and_update().clone()
+            );
+            signals.push(GodotProjectSignal::StartStatusChanged(
+                self.start_status_rx.borrow_and_update().clone(),
+            ))
+        }
+
+        if self.auth_status_rx.has_changed().unwrap_or(false) {
+            self.auth_status_rx.mark_unchanged();
+            signals.push(GodotProjectSignal::AuthStatusChanged(
+                self.auth_status_rx.borrow().clone(),
+            ));
+        }
+
         tracing::trace!("Running project process...");
         let fs_changes = {
             let driver_guard = self.driver.blocking_read();
             if driver_guard.is_none() {
-                return (Vec::new(), Vec::new());
+                return (Vec::new(), signals);
             }
             // Run the blocking sync
             driver_guard
@@ -227,6 +248,8 @@ impl Project {
         // Normally this should be done on the driver creation thread, but since it's async, initializing these
         // gets really weird (mutexes needed etc). So just initialize on the main thread for now.
         // TODO: When we need to refactor/add more of these, just expose these as streams to GodotProject, let that handle...
+        // (Actually, don't expose them as streams -- just expose them as async waiter functions. GodotProject can handle spinning off
+        // threads to turn them into signals, I think.)
         {
             // we know driver exists
             let driver_guard = self.driver.blocking_read();
@@ -240,12 +263,7 @@ impl Project {
             if self.checked_out_ref_rx.is_none() {
                 self.checked_out_ref_rx = Some(driver.get_ref_rx());
             }
-            if self.auth_status_rx.is_none() {
-                self.auth_status_rx = Some(driver.get_auth_status_rx());
-            }
         }
-
-        let mut signals = Vec::new();
 
         // Ingest changes if the driver produced a new changeset, or if we've never ingested.
         let changes = {
@@ -266,7 +284,7 @@ impl Project {
         let rx = self.connection_info_rx.as_mut().unwrap();
         if rx.has_changed().unwrap_or(false) {
             rx.mark_unchanged();
-            signals.push(GodotProjectSignal::ServerStatusChanged);
+            signals.push(GodotProjectSignal::SyncStatusChanged);
         }
 
         // Check to see if we need to produce a CheckedOutBranch signal
@@ -280,19 +298,6 @@ impl Project {
             BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
             rx.mark_unchanged();
             signals.push(GodotProjectSignal::BranchCheckedOut);
-        }
-
-        if self.start_status_rx.has_changed().unwrap_or(false) {
-            signals.push(GodotProjectSignal::StartStatusChanged(
-                self.start_status_rx.borrow_and_update().clone(),
-            ))
-        }
-
-        let rx = self.auth_status_rx.as_mut().unwrap();
-        if rx.has_changed().unwrap_or(false) {
-            signals.push(GodotProjectSignal::AuthStatusChanged(
-                rx.borrow_and_update().clone(),
-            ))
         }
 
         tracing::trace!("Done with process.");

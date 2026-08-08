@@ -5,6 +5,7 @@ use tokio::sync::{Mutex, oneshot, watch};
 use url::Url;
 
 use crate::{
+    auth::server_manager::ServerManager,
     helpers::{spawn_utils::spawn_named_on, utils::ChangedFile},
     interop::godot_accessors::BackstitchConfigAccessor,
     project::{
@@ -23,19 +24,23 @@ struct LoadSuccess {
 // TODO: Consider moving this stuff to the driver? Not sure
 impl Project {
     pub(super) fn start(&self, mode: ProjectCreateMode) {
+        tracing::info!("Starting a project...");
         let start_lock = self.start_lock.clone();
         let project_dir = self.project_dir.clone();
         let start_status_tx = self.start_status_tx.clone();
         let driver = self.driver.clone();
         let main_thread_block = self.main_thread_block.clone();
         let local_changes_tx = self.local_changes_tx.clone();
+        let server_manager = self.server_manager.clone();
         spawn_named_on("start project", self.runtime.handle(), async move {
             let _guard = start_lock.lock().await;
             if driver.read().await.is_some() {
                 tracing::error!("Driver is already started!");
                 return;
             }
+            start_status_tx.send_replace(ProjectStartStatus::Starting);
             let result = Self::start_inner(
+                server_manager,
                 start_status_tx.clone(),
                 local_changes_tx,
                 main_thread_block,
@@ -51,7 +56,7 @@ impl Project {
                 }
                 Err(e) => {
                     tracing::error!("error starting project: {e}");
-                    start_status_tx.send_replace(ProjectStartStatus::Failed);
+                    start_status_tx.send_replace(ProjectStartStatus::Failed(e.to_string()));
                 }
             }
         });
@@ -121,6 +126,7 @@ impl Project {
     ///
     /// If we're creating a new project, instead of loading, we can skip most of this!
     async fn start_inner(
+        server_manager: ServerManager,
         start_status_tx: watch::Sender<ProjectStartStatus>,
         local_changes_tx: Arc<Mutex<Option<oneshot::Sender<LocalChangesResult>>>>,
         main_thread_block: MainThreadBlock,
@@ -156,6 +162,7 @@ impl Project {
         let storage_dir = project_dir.join(".backstitch");
         let mut driver = Driver::new(
             main_thread_block.clone(),
+            server_manager,
             project_dir,
             BackstitchConfigAccessor::get_user_value("user_name", ""),
             storage_dir,
@@ -165,6 +172,7 @@ impl Project {
         // We've created the driver. Before connecting, we need to load the doc and handle local changes.
         // If we're making a new project, we don't have to worry about that.
         let (local_changes, load_success) = if mode == ProjectCreateMode::New {
+            tracing::debug!("Created driver. Setting up new project...");
             driver.create_project().await?;
             (
                 Vec::new(),
@@ -174,6 +182,7 @@ impl Project {
                 },
             )
         } else {
+            tracing::debug!("Created driver. Loading project...");
             let success = Self::try_and_retry_load(
                 &mut driver,
                 server_url.as_ref(),
@@ -185,6 +194,8 @@ impl Project {
             let local_changes = driver.get_local_changes(saved_branch_id.as_ref()).await?;
             (local_changes, success)
         };
+
+        tracing::debug!("Successfully set up project. Checking for local changes...");
 
         let initial_branch = if load_success.found_on_provided_branch {
             saved_branch_id.clone()
@@ -201,9 +212,12 @@ impl Project {
             // we can't start the sync until we confirm or reject the local changes
             // the one exception: if we found the project locally AND it was automatically loaded, we can automatically checkin the changes.
             if mode == ProjectCreateMode::AutoLoaded && load_success.found_locally {
+                tracing::debug!("Local changes detected; automatically committing.");
                 driver.commit_local_changes(initial_branch.as_ref()).await?
             } else {
-                start_status_tx.send_replace(ProjectStartStatus::NeedsCheckIn);
+                tracing::debug!("Local changes detected; you must confirm or discard them!");
+                start_status_tx
+                    .send_replace(ProjectStartStatus::NeedsCheckIn(local_changes.clone()));
                 let rx = {
                     let mut local_changes_tx = local_changes_tx.lock().await;
                     let (tx, rx) = oneshot::channel();
@@ -221,13 +235,16 @@ impl Project {
 
         // start the connection, if we didn't before.
         if let Some(server_url) = server_url {
+            tracing::debug!("Starting connection, if it isn't started already....");
             match driver.start_connection(&server_url).await {
                 Ok(_) => {}
                 Err(e) => tracing::error!("Remote connection error: {:?}", e),
             }
+            tracing::debug!("Connection started.");
         }
         let metadata = driver.get_metadata_doc().await?;
 
+        tracing::debug!("Starting sync...");
         driver.start_sync(initial_branch.as_ref()).await;
 
         BackstitchConfigAccessor::set_project_value("project_doc_id", &metadata.to_string());
@@ -235,7 +252,7 @@ impl Project {
     }
 
     /// Returns whether we found the document locally.
-    pub async fn try_and_retry_load(
+    async fn try_and_retry_load(
         driver: &mut Driver,
         server_url: Option<&Url>,
         metadata_id: &DocumentId,

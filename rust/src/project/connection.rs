@@ -51,13 +51,6 @@ impl RemoteConnection {
             _ => panic!("Could not initialize server connection; the URL {url} has an invalid scheme (must be http:// or https://)")
         }).expect("something went wrong in scheme setting??");
 
-        tracing::error!(
-            "REMOVE THIS REMOVE THIS secret {:?}",
-            user_info
-                .bearer_token()
-                .map(|s| s.expose_secret().to_string())
-        );
-
         let handle = repo.dial(
             BackoffConfig::default(),
             Arc::new(TungsteniteDialer::new(

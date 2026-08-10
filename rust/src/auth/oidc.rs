@@ -1,3 +1,5 @@
+use std::{collections::HashSet, str::FromStr};
+
 use async_trait::async_trait;
 use futures::{StreamExt, stream::BoxStream};
 use openidconnect::{
@@ -11,6 +13,7 @@ use secrecy::SecretString;
 use thiserror::Error;
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
+use url::Url;
 
 use crate::auth::{
     handshake::{OidcAuthConfig, ServerInfo},
@@ -22,6 +25,8 @@ use crate::auth::{
 pub enum OidcAuthError {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
+    #[error("invalid issuer URL: {0}")]
+    InvalidIssuer(String),
     // OIDC error types are complete evil nonsense, so we can't just do this nicely.
     #[error("discovery failed {0}")]
     Discovery(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -117,9 +122,11 @@ impl OidcAuthenticator {
     async fn auth_inner(&self) -> Result<OidcUserInfo, OidcAuthError> {
         // We only accept invalid certs if we've got a server at localhost that's *also* looking for an
         // OIDC auth server at localhost that is ALSO https.
-        let localhost_https = self.config.issuer.scheme() == "https"
+        let issuer_url = Url::from_str(&self.config.issuer)
+            .map_err(|_| OidcAuthError::InvalidIssuer(self.config.issuer.clone()))?;
+        let localhost_https = issuer_url.scheme() == "https"
             && matches!(
-                self.config.issuer.host_str(),
+                issuer_url.host_str(),
                 Some("localhost" | "127.0.0.1" | "::1")
             )
             && matches!(
@@ -160,6 +167,12 @@ impl OidcAuthenticator {
         // Generate a PKCE challenge.
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
+        let scopes = vec![
+            Scope::new("email".to_string()),
+            Scope::new("profile".to_string()),
+            Scope::new("offline_access".to_string()),
+        ];
+
         // Generate the full authorization URL.
         let (auth_url, csrf_token, nonce) = client
             .authorize_url(
@@ -168,11 +181,7 @@ impl OidcAuthenticator {
                 Nonce::new_random,
             )
             // Set the desired scopes.
-            .add_scope(Scope::new("read".to_string()))
-            .add_scope(Scope::new("write".to_string()))
-            .add_scope(Scope::new("name".to_string()))
-            .add_scope(Scope::new("email".to_string()))
-            .add_scope(Scope::new("offline_access".to_string())) // request refresh token
+            .add_scopes(scopes.clone()) // request refresh token
             // Set the PKCE code challenge.
             .set_pkce_challenge(pkce_challenge)
             .url();
@@ -212,7 +221,15 @@ impl OidcAuthenticator {
             }
         }
 
-        println!(
+        if let Some(used_scopes) = token_response.scopes() {
+            let scopes = scopes.iter().collect::<HashSet<_>>();
+            let used_scopes = used_scopes.iter().collect::<HashSet<_>>();
+            for x in scopes.difference(&used_scopes) {
+                tracing::warn!("Requested scope {}, but was not granted!", x.as_str());
+            }
+        }
+
+        tracing::info!(
             "User {} with e-mail address {} has authenticated successfully",
             claims.subject().as_str(),
             claims
@@ -231,7 +248,7 @@ impl OidcAuthenticator {
                         .or_else(|| name.get(None))
                 })
                 .map(|n| n.to_string())
-                .unwrap_or("<anonymous".to_string()),
+                .unwrap_or("<anonymous>".to_string()),
             email: claims
                 .email()
                 .map(|email| email.as_str())

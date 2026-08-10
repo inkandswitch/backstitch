@@ -16,7 +16,8 @@ pub struct ServerInfo {
 
 #[derive(Clone, Debug)]
 pub struct OidcAuthConfig {
-    pub issuer: Url,
+    // This has to be a string, because the Url crate likes to add a bad trailing slash.
+    pub issuer: String,
     pub redirect_port: u16,
     pub client_id: ClientId,
 }
@@ -33,7 +34,8 @@ struct HandshakeResponse {
     minimum_backstitch_version: semver::Version,
     auth: String,
     webviewer: Option<Url>,
-    oidc_issuer: Option<Url>,
+    // This has to be a string, because the Url crate likes to add a bad trailing slash.
+    oidc_issuer: Option<String>,
     oidc_client_id: Option<String>,
     oidc_redirect_port: Option<u16>,
 }

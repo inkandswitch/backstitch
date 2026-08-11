@@ -19,6 +19,8 @@ type PendingAuths = Arc<
     >,
 >;
 
+const HTML_TEMPLATE: &str = include_str!("./html_template.html");
+
 enum AuthResult {
     Login(AuthorizationCode),
     Logout,
@@ -90,7 +92,10 @@ impl RedirectServer {
     ) -> Html<String> {
         // State should always be there -- if not, we're for sure invalid.
         let Some(state) = params.state else {
-            return Self::html_error("The state query parameter is required to authenticate");
+            return Self::html_error(
+                "Login",
+                "The state query parameter is required to authenticate",
+            );
         };
 
         let state = CsrfToken::new(state.clone());
@@ -101,6 +106,7 @@ impl RedirectServer {
         };
         let Some(tx) = tx else {
             return Self::html_error(
+                "Login",
                 "Backstitch isn't waiting for us to authenticate with the provided state!",
             );
         };
@@ -108,17 +114,18 @@ impl RedirectServer {
         if let Some(error) = params.error {
             // receiever dropping is OK actually; that just means the waiter stopped waiting.
             let _ = tx.send(Err(RedirectServerError::AuthFailure(error.clone())));
-            return Self::html_error(&format!("There was an error while authenticating: {error}"));
+            return Self::html_error("Login", &error);
         }
 
         let Some(code) = params.code else {
             let _ = tx.send(Err(RedirectServerError::NoAuthorizationCode));
-            return Self::html_error("No authorization code was received!");
+            return Self::html_error("Login", "No authorization code was received!");
         };
 
         let code = AuthorizationCode::new(code);
         let _ = tx.send(Ok(AuthResult::Login(code)));
-        Self::html_success()
+        tracing::info!("Successfully authenticated!");
+        Self::html("Login Successful", "You may now close this tab.")
     }
 
     async fn logged_out(
@@ -127,7 +134,7 @@ impl RedirectServer {
     ) -> Html<String> {
         // State should always be there -- if not, we're for sure invalid.
         let Some(state) = params.state else {
-            return Self::html_error("The state query parameter is required to logout");
+            return Self::html_error("Logout", "The state query parameter is required to logout");
         };
 
         let state = CsrfToken::new(state.clone());
@@ -138,6 +145,7 @@ impl RedirectServer {
         };
         let Some(tx) = tx else {
             return Self::html_error(
+                "Logout",
                 "Backstitch isn't waiting for us to logout with the provided state!",
             );
         };
@@ -145,30 +153,26 @@ impl RedirectServer {
         if let Some(error) = params.error {
             // receiever dropping is OK actually; that just means the waiter stopped waiting.
             let _ = tx.send(Err(RedirectServerError::AuthFailure(error.clone())));
-            return Self::html_error(&format!("There was an error while logging out: {error}"));
+            return Self::html_error("Logout", &error);
         }
 
         let _ = tx.send(Ok(AuthResult::Logout));
-        Self::html_success()
+        tracing::info!("Successfully logged out!");
+        Self::html("Logout Successful", "You may now close this tab.")
     }
 
-    // TODO (oidc): it'd be wonderful to include_str!() some pretty HTML here.
-    fn html_error(message: &str) -> Html<String> {
+    fn html_error(task: &str, message: &str) -> Html<String> {
         tracing::error!("Error in redirect server: {message}");
-        let message = html_escape::encode_text(message);
-        return Html(format!(
-            "<h2>Backstitch: Authentication Error</h2>\
-            <p>{message}</p>\
-            <p>Please return to Backstitch and try again.</p>"
-        ));
+        return Self::html(&format!("{task} Error:"), message);
     }
 
-    fn html_success() -> Html<String> {
-        tracing::info!("Successfully authenticated!");
+    fn html(header: &str, body: &str) -> Html<String> {
+        let header = html_escape::encode_text(header);
+        let body = html_escape::encode_text(body);
         return Html(
-            "<h2>Backstitch: Authentication successful</h2>\
-                <p>You may now close this window.</p>"
-                .to_string(),
+            HTML_TEMPLATE
+                .replace("{{HEADER}}", &format!("{header}"))
+                .replace("{{BODY}}", &format!("{body}")),
         );
     }
 

@@ -269,7 +269,7 @@ impl OidcAuthenticator {
             .ok();
 
         // TODO (oidc): remove this
-        // let stored_session = None;
+        let stored_session = None;
 
         Ok(if let Some(session) = stored_session {
             match self.refresh_login(&client, &http_client, &session).await {

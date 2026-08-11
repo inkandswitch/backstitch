@@ -274,6 +274,8 @@ func _ready() -> void:
 	else:
 		print("Sidebar: in editor!!!!!!!!!!!!")
 
+	update_ui()
+
 func _enter_tree():
 	if is_part_of_edited_scene():
 		return

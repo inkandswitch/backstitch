@@ -148,6 +148,8 @@ impl UserInfo for OidcUserInfo {
         return self.access_token_expiry > now;
     }
     fn bearer_token(&self) -> Option<SecretString> {
+        // TODO (oidc): Remove this
+        tracing::error!("BAD BAD {}", self.access_token.secret().as_str());
         Some(SecretString::from(self.access_token.secret().as_str()))
     }
 
@@ -269,7 +271,7 @@ impl OidcAuthenticator {
             .ok();
 
         // TODO (oidc): remove this
-        let stored_session = None;
+        // let stored_session = None;
 
         Ok(if let Some(session) = stored_session {
             match self.refresh_login(&client, &http_client, &session).await {
@@ -381,6 +383,10 @@ impl OidcAuthenticator {
         match token_response.token_type() {
             openidconnect::core::CoreTokenType::Bearer => {}
             t => return Err(OidcAuthError::TokenTypeNotSupported(format!("{t:?}"))),
+        }
+
+        if token_response.refresh_token().is_none() {
+            tracing::warn!("Couldn't acquire refresh token...");
         }
 
         let session = StoredOidcSession {

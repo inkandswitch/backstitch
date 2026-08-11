@@ -367,6 +367,7 @@ impl OidcAuthenticator {
             }
         }
 
+        // TODO: this code is "correct" but it's buggy on Endless's servers rn. They have an empty string denoting all approved scopes! Bad!
         if let Some(used_scopes) = token_response.scopes() {
             let scopes = scopes.iter().collect::<HashSet<_>>();
             let used_scopes = used_scopes.iter().collect::<HashSet<_>>();

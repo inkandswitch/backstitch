@@ -268,7 +268,8 @@ impl OidcAuthenticator {
             })
             .ok();
 
-        let stored_session = None;
+        // TODO (oidc): remove this
+        // let stored_session = None;
 
         Ok(if let Some(session) = stored_session {
             match self.refresh_login(&client, &http_client, &session).await {
@@ -319,11 +320,10 @@ impl OidcAuthenticator {
                 // Set the desired scopes.
                 .add_scopes(scopes.clone()) // request refresh token
                 .add_prompt(CoreAuthPrompt::Consent)
-                .add_extra_param("resource", "https://api-dev.endlessstudios.com")
                 // Set the PKCE code challenge.
                 .set_pkce_challenge(pkce_challenge);
             if let Some(resource) = &self.config.resource {
-                // url_request = url_request.add_extra_param("resource", resource);
+                url_request = url_request.add_extra_param("resource", resource);
             }
             url_request.url()
         };

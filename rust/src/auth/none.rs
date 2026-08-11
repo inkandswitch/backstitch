@@ -17,6 +17,14 @@ impl UserInfo for NoneUserInfo {
         self.name.clone()
     }
 
+    fn subject(&self) -> String {
+        self.name.clone()
+    }
+
+    fn email(&self) -> Option<String> {
+        None
+    }
+
     fn is_valid(&self) -> bool {
         true
     }
@@ -43,9 +51,12 @@ impl NoneAuthenticator {
 impl Authenticator for NoneAuthenticator {
     async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
         // TODO (oidc): force the user to provide a name; get a name from storage; etc
-        return Ok(Box::new(NoneUserInfo {
+        Ok(Box::new(NoneUserInfo {
             name: "TEMP".to_string(),
-        }) as Box<dyn UserInfo>);
+        }) as Box<dyn UserInfo>)
+    }
+    async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
+        Ok(())
     }
 
     async fn status_changed(&self) -> AuthStatus {

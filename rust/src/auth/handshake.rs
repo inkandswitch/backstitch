@@ -20,6 +20,8 @@ pub struct OidcAuthConfig {
     pub issuer: String,
     pub redirect_port: u16,
     pub client_id: ClientId,
+    // TODO: Remove this once Endless implements RFC 9728
+    pub resource: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +40,7 @@ struct HandshakeResponse {
     oidc_issuer: Option<String>,
     oidc_client_id: Option<String>,
     oidc_redirect_port: Option<u16>,
+    oidc_resource: Option<String>,
 }
 
 #[derive(Error, Debug)]
@@ -117,6 +120,7 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
                 .ok_or(HandshakeError::MalformedResponse(
                     "expected oidc_redirect_port to exist".to_string(),
                 ))?,
+            resource: response.oidc_resource,
         }),
         other => {
             return Err(HandshakeError::MalformedResponse(format!(

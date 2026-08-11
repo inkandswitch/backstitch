@@ -67,6 +67,7 @@ reqwest = { version = "0.13.4", features = ["json"] }
 semver = { version = "1.0.28", features = ["serde"] }
 async-trait = "0.1.91"
 secrecy = "0.10.3"
+keyring = { version = "4.1.6", features = ["v1"] }
 
 [build-dependencies]
 cbindgen = "^0.27"

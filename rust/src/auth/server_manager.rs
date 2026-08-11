@@ -21,10 +21,15 @@ pub trait AuthError: Send + Sync + std::error::Error + 'static {}
 pub trait UserInfo: Send + Sync + Debug {
     /// Get the username associated with this user
     fn username(&self) -> String;
+    /// Get the subject associated with this user. A subject is any UUID identifying the user, and may be the same as the username.
+    fn subject(&self) -> String;
+    /// Get the email associated with this user.
+    fn email(&self) -> Option<String>;
     /// Whether the user is valid. This might be false if the user needs an authentication refresh.
     fn is_valid(&self) -> bool;
     /// Get the authorized bearer token to include with HTTP requests, if relevant.
     fn bearer_token(&self) -> Option<SecretString>;
+    /// Clone this UserInfo into another box.
     fn clone_box(&self) -> Box<dyn UserInfo>;
 }
 
@@ -37,6 +42,7 @@ impl Clone for Box<dyn UserInfo> {
 #[async_trait]
 pub trait Authenticator: Send + Sync + Debug {
     async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>>;
+    async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>>;
     async fn status_changed(&self) -> AuthStatus;
 }
 
@@ -60,6 +66,7 @@ pub struct ServerManager {
 #[derive(Debug, Clone)]
 pub enum AuthStatus {
     NeedsUserLogin,
+    NeedsUserLogout,
     Ok,
 }
 
@@ -70,7 +77,9 @@ pub enum ServerError {
     #[error(transparent)]
     Handshake(#[from] HandshakeError),
     #[error(transparent)]
-    Auth(#[from] Box<dyn std::error::Error + Send + Sync>),
+    Auth(Box<dyn std::error::Error + Send + Sync>),
+    #[error(transparent)]
+    Deauth(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl ServerManager {
@@ -156,26 +165,7 @@ impl ServerManager {
         &self,
         server_info: &ServerInfo,
     ) -> Result<Box<dyn UserInfo>, ServerError> {
-        // Attempt to grab the authenticator from the cache, or make it if it hasn't been created.
-        let authenticator = {
-            let mut servers = self.servers.lock().await;
-            let server = servers
-                .get_mut(&server_info.url)
-                .expect("This should never happen; server_infos are never cleared once cached");
-            if let Some(authenticator) = &server.authenticator {
-                authenticator.clone()
-            } else {
-                let authenticator: Arc<dyn Authenticator> = match &server_info.auth {
-                    handshake::AuthConfig::Oidc(config) => {
-                        Arc::new(OidcAuthenticator::new(config.clone(), server_info.clone()))
-                    }
-                    handshake::AuthConfig::None => Arc::new(NoneAuthenticator::new()),
-                };
-                server.authenticator = Some(authenticator.clone());
-                authenticator
-            }
-        };
-
+        let authenticator = self.get_or_create_authenticator(server_info).await;
         let authenticate = authenticator.authenticate();
         tokio::pin!(authenticate);
 
@@ -200,8 +190,81 @@ impl ServerManager {
         Ok(user_info)
     }
 
-    /// Call when the user needs to cancel the authentication.
-    pub async fn cancel_authenticate(&self) {
+    pub async fn deauthenticate(&self, server_info: &ServerInfo) -> Result<(), ServerError> {
+        // Lock: Only one authentication allowed at a time!
+        let mut token = self.auth_token.write().await;
+        if let Some(token) = token.take() {
+            token.cancel();
+        }
+
+        *token = Some(CancellationToken::new());
+
+        // We want to keep this held as read(), that way, nobody is allowed to begin another authentication
+        // until we've dropped this.
+        let token = token.downgrade();
+
+        // We always try and do the deauth.
+        select! {
+            // If we cancel,
+            _ = token.as_ref().unwrap().cancelled() => {
+                self.status_tx.send_replace(AuthStatus::Ok);
+                return Err(ServerError::UserCancelled)
+            },
+            res = self.deauthenticate_inner(server_info) => res
+        }
+    }
+
+    async fn deauthenticate_inner(&self, server_info: &ServerInfo) -> Result<(), ServerError> {
+        let authenticator = self.get_or_create_authenticator(server_info).await;
+        let deauthenticate = authenticator.deauthenticate();
+        tokio::pin!(deauthenticate);
+
+        let mut servers = self.servers.lock().await;
+        let server = servers
+            .get_mut(&server_info.url)
+            .expect("There had better be a cached server!");
+        server.user_info = None;
+
+        loop {
+            select! {
+                status = authenticator.status_changed() => {
+                    self.status_tx.send_replace(status);
+                }
+                result = &mut deauthenticate => {
+                    self.status_tx.send_replace(AuthStatus::Ok);
+                    result.map_err(|e| ServerError::Deauth(e))?;
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_or_create_authenticator(
+        &self,
+        server_info: &ServerInfo,
+    ) -> Arc<dyn Authenticator> {
+        let mut servers = self.servers.lock().await;
+        let server = servers
+            .get_mut(&server_info.url)
+            .expect("This should never happen; server_infos are never cleared once cached");
+        if let Some(authenticator) = &server.authenticator {
+            authenticator.clone()
+        } else {
+            let authenticator: Arc<dyn Authenticator> = match &server_info.auth {
+                handshake::AuthConfig::Oidc(config) => {
+                    Arc::new(OidcAuthenticator::new(config.clone(), server_info.clone()))
+                }
+                handshake::AuthConfig::None => Arc::new(NoneAuthenticator::new()),
+            };
+            server.authenticator = Some(authenticator.clone());
+            authenticator
+        }
+    }
+
+    /// Call when the user needs to cancel the authentication/deauthentication.
+    pub async fn cancel_wait(&self) {
         let token = self.auth_token.read().await;
         if let Some(token) = token.as_ref() {
             token.cancel();

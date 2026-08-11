@@ -412,6 +412,7 @@ impl ToGodot for AuthStatus {
         match self {
             AuthStatus::NeedsUserLogin => "needs_user_login".to_gstring(),
             AuthStatus::Ok => "ok".to_gstring(),
+            AuthStatus::NeedsUserLogout => "needs_user_logout".to_gstring(),
         }
     }
 }

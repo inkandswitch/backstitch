@@ -15,9 +15,14 @@ use tokio_util::sync::CancellationToken;
 // We use a synchronous mutex here because contention is rare and quick, and it works with the drop pattern we use later.
 type PendingAuths = Arc<
     std::sync::Mutex<
-        HashMap<blake3::Hash, oneshot::Sender<Result<AuthorizationCode, RedirectServerError>>>,
+        HashMap<blake3::Hash, oneshot::Sender<Result<AuthResult, RedirectServerError>>>,
     >,
 >;
+
+enum AuthResult {
+    Login(AuthorizationCode),
+    Logout,
+}
 
 #[derive(Error, Debug)]
 pub enum RedirectServerError {
@@ -34,7 +39,6 @@ pub enum RedirectServerError {
 pub struct RedirectServer {
     pending_auths: PendingAuths,
     token: CancellationToken,
-    port: u16,
 }
 
 #[derive(Deserialize)]
@@ -54,7 +58,8 @@ impl RedirectServer {
     pub async fn new(port: u16) -> Result<Self, RedirectServerError> {
         let pending_auth: PendingAuths = Default::default();
         let router = Router::new()
-            .route("/", get(Self::redirect))
+            .route("/auth/oidc/callback", get(Self::login))
+            .route("/auth/oidc/logged_out", get(Self::logged_out))
             .with_state(pending_auth.clone());
 
         let listener =
@@ -76,15 +81,10 @@ impl RedirectServer {
         Ok(Self {
             pending_auths: pending_auth,
             token,
-            port,
         })
     }
 
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
-    async fn redirect(
+    async fn login(
         Query(params): Query<RedirectParams>,
         State(pending_auths): State<PendingAuths>,
     ) -> Html<String> {
@@ -117,7 +117,38 @@ impl RedirectServer {
         };
 
         let code = AuthorizationCode::new(code);
-        let _ = tx.send(Ok(code));
+        let _ = tx.send(Ok(AuthResult::Login(code)));
+        Self::html_success()
+    }
+
+    async fn logged_out(
+        Query(params): Query<RedirectParams>,
+        State(pending_auths): State<PendingAuths>,
+    ) -> Html<String> {
+        // State should always be there -- if not, we're for sure invalid.
+        let Some(state) = params.state else {
+            return Self::html_error("The state query parameter is required to logout");
+        };
+
+        let state = CsrfToken::new(state.clone());
+
+        let tx = {
+            let mut pending_auths = pending_auths.lock().unwrap();
+            pending_auths.remove(&blake3::hash(state.secret().as_bytes()))
+        };
+        let Some(tx) = tx else {
+            return Self::html_error(
+                "Backstitch isn't waiting for us to logout with the provided state!",
+            );
+        };
+
+        if let Some(error) = params.error {
+            // receiever dropping is OK actually; that just means the waiter stopped waiting.
+            let _ = tx.send(Err(RedirectServerError::AuthFailure(error.clone())));
+            return Self::html_error(&format!("There was an error while logging out: {error}"));
+        }
+
+        let _ = tx.send(Ok(AuthResult::Logout));
         Self::html_success()
     }
 
@@ -141,7 +172,7 @@ impl RedirectServer {
         );
     }
 
-    pub async fn wait_for_redirect(
+    pub async fn wait_for_login(
         &self,
         state: CsrfToken,
     ) -> Result<AuthorizationCode, RedirectServerError> {
@@ -179,6 +210,54 @@ impl RedirectServer {
 
         let result = rx.await?;
         drop(guard);
-        result
+        match result? {
+            AuthResult::Login(authorization_code) => Ok(authorization_code),
+            AuthResult::Logout => Err(RedirectServerError::AuthFailure(
+                "wrong type of authorization (logout)".to_string(),
+            )),
+        }
+    }
+
+    pub async fn wait_for_logout(&self, state: CsrfToken) -> Result<(), RedirectServerError> {
+        struct Guard {
+            state: CsrfToken,
+            pending_auths: PendingAuths,
+        }
+
+        // This will run if the future is dropped
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.pending_auths
+                    .lock()
+                    .unwrap()
+                    .remove(&blake3::hash(self.state.secret().as_bytes()));
+            }
+        }
+
+        let guard = Guard {
+            state: state.clone(),
+            pending_auths: self.pending_auths.clone(),
+        };
+
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_auths.lock().unwrap();
+
+            if pending
+                .insert(blake3::hash(state.secret().as_bytes()), tx)
+                .is_some()
+            {
+                panic!("duplicate CSRF token?!?! some funny business is afoot...")
+            }
+        }
+
+        let result = rx.await?;
+        drop(guard);
+        match result? {
+            AuthResult::Logout => Ok(()),
+            AuthResult::Login(_) => Err(RedirectServerError::AuthFailure(
+                "wrong type of authorization (logout)".to_string(),
+            )),
+        }
     }
 }

@@ -132,7 +132,7 @@ impl ProjectViewModel for Project {
         }
     }
 
-    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError> {
+    fn create_merge_preview_branch(&self) -> Result<(), CreateMergePreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
             return Err(CreateMergePreviewBranchError::NoCheckedOutBranch);
         };
@@ -170,7 +170,7 @@ impl ProjectViewModel for Project {
     }
 
     fn create_revert_preview_branch(
-        &mut self,
+        &self,
         head: ChangeHash,
     ) -> Result<(), CreateRevertPreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
@@ -247,7 +247,7 @@ impl ProjectViewModel for Project {
             .is_some_and(|i| i.heads() == &latest_dest_heads)
     }
 
-    fn confirm_preview_branch(&mut self) {
+    fn confirm_preview_branch(&self) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -266,7 +266,7 @@ impl ProjectViewModel for Project {
             });
         }
     }
-    fn discard_preview_branch(&mut self) {
+    fn discard_preview_branch(&self) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -429,7 +429,7 @@ impl ProjectViewModel for Project {
         self.get_branch(id.branch())
     }
 
-    fn create_branch(&mut self, name: String) {
+    fn create_branch(&self, name: String) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -439,7 +439,7 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn checkout_branch(&mut self, branch: &DocumentId) {
+    fn checkout_branch(&self, branch: &DocumentId) {
         let branch = branch.clone();
         self.with_driver_blocking("Checkout branch", |driver| async move {
             driver.as_ref()?.request_checkout(&branch).await;

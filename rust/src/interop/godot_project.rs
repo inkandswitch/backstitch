@@ -378,14 +378,14 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_branch(&mut self, name: String) {
-        self.project_mut().create_branch(name);
+    fn create_branch(&self, name: String) {
+        self.project().create_branch(name);
     }
 
     #[func]
-    fn checkout_branch(&mut self, id: String) {
+    fn checkout_branch(&self, id: String) {
         if let Ok(id) = DocumentId::from_str(&id) {
-            self.project_mut().checkout_branch(&id);
+            self.project().checkout_branch(&id);
         };
     }
 
@@ -395,8 +395,8 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_merge_preview_branch(&mut self) -> Error {
-        match self.project_mut().create_merge_preview_branch() {
+    fn create_merge_preview_branch(&self) -> Error {
+        match self.project().create_merge_preview_branch() {
             Ok(_) => Error::OK,
             Err(e) => {
                 godot_error!("Error creating merge preview branch: {e}");
@@ -418,12 +418,12 @@ impl GodotProject {
     }
 
     #[func]
-    fn create_revert_preview_branch(&mut self, head: String) -> Error {
+    fn create_revert_preview_branch(&self, head: String) -> Error {
         let Ok(hash) = ChangeHash::from_str(&head) else {
             godot_error!("Invalid hash: {head}");
             return Error::ERR_INVALID_PARAMETER;
         };
-        match self.project_mut().create_revert_preview_branch(hash) {
+        match self.project().create_revert_preview_branch(hash) {
             Ok(_) => Error::OK,
             Err(e) => {
                 godot_error!("Error creating revert preview branch: {e}");
@@ -452,13 +452,13 @@ impl GodotProject {
     }
 
     #[func]
-    fn confirm_preview_branch(&mut self) {
-        self.project_mut().confirm_preview_branch();
+    fn confirm_preview_branch(&self) {
+        self.project().confirm_preview_branch();
     }
 
     #[func]
-    fn discard_preview_branch(&mut self) {
-        self.project_mut().discard_preview_branch();
+    fn discard_preview_branch(&self) {
+        self.project().discard_preview_branch();
     }
 
     #[func]
@@ -898,7 +898,7 @@ impl GodotProjectPlugin {
             for script in scripts_to_reload {
                 if ResourceLoader::singleton()
                     .load_ex(&script)
-                    .cache_mode(CacheMode::IGNORE_DEEP)
+                    .cache_mode(CacheMode::IGNORE_DEEP) // IGNORE_DEEP forces the GDScriptCache to reload from disk and caches it again (you'd think they'd use `REPLACE` for that...)
                     .done()
                     .is_none()
                 {

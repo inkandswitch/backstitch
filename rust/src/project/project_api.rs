@@ -157,9 +157,9 @@ pub trait ProjectViewModel {
     /// Gets the [BranchViewModel] for the current checked out branch, or [None] if we have no project.
     fn get_checked_out_branch(&self) -> Option<impl BranchViewModel>;
     /// Create a new branch, forked off the current branch with the given name.
-    fn create_branch(&mut self, branch_name: String);
+    fn create_branch(&self, branch_name: String);
     /// Check out a branch by ID.
-    fn checkout_branch(&mut self, branch: &DocumentId);
+    fn checkout_branch(&self, branch: &DocumentId);
     /// Returns true if the branch is loaded (i.e. has all of its binary docs synced).
     fn is_branch_loaded(&self, branch: &DocumentId) -> bool;
     /// Dumps a binary representation of the current branch to ./.backstitch/.
@@ -168,12 +168,12 @@ pub trait ProjectViewModel {
     /// Whether we can begin a merge preview for the current branch into its direct ancestor.
     fn can_create_merge_preview_branch(&self) -> bool;
     /// Create a new merge preview branch, for merging the current branch into its direct ancestor.
-    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError>;
+    fn create_merge_preview_branch(&self) -> Result<(), CreateMergePreviewBranchError>;
     /// Whether we can create a revert preview branch for the given head.
     fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool;
     /// Create a new revert preview branch for the given head.
     fn create_revert_preview_branch(
-        &mut self,
+        &self,
         head: ChangeHash,
     ) -> Result<(), CreateRevertPreviewBranchError>;
     /// Whether there is currently a revert preview active.
@@ -183,9 +183,9 @@ pub trait ProjectViewModel {
     /// Whether there has been changes in the root branch since we forked.
     fn is_safe_to_merge(&self) -> bool;
     /// Confirm the active preview branch, reverting or merging as necessary.
-    fn confirm_preview_branch(&mut self);
+    fn confirm_preview_branch(&self);
     /// Discard the active preview branch.
-    fn discard_preview_branch(&mut self);
+    fn discard_preview_branch(&self);
 
     /// Get the full history for the currently checked-out branch, in chronological order.
     fn get_branch_history(&self) -> Vec<ChangeHash>;

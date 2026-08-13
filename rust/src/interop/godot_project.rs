@@ -529,7 +529,10 @@ impl GodotProject {
     }
 
     pub fn get_project_singleton() -> Arc<StdRwLock<Project>> {
-        PROJECT_SINGLETON.get().unwrap().clone()
+        PROJECT_SINGLETON
+            .get()
+            .expect("get_project_singleton: Project singleton not found (GodotProject should have been the first thing initialized in the extension??)")
+            .clone()
     }
 
     /// Only here for the sake of the plugin; use `get_project_singleton` instead if using from rust code.

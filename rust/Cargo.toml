@@ -60,6 +60,12 @@ thiserror = "2.0.18"
 tracing-panic = "0.1.2"
 indexmap = "2.14"
 
+# `samod/tungstenite` forces `native-tls`, which resolves to openssl-sys on Android.
+# There is no system OpenSSL to link against there, so we have to build
+# it from source with the NDK toolchain.
+[target.'cfg(target_os = "android")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [build-dependencies]
 cbindgen = "^0.27"
 static_vcruntime = "3.0"

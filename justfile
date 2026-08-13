@@ -291,6 +291,129 @@ _build-plugin-single-arch architecture profile tracing_support: (_build-plugin a
             build/backstitch/bin/backstitch_rust_core.pdb
     fi
 
+# Build the Rust plugin for a single Android target using the NDK toolchain.
+_build-plugin-android architecture profile tracing_support: _make-plugin-dir
+    #!/usr/bin/env python3
+    import os
+    import platform
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    architecture = "{{architecture}}"
+    profile = "{{profile}}"
+
+    # Godot's Android ABI names, used for the artifact suffix and the .gdextension keys.
+    GODOT_ARCH = {
+        "aarch64-linux-android": "arm64",
+        "armv7-linux-androideabi": "arm32",
+        "i686-linux-android": "x86_32",
+        "x86_64-linux-android": "x86_64",
+    }
+    # The NDK clang wrappers don't always match the Rust triple; armv7 is the odd one out.
+    NDK_PREFIX = {
+        "aarch64-linux-android": "aarch64-linux-android",
+        "armv7-linux-androideabi": "armv7a-linux-androideabi",
+        "i686-linux-android": "i686-linux-android",
+        "x86_64-linux-android": "x86_64-linux-android",
+    }
+
+    if architecture not in GODOT_ARCH:
+        sys.exit(f"Unsupported Android target: {architecture}")
+
+    is_windows = platform.system().lower().startswith("win")
+
+    def default_sdk_home():
+        home = Path.home()
+        if sys.platform == "darwin":
+            return home / "Library" / "Android" / "sdk"
+        if is_windows:
+            return Path(os.environ.get("LOCALAPPDATA", str(home))) / "Android" / "Sdk"
+        return home / "Android" / "Sdk"
+
+    sdk_home = Path(
+        os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or default_sdk_home()
+    )
+    ndk_version = os.environ["ANDROID_NDK_VERSION"]
+    ndk_root = Path(
+        os.environ.get("ANDROID_NDK_ROOT")
+        or os.environ.get("ANDROID_NDK_HOME")
+        or (sdk_home / "ndk" / ndk_version)
+    )
+    if not ndk_root.is_dir():
+        sys.exit(
+            f"**** Android NDK not found at {ndk_root}\n"
+            "**** Set ANDROID_HOME to your SDK location, or ANDROID_NDK_ROOT to the NDK itself.\n"
+            f"**** HINT: install it with 'sdkmanager \"ndk;{ndk_version}\"'"
+        )
+
+    host_name = platform.system().lower()
+    if host_name.startswith("win"):
+        host_name = "win"
+    prebuilt = ndk_root / "toolchains" / "llvm" / "prebuilt"
+    bin_dir = next(
+        (entry / "bin" for entry in sorted(prebuilt.iterdir()) if entry.name.startswith(host_name)),
+        None,
+    )
+    if bin_dir is None or not bin_dir.is_dir():
+        sys.exit(f"Could not find an LLVM prebuilt toolchain for '{host_name}' in {prebuilt}")
+
+    exe_suffix = ".exe" if is_windows else ""
+    linker_suffix = ".cmd" if is_windows else ""
+    min_sdk = os.environ["ANDROID_MIN_SDK"]
+    ar = (bin_dir / ("llvm-ar" + exe_suffix)).as_posix()
+    ranlib = (bin_dir / ("llvm-ranlib" + exe_suffix)).as_posix()
+
+    def linker_for(triple):
+        return (bin_dir / (NDK_PREFIX[triple] + min_sdk + "-clang" + linker_suffix)).as_posix()
+
+    # This goes in its own file rather than .cargo/config.toml, which is checked in and holds
+    # the Linux cross-linkers. Cargo layers `--config <path>` on top of the checked-in config.
+    sections = [
+        f'[target.{triple}]\nar = "{ar}"\nlinker = "{linker_for(triple)}"\n' for triple in GODOT_ARCH
+    ]
+    cargo_config = Path(".cargo/android.toml").resolve()
+    cargo_config.parent.mkdir(parents=True, exist_ok=True)
+    cargo_config.write_text("\n".join(sections))
+
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + (";" if is_windows else ":") + env.get("PATH", "")
+    env["ANDROID_HOME"] = str(sdk_home)
+    env["ANDROID_SDK_ROOT"] = str(sdk_home)
+    env["ANDROID_NDK_ROOT"] = str(ndk_root)
+    env["ANDROID_NDK_HOME"] = str(ndk_root)
+    # cc-rs and openssl-src read these. The NDK ships no plain `ar` or `ranlib`, only the
+    # llvm-prefixed ones, so leaving these unset makes the native builds fail.
+    env["CC_" + architecture] = linker_for(architecture)
+    env["AR_" + architecture] = ar
+    env["RANLIB_" + architecture] = ranlib
+
+    subprocess.check_call(["rustup", "target", "add", architecture])
+
+    cargo_cmd = [
+        "cargo",
+        "--config",
+        str(cargo_config),
+        "build",
+        f"--profile={profile}",
+        f"--target={architecture}",
+    ]
+    if "{{tracing_support}}" == "tokio-console":
+        env["RUSTFLAGS"] = (env.get("RUSTFLAGS", "") + " --cfg tokio_unstable").strip()
+        cargo_cmd += ["--features", "tokio-console"]
+
+    print("**** Building Backstitch for Android: " + " ".join(cargo_cmd))
+    subprocess.check_call(cargo_cmd, env=env)
+
+    out_dir = Path("build/backstitch/bin")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Godot's Android exporter rejects .so names that don't start with "lib".
+    shutil.copy(
+        Path("target") / architecture / profile / "libbackstitch_rust_core.so",
+        out_dir / f"libbackstitch_rust_core.android.{GODOT_ARCH[architecture]}.so",
+    )
+
 # Write plugin.cfg and Backstitch.gdextension
 _configure-backstitch: _make-plugin-dir
     #!/usr/bin/env python3
@@ -333,9 +456,11 @@ _configure-backstitch: _make-plugin-dir
     windows.editor.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
     windows.editor.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
     macos.editor =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
+    android.editor.arm64 =       "bin/libbackstitch_rust_core.android.arm64.so"
+    android.editor.x86_64 =      "bin/libbackstitch_rust_core.android.x86_64.so"
     """)
 
-# Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures.
+# Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures. For Android, use architecture=all-android to build arm64 and x86_64.
 [parallel]
 [arg('profile', pattern='release|debug')]
 [arg('tracing_support', pattern='none|tokio-console')]
@@ -351,7 +476,20 @@ build-backstitch profile architecture=(default_arch) tracing_support="none": _co
     if [[ "{{profile}}" = "debug" ]] ; then
         profile="release_debug"
     fi
-    
+
+    if [[ "{{architecture}}" = "all-android" ]] ; then
+        just _build-plugin-android "aarch64-linux-android" "$profile" "{{tracing_support}}"
+        just _build-plugin-android "x86_64-linux-android" "$profile" "{{tracing_support}}"
+        exit 0
+    fi
+
+    # Android targets need the NDK toolchain and a "lib"-prefixed artifact name.
+    case "{{architecture}}" in
+        *-linux-android|*-linux-androideabi)
+            just _build-plugin-android "{{architecture}}" "$profile" "{{tracing_support}}"
+            exit 0 ;;
+    esac
+
     just _build-plugin-single-arch "{{architecture}}" "$profile" "{{tracing_support}}"
 
 # Reset the Godot repository, removing the linked module and resetting the repo state.

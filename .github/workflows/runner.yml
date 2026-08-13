@@ -49,9 +49,13 @@ jobs:
     name: 🐧 Build Backstitch for Linux
     uses: ./.github/workflows/linux_builds.yml
 
+  android-plugin-builds:
+    name: 🤖 Build Backstitch for Android
+    uses: ./.github/workflows/android_builds.yml
+
   merge-plugin-builds:
     name: 🧩 Merge Backstitch Builds
-    needs: [macos-plugin-builds, windows-plugin-builds, linux-plugin-builds]
+    needs: [macos-plugin-builds, windows-plugin-builds, linux-plugin-builds, android-plugin-builds]
     uses: ./.github/workflows/merge_builds.yml
 
   compose-projects:

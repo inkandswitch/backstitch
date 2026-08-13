@@ -1,5 +1,6 @@
 # workspace is in rust
 [workspace]
+resolver = "3"
 members = [
     "rust",
 ]

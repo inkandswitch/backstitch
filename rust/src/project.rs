@@ -1,6 +1,7 @@
 pub mod project_api;
 //mod project_driver;
 //pub mod project;
+pub mod backstitch_config;
 mod connection;
 mod document_watcher;
 mod fs;

@@ -1,4 +1,3 @@
-mod backstitch_config;
 mod backstitch_resource_loader;
 mod diff_inspector_section;
 mod extension;

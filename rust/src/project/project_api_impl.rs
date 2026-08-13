@@ -12,7 +12,6 @@ use crate::{
             exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
-    interop::godot_accessors::BackstitchConfigAccessor,
     project::{
         branch_db::DbError,
         project_api::{
@@ -53,7 +52,8 @@ impl ProjectViewModel for Project {
         if self.has_project() {
             return Ok(());
         }
-        BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
+        self.config_mut()
+            .set_project_value("project_doc_id", id.to_string().as_str());
         self.start(if autostart {
             ProjectCreateMode::AutoLoaded
         } else {
@@ -101,20 +101,21 @@ impl ProjectViewModel for Project {
             return;
         }
         self.stop();
-        BackstitchConfigAccessor::set_project_value("project_doc_id", "");
-        BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
+        let mut config = self.config_mut();
+        config.set_project_value("project_doc_id", "");
+        config.set_project_value("checked_out_branch_doc_id", "");
     }
 
     fn has_user_name(&self) -> bool {
-        !BackstitchConfigAccessor::get_user_value("user_name", "").is_empty()
+        !self.config().get_user_value("user_name", "").is_empty()
     }
 
     fn get_user_name(&self) -> String {
-        BackstitchConfigAccessor::get_user_value("user_name", "Anonymous")
+        self.config().get_user_value("user_name", "Anonymous")
     }
 
     fn set_user_name(&self, name: String) {
-        BackstitchConfigAccessor::set_user_value("user_name", &name);
+        self.config_mut().set_user_value("user_name", &name);
         self.with_driver_blocking("Set username", |driver| async move {
             driver.as_ref()?.set_username(Some(name)).await;
             Some(())
@@ -674,15 +675,13 @@ impl ProjectViewModel for Project {
     fn get_server(&self) -> Option<String> {
         // note... we're not doing URL parsing here because a user could just open up the text file and add
         // some BS. So there's no invariant that these URLs are even valid.
-        let res = BackstitchConfigAccessor::get_project_value("server_url", "");
+        let res = self.config().get_project_value("server_url", "");
         (!res.is_empty()).then_some(res)
     }
 
     fn set_server(&self, server: Option<String>) {
-        BackstitchConfigAccessor::set_project_value(
-            "server_url",
-            &server.unwrap_or("".to_string()),
-        );
+        self.config_mut()
+            .set_project_value("server_url", &server.unwrap_or("".to_string()));
     }
 
     fn add_server(&self, server: String) {
@@ -691,7 +690,8 @@ impl ProjectViewModel for Project {
         }
         let mut servers = self.get_available_servers();
         servers.push(server);
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+        self.config_mut()
+            .set_project_value("available_servers", &servers.join(","));
     }
 
     fn remove_server(&self, server: String) {
@@ -700,14 +700,14 @@ impl ProjectViewModel for Project {
         }
         let mut servers = self.get_available_servers();
         servers.retain(|s| s != &server && !s.is_empty());
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+        self.config_mut()
+            .set_project_value("available_servers", &servers.join(","));
     }
 
     fn get_available_servers(&self) -> Vec<String> {
-        let servers = BackstitchConfigAccessor::get_project_value(
-            "available_servers",
-            "alpha.backstitch.dev:8085",
-        );
+        let servers = self
+            .config()
+            .get_project_value("available_servers", "alpha.backstitch.dev:8085");
         servers
             .split(",")
             .filter(|s| !s.is_empty())

@@ -257,6 +257,7 @@ dependencies = [
  "futures",
  "godot",
  "ignore",
+ "indexmap",
  "jwalk",
  "notify",
  "notify-debouncer-full",

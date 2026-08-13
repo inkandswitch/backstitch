@@ -4,14 +4,17 @@ use crate::helpers::branch::Branch;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::spawn_utils::spawn_named_on;
 use crate::helpers::utils::{ChangedFile, CommitInfo, DiffId};
-use crate::interop::godot_accessors::BackstitchConfigAccessor;
+use crate::project::backstitch_config::BackstitchConfig;
 use crate::project::driver::{Driver, ProjectLoadError};
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::{ProjectStartError, ProjectViewModel, RequestDiffError};
 use automerge::ChangeHash;
 use samod::{ConnectionInfo, DocumentId, Url};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    Arc, PoisonError, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard,
+    RwLockWriteGuard as StdRwLockWriteGuard,
+};
 use std::{collections::HashMap, str::FromStr};
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock, watch};
@@ -49,6 +52,9 @@ pub struct Project {
     project_dir: PathBuf,
     pub(super) runtime: Runtime,
 
+    // Deliberately using std::sync::RwLock so that task threads don't block the main thread by holding the lock.
+    config: Arc<StdRwLock<BackstitchConfig>>,
+
     // Tracked changes for the UI
     pub(super) history: Option<Vec<ChangeHash>>,
     pub(super) changes: HashMap<ChangeHash, CommitInfo>,
@@ -70,7 +76,7 @@ struct LoadSuccess {
 }
 
 impl Project {
-    pub fn new(project_dir: PathBuf) -> Self {
+    pub fn new(project_dir: PathBuf, user_data_dir: PathBuf) -> Self {
         // TODO (Lilith): ensure we make this work across the ENTIRE program, not just the driver.
         // For now this encapsulates everything we multi-thread, since Project is the barrier for public async access.
         // So it's fine. But if we want other code besides the driver to be multi-threaded...
@@ -80,11 +86,14 @@ impl Project {
             .build()
             .unwrap();
 
+        let config = BackstitchConfig::new(&project_dir, &user_data_dir);
+
         Self {
             main_thread_block: MainThreadBlock::new(),
             changes_rx: None,
             checked_out_ref_rx: None,
             driver: Arc::new(RwLock::new(None)),
+            config: Arc::new(StdRwLock::new(config)),
             project_dir,
             runtime,
             history: None,
@@ -95,6 +104,27 @@ impl Project {
             initial_branch: None,
             connection_info_rx: None,
         }
+    }
+
+    /// The config is plain data that a panic can't leave half-written, so a poisoned lock is
+    /// recovered rather than propagated.
+    pub(super) fn config(&self) -> StdRwLockReadGuard<'_, BackstitchConfig> {
+        self.config.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn config_mut(&self) -> StdRwLockWriteGuard<'_, BackstitchConfig> {
+        self.config.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The [DocumentId] of the project saved in the config, if there is a valid one.
+    pub fn get_project_doc_id(&self) -> Option<DocumentId> {
+        let id = self.config().get_project_value("project_doc_id", "");
+        if id.is_empty() {
+            return None;
+        }
+        DocumentId::from_str(&id)
+            .inspect_err(|e| tracing::error!("Invalid saved project doc ID {id}: {e}"))
+            .ok()
     }
 
     fn ingest_changes(&mut self, changes: Vec<CommitInfo>) {
@@ -167,7 +197,7 @@ impl Project {
     }
 
     fn acquire_server_url(&self) -> Result<Option<Url>, ProjectStartError> {
-        let server_url = BackstitchConfigAccessor::get_project_value("server_url", "");
+        let server_url = self.config().get_project_value("server_url", "");
 
         if server_url.is_empty() {
             return Ok(None);
@@ -383,7 +413,7 @@ impl Project {
         let metadata_id = if mode == ProjectCreateMode::New {
             None
         } else {
-            let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
+            let id = self.config().get_project_value("project_doc_id", "");
             Some(DocumentId::from_str(&id).map_err(|_| {
                 tracing::error!("Invalid metadata document ID! Not starting driver.");
                 ProjectStartError::DocumentIdInvalid(id)
@@ -393,10 +423,10 @@ impl Project {
         let saved_branch_id = if mode == ProjectCreateMode::New {
             None
         } else {
-            match Some(BackstitchConfigAccessor::get_project_value(
-                "checked_out_branch_doc_id",
-                "",
-            ))
+            match Some(
+                self.config()
+                    .get_project_value("checked_out_branch_doc_id", ""),
+            )
             .filter(|s| !s.is_empty())
             {
                 Some(s) => match DocumentId::from_str(&s) {
@@ -417,7 +447,7 @@ impl Project {
         );
 
         let project_dir = self.project_dir.clone();
-        let username = BackstitchConfigAccessor::get_user_value("user_name", "");
+        let username = self.config().get_user_value("user_name", "");
         let block = self.main_thread_block.clone();
 
         // TODO: Don't block on main thread for checkin
@@ -507,7 +537,8 @@ impl Project {
             Ok::<_, ProjectStartError>(metadata)
         })?;
         self.local_changes = Default::default();
-        BackstitchConfigAccessor::set_project_value("project_doc_id", &metadata.to_string());
+        self.config_mut()
+            .set_project_value("project_doc_id", &metadata.to_string());
         Ok(())
     }
 
@@ -615,15 +646,21 @@ impl Project {
 
         // Check to see if we need to produce a CheckedOutBranch signal
         let rx = self.checked_out_ref_rx.as_mut().unwrap();
-        if rx.has_changed().unwrap_or(false) {
+        let checked_out_doc_id = if rx.has_changed().unwrap_or(false) {
             let doc_id = rx
                 .borrow()
                 .as_ref()
                 .map(|r| r.branch().to_string())
                 .unwrap_or("".to_string());
-            BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
             rx.mark_unchanged();
             signals.push(GodotProjectSignal::BranchCheckedOut);
+            Some(doc_id)
+        } else {
+            None
+        };
+        if let Some(doc_id) = checked_out_doc_id {
+            self.config_mut()
+                .set_project_value("checked_out_branch_doc_id", &doc_id);
         }
 
         tracing::trace!("Done with process.");

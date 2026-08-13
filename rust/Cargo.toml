@@ -58,6 +58,7 @@ fjall = "3.1.4"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
+indexmap = "2.14"
 
 [build-dependencies]
 cbindgen = "^0.27"

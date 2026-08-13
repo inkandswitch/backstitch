@@ -261,9 +261,7 @@ dependencies = [
  "jwalk",
  "notify",
  "notify-debouncer-full",
- "num-traits",
  "openssl",
- "pretty_assertions",
  "rand 0.10.2",
  "rayon",
  "regex",
@@ -903,9 +901,8 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fjall"
-version = "3.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b62b25b4d815ae178d7d9e4aa32ee59f072efd5431c736abede1e6ee13c8c453"
+version = "3.1.8"
+source = "git+https://github.com/nikitalita/fjall?branch=handle-unsupported-file-lock#f6e3d8f19e3cd194b012ab84844e07f87e4d4374"
 dependencies = [
  "byteorder-lite",
  "byteview",
@@ -1736,9 +1733,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lsm-tree"
-version = "3.1.4"
+version = "3.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e447ac67ff6aef4ec07fc19e507b219336cbba90a697c0dbeb1bf51b91536b67"
+checksum = "055a908d502129cf63bedae52f2db222e4436d2da32a69df9b84ac9fb9147761"
 dependencies = [
  "byteorder-lite",
  "byteview",

@@ -310,6 +310,8 @@ _configure-backstitch: _make-plugin-dir
             git_describe = git_describe[:first_index] + "-" + git_describe[first_index + 1 :].replace("-", "+")
 
     print(f"Loaded version from Git repository: {git_describe}")
+    # remove the `v` prefix if it exists and remove any trailing prerelease or build metadata
+    minimum_godot = str(os.getenv("MINIMUM_GODOT")).lstrip("v").split("-")[0].split("+")[0]
 
     with open("build/backstitch/plugin.cfg", "w") as file:
         file.write(f"""[plugin]
@@ -323,7 +325,7 @@ _configure-backstitch: _make-plugin-dir
     with open("build/backstitch/Backstitch.gdextension", "w") as file:
         file.write(f"""[configuration]
     entry_symbol = "gdext_rust_init"
-    compatibility_minimum = {os.getenv("MINIMUM_GODOT")}
+    compatibility_minimum = {minimum_godot}
     reloadable = true
 
     [libraries]

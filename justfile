@@ -312,6 +312,11 @@ _configure-backstitch: _make-plugin-dir
     print(f"Loaded version from Git repository: {git_describe}")
     # remove the `v` prefix if it exists and remove any trailing prerelease or build metadata
     minimum_godot = str(os.getenv("MINIMUM_GODOT")).lstrip("v").split("-")[0].split("+")[0]
+    # check if minimum_godot matches <MAJOR>.<MINOR> or <MAJOR>.<MINOR>.<PATCH>
+    split_minimum_godot = minimum_godot.split(".")
+    if (not (len(split_minimum_godot) >= 2 and len(split_minimum_godot) <= 3)) or (not all(part.isdigit() for part in split_minimum_godot)):
+        print(f"**** Minimum Godot version {minimum_godot} is not a valid version!")
+        exit(1)
 
     with open("build/backstitch/plugin.cfg", "w") as file:
         file.write(f"""[plugin]

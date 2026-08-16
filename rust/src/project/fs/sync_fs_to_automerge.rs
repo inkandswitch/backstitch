@@ -220,10 +220,14 @@ impl SyncFileSystemToAutomerge {
             .get_file_contents(current_files.into_keys().collect())
             .await;
 
+        tracing::info!("Successfully got file contents");
+
         let new_ref = self
             .branch_db
             .commit_fs_changes(contents, checked_out_ref.as_ref().unwrap(), None, true)
             .await;
+
+        tracing::info!("Successfully committed lots of files");
 
         if let Some((new_ref, _)) = new_ref {
             *checked_out_ref = Some(new_ref);
@@ -238,12 +242,15 @@ impl SyncFileSystemToAutomerge {
     ) -> Vec<(String, Option<FileContent>)> {
         stream::iter(files)
             .map(|path| async move {
+                tracing::info!("Looking for path {path:?}");
                 let exists = tokio::fs::try_exists(&path).await?;
                 // If it doesn't exist, the file is removed.
                 if !exists {
+                    tracing::info!("Finished path {path:?}, DOESN'T EXIST");
                     return Ok((self.branch_db.localize_path(&path), None));
                 }
                 tokio::fs::read(&path).await.map(|data| {
+                    tracing::info!("Finished path {path:?}, FOUND");
                     (
                         self.branch_db.localize_path(&path),
                         Some(FileContent::from_buf(data, path.to_str().unwrap_or(""))),

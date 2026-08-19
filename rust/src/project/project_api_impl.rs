@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
 use samod::DocumentId;
+use url::Url;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -12,7 +13,6 @@ use crate::{
             exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
-    interop::godot_accessors::BackstitchConfigAccessor,
     project::{
         LocalChangesResult, Project, ProjectStartStatus,
         branch_db::DbError,
@@ -43,7 +43,7 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) {
+    fn new_project(&self) {
         if self.has_project() {
             tracing::warn!("Project already exists; can't create a new one.");
             return;
@@ -51,11 +51,16 @@ impl ProjectViewModel for Project {
         self.start(ProjectCreateMode::New)
     }
 
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) {
+    fn load_project(&self, id: &DocumentId, autostart: bool) {
         if self.has_project() {
             return;
         }
-        BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(Some(id)).await;
+        });
+
         self.start(if autostart {
             ProjectCreateMode::AutoLoaded
         } else {
@@ -102,21 +107,30 @@ impl ProjectViewModel for Project {
             return;
         }
         self.stop();
-        BackstitchConfigAccessor::set_project_value("project_doc_id", "");
-        BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(None).await;
+            config.set_checked_out_branch_doc_id(None).await;
+        });
     }
 
     fn has_user_name(&self) -> bool {
-        !BackstitchConfigAccessor::get_user_value("user_name", "").is_empty()
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.is_some() })
     }
 
     fn get_user_name(&self) -> String {
-        BackstitchConfigAccessor::get_user_value("user_name", "Anonymous")
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.unwrap_or("".to_string()) })
     }
 
     fn set_user_name(&self, name: String) {
-        BackstitchConfigAccessor::set_user_value("user_name", &name);
+        let config = self.config.clone();
         self.with_driver_blocking("Set username", |driver| async move {
+            config.set_user_name(Some(&name)).await;
             driver.as_ref()?.set_username(Some(name)).await;
             Some(())
         });
@@ -132,7 +146,7 @@ impl ProjectViewModel for Project {
         }
     }
 
-    fn create_merge_preview_branch(&mut self) -> Result<(), CreateMergePreviewBranchError> {
+    fn create_merge_preview_branch(&self) -> Result<(), CreateMergePreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
             return Err(CreateMergePreviewBranchError::NoCheckedOutBranch);
         };
@@ -170,7 +184,7 @@ impl ProjectViewModel for Project {
     }
 
     fn create_revert_preview_branch(
-        &mut self,
+        &self,
         head: ChangeHash,
     ) -> Result<(), CreateRevertPreviewBranchError> {
         let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
@@ -247,7 +261,7 @@ impl ProjectViewModel for Project {
             .is_some_and(|i| i.heads() == &latest_dest_heads)
     }
 
-    fn confirm_preview_branch(&mut self) {
+    fn confirm_preview_branch(&self) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -266,7 +280,7 @@ impl ProjectViewModel for Project {
             });
         }
     }
-    fn discard_preview_branch(&mut self) {
+    fn discard_preview_branch(&self) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -429,7 +443,7 @@ impl ProjectViewModel for Project {
         self.get_branch(id.branch())
     }
 
-    fn create_branch(&mut self, name: String) {
+    fn create_branch(&self, name: String) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -439,7 +453,7 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn checkout_branch(&mut self, branch: &DocumentId) {
+    fn checkout_branch(&self, branch: &DocumentId) {
         let branch = branch.clone();
         self.with_driver_blocking("Checkout branch", |driver| async move {
             driver.as_ref()?.request_checkout(&branch).await;
@@ -672,48 +686,69 @@ impl ProjectViewModel for Project {
         });
     }
 
+    fn is_server_valid(&self, server: String) -> bool {
+        // TODO: Be kinder about http/https inclusion... right now it's weird
+        Url::parse(&server).is_ok()
+    }
+
     fn get_server(&self) -> Option<String> {
-        // note... we're not doing URL parsing here because a user could just open up the text file and add
-        // some BS. So there's no invariant that these URLs are even valid.
-        let res = BackstitchConfigAccessor::get_project_value("server_url", "");
-        (!res.is_empty()).then_some(res)
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.server_url().await })
+            .map(|url| url.to_string())
     }
 
     fn set_server(&self, server: Option<String>) {
-        BackstitchConfigAccessor::set_project_value(
-            "server_url",
-            &server.unwrap_or("".to_string()),
-        );
+        let server = server.and_then(|s| {
+            Url::parse(&s)
+                .inspect_err(|_| tracing::error!("Url {s} invalid; discarding"))
+                .ok()
+        });
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.set_server_url(server.as_ref()).await });
     }
 
     fn add_server(&self, server: String) {
-        if server.is_empty() {
+        let Ok(server) = Url::parse(&server)
+            .inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
             return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.push(server);
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.insert(server);
+            config.set_available_servers(&servers).await;
+        });
     }
 
     fn remove_server(&self, server: String) {
-        if server.is_empty() {
+        let Ok(server) = Url::parse(&server)
+            .inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
             return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.retain(|s| s != &server && !s.is_empty());
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.swap_remove(&server);
+            config.set_available_servers(&servers).await;
+        });
     }
 
     fn get_available_servers(&self) -> Vec<String> {
-        let servers = BackstitchConfigAccessor::get_project_value(
-            "available_servers",
-            "alpha.backstitch.dev:8085",
-        );
-        servers
-            .split(",")
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config
+                .available_servers()
+                .await
+                .into_iter()
+                .map(|url| url.to_string())
+                .collect()
+        })
     }
 }
 

@@ -4,11 +4,12 @@ use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::branch::Branch;
 use crate::helpers::spawn_utils::spawn_named_on;
 use crate::helpers::utils::{CommitInfo, DiffId};
-use crate::interop::godot_accessors::BackstitchConfigAccessor;
+use crate::project::config::Config;
 use crate::project::driver::Driver;
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::RequestDiffError;
 use crate::project::{Project, ProjectStartStatus};
+use samod::DocumentId;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,7 +41,14 @@ pub enum GodotProjectSignal {
 }
 
 impl Project {
-    pub fn new(project_dir: PathBuf) -> Self {
+    // kinda awkward, considering the existence of the driver get_project_id... don't confuse them!
+    // this one is for before we've started the driver. (consider API change here)
+    pub fn get_project_doc_id(&self) -> Option<DocumentId> {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.project_doc_id().await })
+    }
+    pub fn new(project_dir: PathBuf, user_data_dir: PathBuf) -> Self {
         // TODO (Lilith): ensure we make this work across the ENTIRE program, not just the driver.
         // For now this encapsulates everything we multi-thread, since Project is the barrier for public async access.
         // So it's fine. But if we want other code besides the driver to be multi-threaded...
@@ -53,6 +61,8 @@ impl Project {
         let (start_tx, start_rx) = watch::channel(ProjectStartStatus::NotStarted);
 
         let server_manager = ServerManager::new();
+
+        let config = Config::new(&project_dir, &user_data_dir);
 
         Self {
             main_thread_block: MainThreadBlock::new(),
@@ -71,6 +81,7 @@ impl Project {
             local_changes_tx: Default::default(),
             auth_status_rx: server_manager.subscribe_status(),
             server_manager,
+            config,
         }
     }
 
@@ -290,12 +301,12 @@ impl Project {
         // Check to see if we need to produce a CheckedOutBranch signal
         let rx = self.checked_out_ref_rx.as_mut().unwrap();
         if rx.has_changed().unwrap_or(false) {
-            let doc_id = rx
-                .borrow()
-                .as_ref()
-                .map(|r| r.branch().to_string())
-                .unwrap_or("".to_string());
-            BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", &doc_id);
+            let doc_id = rx.borrow().as_ref().map(|r| r.branch()).cloned();
+            // TODO: do we need to block on this? Maybe just spawn this off
+            let config = self.config.clone();
+            self.runtime.block_on(async move {
+                config.set_checked_out_branch_doc_id(doc_id.as_ref()).await;
+            });
             rx.mark_unchanged();
             signals.push(GodotProjectSignal::BranchCheckedOut);
         }

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use samod::DocumentId;
 use tokio::sync::{Mutex, oneshot, watch};
@@ -7,9 +7,9 @@ use url::Url;
 use crate::{
     auth::server_manager::ServerManager,
     helpers::{spawn_utils::spawn_named_on, utils::ChangedFile},
-    interop::godot_accessors::BackstitchConfigAccessor,
     project::{
         LocalChangesResult, Project, ProjectStartError, ProjectStartStatus,
+        config::Config,
         driver::{Driver, ProjectLoadError},
         main_thread_block::MainThreadBlock,
         project_base::ProjectCreateMode,
@@ -32,6 +32,7 @@ impl Project {
         let main_thread_block = self.main_thread_block.clone();
         let local_changes_tx = self.local_changes_tx.clone();
         let server_manager = self.server_manager.clone();
+        let config = self.config.clone();
         spawn_named_on("start project", self.runtime.handle(), async move {
             let _guard = start_lock.lock().await;
             if driver.read().await.is_some() {
@@ -46,6 +47,7 @@ impl Project {
                 main_thread_block,
                 project_dir,
                 mode,
+                config,
             )
             .await;
             match result {
@@ -60,55 +62,6 @@ impl Project {
                 }
             }
         });
-    }
-
-    fn acquire_server_url() -> Result<Option<Url>, ProjectStartError> {
-        let server_url = BackstitchConfigAccessor::get_project_value("server_url", "");
-
-        if server_url.is_empty() {
-            return Ok(None);
-        }
-
-        tracing::info!("Using project override for server url: {:?}", server_url);
-        let url = if server_url.contains("://") {
-            server_url
-        } else {
-            // TODO: Detect HTTPS and upgrade during handshake
-            format!("http://{}", server_url)
-        };
-
-        let url = Url::parse(&url)
-            .ok()
-            .filter(|url| url.scheme() == "https" || url.scheme() == "http")
-            .ok_or(ProjectStartError::ServerUrlInvalid(url))?;
-
-        Ok(Some(url))
-    }
-
-    fn acquire_project_id() -> Result<DocumentId, ProjectStartError> {
-        let id = BackstitchConfigAccessor::get_project_value("project_doc_id", "");
-        DocumentId::from_str(&id).map_err(|_| {
-            tracing::error!("Invalid metadata document ID! Not starting driver.");
-            ProjectStartError::DocumentIdInvalid(id)
-        })
-    }
-
-    fn acquire_checked_out_branch_id() -> Option<DocumentId> {
-        match Some(BackstitchConfigAccessor::get_project_value(
-            "checked_out_branch_doc_id",
-            "",
-        ))
-        .filter(|s| !s.is_empty())
-        {
-            Some(s) => match DocumentId::from_str(&s) {
-                Ok(id) => Some(id),
-                Err(e) => {
-                    tracing::error!("Invalid saved branch ID! Not using. {e}");
-                    None
-                }
-            },
-            None => None,
-        }
     }
 
     /// Starting a project is a multi-step process. It looks like:
@@ -132,25 +85,34 @@ impl Project {
         main_thread_block: MainThreadBlock,
         project_dir: PathBuf,
         mode: ProjectCreateMode,
+        config: Config,
     ) -> Result<Driver, ProjectStartError> {
         tracing::info!("Creating with mode: {:?}", mode);
 
         start_status_tx.send_replace(ProjectStartStatus::Starting);
 
-        let server_url = Self::acquire_server_url()?;
+        let server_url = config.server_url().await;
 
         // If the metadata ID is not a valid document ID, give up.
         // Not relevant for new projects.
+        // This should rarely happen; we should be validating document IDs before they hit the config.
+        // If the user edits the config by-hand and fucks it up, this may occur.
         let metadata_id = if mode == ProjectCreateMode::New {
             None
         } else {
-            Some(Self::acquire_project_id()?)
+            Some(
+                config
+                    .project_doc_id()
+                    .await
+                    .ok_or(ProjectStartError::DocumentIdInvalid)?,
+            )
         };
 
         let saved_branch_id = if mode == ProjectCreateMode::New {
             None
         } else {
-            Self::acquire_checked_out_branch_id()
+            // If this becomes None due to an invalid value, that's OK; we auto check out main.
+            config.checked_out_branch_doc_id().await
         };
         tracing::info!(
             "Starting GodotProject with metadata doc id: {:?}",
@@ -164,7 +126,7 @@ impl Project {
             main_thread_block.clone(),
             server_manager,
             project_dir,
-            BackstitchConfigAccessor::get_user_value("user_name", ""),
+            config.user_name().await.unwrap_or("".to_string()),
             storage_dir,
         )
         .await?;
@@ -247,7 +209,7 @@ impl Project {
         tracing::debug!("Starting sync...");
         driver.start_sync(initial_branch.as_ref()).await;
 
-        BackstitchConfigAccessor::set_project_value("project_doc_id", &metadata.to_string());
+        config.set_project_doc_id(Some(&metadata)).await;
         Ok(driver)
     }
 

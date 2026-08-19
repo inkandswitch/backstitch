@@ -9,44 +9,6 @@ use godot::{
     obj::Gd,
 };
 
-use crate::interop::backstitch_config::BackstitchConfig;
-
-/// Allows Rust code to easily get and set Backstitch configuration values via Godot's config system.
-pub struct BackstitchConfigAccessor {}
-
-impl BackstitchConfigAccessor {
-    pub fn get_project_doc_id() -> String {
-        BackstitchConfigAccessor::get_project_value("project_doc_id", "")
-    }
-
-    pub fn get_project_value(name: &str, default: &str) -> String {
-        BackstitchConfig::singleton()
-            .bind()
-            .get_project_value(GString::from(name), default.to_variant())
-            .to::<String>()
-    }
-
-    pub fn set_project_value(name: &str, value: &str) {
-        BackstitchConfig::singleton()
-            .bind_mut()
-            .set_project_value(GString::from(name), value.to_variant());
-    }
-
-    pub fn get_user_value(name: &str, default: &str) -> String {
-        BackstitchConfig::singleton()
-            .bind()
-            .get_user_value(GString::from(name), default.to_variant())
-            .to::<String>()
-    }
-
-    #[allow(dead_code)] // will be used later
-    pub fn set_user_value(name: &str, value: &str) {
-        BackstitchConfig::singleton()
-            .bind_mut()
-            .set_user_value(GString::from(name), value.to_variant());
-    }
-}
-
 /// Allows Rust code to access the C++ BackstitchEditor editor module from Godot.
 pub struct BackstitchEditorAccessor {}
 

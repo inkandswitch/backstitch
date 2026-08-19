@@ -58,6 +58,7 @@ fjall = "3.1.4"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
+indexmap = "2.14"
 openidconnect = { version = "4.0.1", features = ["reqwest"] }
 url = "2.5.8"
 open = "5.4.0"
@@ -68,6 +69,7 @@ semver = { version = "1.0.28", features = ["serde"] }
 async-trait = "0.1.91"
 secrecy = "0.10.3"
 keyring = { version = "4.1.6", features = ["v1"] }
+toml = "1.1.4"
 
 [build-dependencies]
 cbindgen = "^0.27"

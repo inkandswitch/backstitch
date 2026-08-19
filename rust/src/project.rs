@@ -16,6 +16,7 @@ use crate::{
         utils::{ChangedFile, CommitInfo, DiffId},
     },
     project::{
+        config::Config,
         connection::RemoteConnectionError,
         driver::{Driver, DriverCreateError, ProjectLoadError},
         main_thread_block::MainThreadBlock,
@@ -24,6 +25,7 @@ use crate::{
     },
 };
 
+mod config;
 mod connection;
 mod document_watcher;
 mod fs;
@@ -78,8 +80,8 @@ pub enum ProjectStartError {
         The only supported schemes are http:// and https://."
     )]
     ServerUrlInvalid(String),
-    #[error("the document ID {0} is invalid!")]
-    DocumentIdInvalid(String),
+    #[error("the document ID is invalid!")]
+    DocumentIdInvalid,
 }
 
 impl From<ProjectLoadError> for ProjectStartError {
@@ -118,4 +120,9 @@ pub struct Project {
 
     // Cached diffs between refs
     diff_cache: Arc<Mutex<HashMap<DiffId, Result<DiffStatus, RequestDiffError>>>>,
+
+    // Deliberately using std::sync::RwLock so that task threads don't block the main thread by holding the lock.
+    // TODO (Lilith): I'm not convinced about this. Validate this; make sure we NEVER hold it across await points.
+    // IMO this should be using interior mutability instead...
+    config: Config,
 }

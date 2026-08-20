@@ -37,7 +37,7 @@ impl RemoteConnection {
     pub async fn new(
         repo: Repo,
         server_info: &ServerInfo,
-        user_info: &Box<dyn UserInfo>,
+        user_info: &dyn UserInfo,
     ) -> Result<Self, RemoteConnectionError> {
         // TODO (oidc): Detect authentication failures, re-auth, and reconnect.
 

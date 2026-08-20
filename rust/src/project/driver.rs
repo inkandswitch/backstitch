@@ -199,7 +199,8 @@ impl Driver {
         tracing::debug!("Authenticating user...");
         let user_info = self.inner.server_manager.authenticate(&server_info).await?;
         tracing::debug!("Starting connection...");
-        let connection = RemoteConnection::new(self.repo.clone(), &server_info, &user_info).await?;
+        let connection =
+            RemoteConnection::new(self.repo.clone(), &server_info, user_info.as_ref()).await?;
         let mut conn = self.inner.connection.lock().await;
         *conn = Some(connection);
         Ok(())

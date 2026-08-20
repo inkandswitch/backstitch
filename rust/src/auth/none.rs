@@ -1,8 +1,4 @@
 use async_trait::async_trait;
-use futures::{
-    StreamExt,
-    stream::{self, BoxStream},
-};
 use secrecy::SecretString;
 
 use crate::auth::server_manager::{AuthError, AuthStatus, Authenticator, UserInfo};

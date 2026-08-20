@@ -163,17 +163,17 @@ impl RedirectServer {
 
     fn html_error(task: &str, message: &str) -> Html<String> {
         tracing::error!("Error in redirect server: {message}");
-        return Self::html(&format!("{task} Error:"), message);
+        Self::html(&format!("{task} Error:"), message)
     }
 
     fn html(header: &str, body: &str) -> Html<String> {
         let header = html_escape::encode_text(header);
         let body = html_escape::encode_text(body);
-        return Html(
+        Html(
             HTML_TEMPLATE
                 .replace("{{HEADER}}", &format!("{header}"))
                 .replace("{{BODY}}", &format!("{body}")),
-        );
+        )
     }
 
     pub async fn wait_for_login(

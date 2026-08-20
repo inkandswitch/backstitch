@@ -73,9 +73,9 @@ impl Config {
             .map(|s| {
                 // Remap legacy TCP to new HTTP
                 if s.contains("alpha.backstitch.dev") {
-                    return "https://alpha.backstitch.dev/";
+                    "https://alpha.backstitch.dev/"
                 } else {
-                    return s;
+                    s
                 }
             })
             .filter_map(|str| {
@@ -128,7 +128,7 @@ impl Config {
     }
 
     async fn get_string(toml: &FileBackedToml, key: &str) -> Option<String> {
-        match toml.get(&SECTION, key).await {
+        match toml.get(SECTION, key).await {
             Ok(None) => return None,
             Ok(Some(value)) => match value {
                 toml::Value::String(s) => return (!s.is_empty()).then_some(s),
@@ -142,7 +142,7 @@ impl Config {
     async fn set_string(toml: &FileBackedToml, key: &str, value: Option<&str>) {
         match toml
             .set(
-                &SECTION,
+                SECTION,
                 key,
                 value.map(|s| toml::Value::String(s.to_string())),
             )

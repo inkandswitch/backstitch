@@ -51,12 +51,12 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn validate_server(&self, server: &String) -> Option<String> {
+    fn validate_server(&self, server: &str) -> Option<String> {
         // TODO: Be kinder about http/https inclusion... right now it's weird
         Url::parse(server).ok().map(|u| u.to_string())
     }
 
-    fn authenticate_server(&self, server: &String) {
+    fn authenticate_server(&self, server: &str) {
         let server_manager = self.server_manager.clone();
         let Ok(url) = Url::parse(server).inspect_err(|e| tracing::error!("invalid URL {e}")) else {
             return;
@@ -84,9 +84,9 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn ping_server(&self, server: &String, retry: bool) -> ServerStatus {
+    fn ping_server(&self, server: &str, retry: bool) -> ServerStatus {
         // users shouldn't let this happen; check is_server_valid first
-        let Ok(url) = Url::parse(&server) else {
+        let Ok(url) = Url::parse(server) else {
             return ServerStatus::None;
         };
 
@@ -118,9 +118,9 @@ impl ProjectViewModel for Project {
             .map(|url| url.to_string())
     }
 
-    fn set_server(&self, server: Option<&String>) {
+    fn set_server(&self, server: Option<&str>) {
         let server = server.and_then(|s| {
-            Url::parse(&s)
+            Url::parse(s)
                 .inspect_err(|_| tracing::error!("Url {s} invalid; discarding"))
                 .ok()
         });
@@ -129,9 +129,9 @@ impl ProjectViewModel for Project {
             .block_on(async move { config.set_server_url(server.as_ref()).await });
     }
 
-    fn add_server(&self, server: &String) {
-        let Ok(server) = Url::parse(&server)
-            .inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+    fn add_server(&self, server: &str) {
+        let Ok(server) =
+            Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
         else {
             return;
         };
@@ -144,7 +144,7 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn remove_server(&self, server: &String) {
+    fn remove_server(&self, server: &str) {
         let Ok(server) =
             Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
         else {

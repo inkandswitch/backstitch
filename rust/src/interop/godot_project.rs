@@ -237,7 +237,8 @@ impl GodotProject {
         } else {
             Some(server)
         };
-        self.project().set_server(server.as_ref())
+        self.project()
+            .set_server(server.as_ref().map(|x| x.as_str()))
     }
 
     #[func]

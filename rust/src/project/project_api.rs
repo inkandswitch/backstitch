@@ -75,21 +75,21 @@ pub trait ProjectViewModel {
     fn set_user_name(&self, name: String);
 
     /// Checks to see if a server URL is valid. Returns Some if the server is valid, with any necessary corrections.
-    fn validate_server(&self, server: &String) -> Option<String>;
+    fn validate_server(&self, server: &str) -> Option<String>;
     /// Get a server's status. Causes a server to register in the manager, but OK I think to call every frame.
-    fn ping_server(&self, server: &String, retry: bool) -> ServerStatus;
+    fn ping_server(&self, server: &str, retry: bool) -> ServerStatus;
     /// Begins an interactive authentication on the server. Does nothing if already authenticated.
-    fn authenticate_server(&self, server: &String);
+    fn authenticate_server(&self, server: &str);
     /// If there's currently an interactive authentication, cancels it.
     fn cancel_authenticate(&self);
     /// Get the current server URL
     fn get_server(&self) -> Option<String>;
     /// Set the current server URL
-    fn set_server(&self, server: Option<&String>);
+    fn set_server(&self, server: Option<&str>);
     /// Add a server to the list of available servers
-    fn add_server(&self, server: &String);
+    fn add_server(&self, server: &str);
     /// Remove a server from the list of available servers
-    fn remove_server(&self, server: &String);
+    fn remove_server(&self, server: &str);
     /// Get the list of available servers
     fn get_available_servers(&self) -> Vec<String>;
 

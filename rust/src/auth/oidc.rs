@@ -12,8 +12,7 @@ use openidconnect::{
     ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, SignatureVerificationError,
     SigningError, TokenResponse,
     core::{
-        CoreAuthPrompt, CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreProviderMetadata,
-        CoreTokenResponse,
+        CoreAuthPrompt, CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreTokenResponse,
     },
     reqwest,
 };
@@ -99,7 +98,7 @@ struct UnsafeStoredOidcSession {
 impl From<UnsafeStoredOidcSession> for StoredOidcSession {
     fn from(value: UnsafeStoredOidcSession) -> Self {
         Self {
-            refresh_token: value.refresh_token.map(|s| RefreshToken::new(s)),
+            refresh_token: value.refresh_token.map(RefreshToken::new),
             id_token: SecretString::from(value.id_token),
             subject: value.subject,
             name: value.name,
@@ -145,7 +144,7 @@ impl UserInfo for OidcUserInfo {
         let now = SystemTime::now()
             .checked_add(Duration::from_secs(20))
             .expect("Time issue...");
-        return self.access_token_expiry > now;
+        self.access_token_expiry > now
     }
     fn bearer_token(&self) -> Option<SecretString> {
         Some(SecretString::from(self.access_token.secret().as_str()))
@@ -249,10 +248,8 @@ impl OidcAuthenticator {
 
         // Use OpenID Connect Discovery to fetch the provider metadata
         let provider_metadata = CoreProviderMetadata::discover_async(
-            IssuerUrl::new(self.config.issuer.to_string()).expect(&format!(
-                "URL {} didn't parse right????",
-                self.config.issuer
-            )),
+            IssuerUrl::new(self.config.issuer.to_string())
+                .unwrap_or_else(|_| panic!("URL {} didn't parse right????", self.config.issuer)),
             &http_client,
         )
         .await
@@ -272,7 +269,7 @@ impl OidcAuthenticator {
         );
 
         // Try and retrieve a stored session. If we fail, log the error and continue with an interactive login.
-        let stored_session = self
+        let _stored_session = self
             .retrieve_session()
             .inspect_err(|e| {
                 match e {
@@ -552,7 +549,7 @@ impl OidcAuthenticator {
         logout_url
             .query_pairs_mut()
             // this is... probably fine to expose?
-            .append_pair("id_token_hint", &session.id_token.expose_secret())
+            .append_pair("id_token_hint", session.id_token.expose_secret())
             .append_pair("post_logout_redirect_uri", &post_logout_redirect_uri)
             .append_pair("client_id", &self.config.client_id)
             .append_pair("state", csrf_token.secret());

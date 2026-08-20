@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" format=3 uid="uid://dql80mrl8tckq"]
 
-[ext_resource type="Shader" uid="uid://hes8c1f5vbr1" path="res://addons/backstitch/public/gdscript/loading_circle.gdshader" id="1_8gtpc"]
+[ext_resource type="Shader" uid="uid://hes8c1f5vbr1" path="res://addons/backstitch/public/resources/loading_circle.gdshader" id="1_8gtpc"]
 
 [resource]
 shader = ExtResource("1_8gtpc")

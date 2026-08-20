@@ -49,11 +49,18 @@ impl NoneAuthenticator {
 
 #[async_trait]
 impl Authenticator for NoneAuthenticator {
-    async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
+    async fn interactive_authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
         // TODO (oidc): force the user to provide a name; get a name from storage; etc
         Ok(Box::new(NoneUserInfo {
             name: "TEMP".to_string(),
         }) as Box<dyn UserInfo>)
+    }
+    async fn immediate_authenticate(
+        &self,
+    ) -> Result<Option<Box<dyn UserInfo>>, Box<dyn AuthError>> {
+        Ok(Some(Box::new(NoneUserInfo {
+            name: "TEMP".to_string(),
+        }) as Box<dyn UserInfo>))
     }
     async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
         Ok(())
@@ -62,6 +69,10 @@ impl Authenticator for NoneAuthenticator {
     async fn status_changed(&self) -> AuthStatus {
         // Wait forever lol
         std::future::pending::<()>().await;
-        AuthStatus::Ok
+        AuthStatus::Idle
+    }
+
+    fn provider(&self) -> String {
+        "none".to_string()
     }
 }

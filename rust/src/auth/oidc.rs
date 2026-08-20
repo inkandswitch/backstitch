@@ -148,8 +148,6 @@ impl UserInfo for OidcUserInfo {
         return self.access_token_expiry > now;
     }
     fn bearer_token(&self) -> Option<SecretString> {
-        // TODO (oidc): Remove this
-        tracing::error!("BAD BAD {}", self.access_token.secret().as_str());
         Some(SecretString::from(self.access_token.secret().as_str()))
     }
 
@@ -167,7 +165,7 @@ pub struct OidcAuthenticator {
 
 impl OidcAuthenticator {
     pub fn new(config: OidcAuthConfig, server_info: ServerInfo) -> OidcAuthenticator {
-        let (tx, _) = watch::channel(AuthStatus::Ok);
+        let (tx, _) = watch::channel(AuthStatus::Idle);
         Self {
             config,
             server_info,
@@ -178,10 +176,21 @@ impl OidcAuthenticator {
 
 #[async_trait]
 impl Authenticator for OidcAuthenticator {
-    async fn authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
-        self.authenticate()
+    async fn interactive_authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
+        self.authenticate(true)
             .await
-            .map(|info| Box::new(info) as Box<dyn UserInfo>)
+            .map(|info|
+                Box::new(info.expect("Info was None while allow_interaction was true; this should never be allowed to happen."))
+                    as Box<dyn UserInfo>)
+            .map_err(|e| Box::new(e) as Box<dyn AuthError>)
+    }
+
+    async fn immediate_authenticate(
+        &self,
+    ) -> Result<Option<Box<dyn UserInfo>>, Box<dyn AuthError>> {
+        self.authenticate(false)
+            .await
+            .map(|info| info.map(|i| Box::new(i) as Box<dyn UserInfo>))
             .map_err(|e| Box::new(e) as Box<dyn AuthError>)
     }
 
@@ -205,6 +214,10 @@ impl Authenticator for OidcAuthenticator {
         rx.changed().await.expect("Some recv error??");
         rx.borrow_and_update().clone()
     }
+
+    fn provider(&self) -> String {
+        self.config.issuer.clone()
+    }
 }
 
 impl OidcAuthenticator {
@@ -225,8 +238,10 @@ impl OidcAuthenticator {
             ))
     }
 
-    // TODO (oidc): cache a refresh token
-    async fn authenticate(&self) -> Result<OidcUserInfo, OidcAuthError> {
+    async fn authenticate(
+        &self,
+        allow_interaction: bool,
+    ) -> Result<Option<OidcUserInfo>, OidcAuthError> {
         let http_client = reqwest::ClientBuilder::new()
             .redirect(reqwest::redirect::Policy::none())
             .danger_accept_invalid_certs(self.should_accept_invalid_certs()?)
@@ -270,19 +285,25 @@ impl OidcAuthenticator {
             })
             .ok();
 
-        // TODO (oidc): remove this
-        // let stored_session = None;
+        // TODO(oidc): Remove
+        let stored_session = None;
 
         Ok(if let Some(session) = stored_session {
             match self.refresh_login(&client, &http_client, &session).await {
-                Ok(res) => res,
+                Ok(res) => Some(res),
                 Err(e) => {
                     tracing::warn!("Couldn't refresh the login: {e}");
-                    self.interactive_login(&client, &http_client).await?
+                    if !allow_interaction {
+                        return Ok(None);
+                    }
+                    Some(self.interactive_login(&client, &http_client).await?)
                 }
             }
         } else {
-            self.interactive_login(&client, &http_client).await?
+            if !allow_interaction {
+                return Ok(None);
+            }
+            Some(self.interactive_login(&client, &http_client).await?)
         })
     }
 
@@ -331,12 +352,12 @@ impl OidcAuthenticator {
         };
 
         // User intervention required here!
-        self.status_tx.send_replace(AuthStatus::NeedsUserLogin);
-        tracing::info!("Opening URL: {auth_url}");
-        open::that(auth_url.to_string())?;
+        tracing::info!("Waiting for login at URL: {auth_url}");
+        self.status_tx
+            .send_replace(AuthStatus::NeedsUserLogin(auth_url));
         let auth_code = redirect_server.wait_for_login(csrf_token).await;
         // Always send OK on failure, then exit.
-        self.status_tx.send_replace(AuthStatus::Ok);
+        self.status_tx.send_replace(AuthStatus::Idle);
         let auth_code = auth_code?;
 
         // Exchange our authorization code for some real tokens
@@ -536,18 +557,17 @@ impl OidcAuthenticator {
             .append_pair("client_id", &self.config.client_id)
             .append_pair("state", csrf_token.secret());
 
-        self.status_tx.send_replace(AuthStatus::NeedsUserLogout);
+        self.status_tx
+            .send_replace(AuthStatus::NeedsUserLogout(logout_url));
 
         let redirect_server = RedirectServer::new(self.config.redirect_port).await?;
-        open::that(logout_url.to_string())?;
-
         // Wait for the OP to complete logout and redirect us back.
         let res = redirect_server
             .wait_for_logout(csrf_token)
             .await
             .map_err(OidcAuthError::Redirect);
 
-        self.status_tx.send_replace(AuthStatus::Ok);
+        self.status_tx.send_replace(AuthStatus::Idle);
         res?;
 
         Ok(())

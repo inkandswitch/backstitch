@@ -237,12 +237,30 @@ impl GodotProject {
         } else {
             Some(server)
         };
-        self.project().set_server(server)
+        self.project().set_server(server.as_ref())
     }
 
     #[func]
-    fn is_server_valid(&self, server: String) -> bool {
-        self.project().is_server_valid(server)
+    fn validate_server(&self, server: String) -> Variant {
+        self.project()
+            .validate_server(&server)
+            .map(|s| s.to_variant())
+            .unwrap_or(Variant::nil())
+    }
+
+    #[func]
+    fn ping_server(&self, server: String, retry: bool) -> Variant {
+        self.project().ping_server(&server, retry).to_variant()
+    }
+
+    #[func]
+    fn authenticate_server(&self, server: String) {
+        self.project().authenticate_server(&server);
+    }
+
+    #[func]
+    fn cancel_authenticate(&self) {
+        self.project().cancel_authenticate();
     }
 
     #[func]
@@ -257,12 +275,12 @@ impl GodotProject {
 
     #[func]
     fn add_server(&self, server: String) {
-        self.project().add_server(server)
+        self.project().add_server(&server)
     }
 
     #[func]
     fn remove_server(&self, server: String) {
-        self.project().remove_server(server)
+        self.project().remove_server(&server)
     }
 
     #[func]
@@ -799,9 +817,9 @@ impl GodotProjectPlugin {
 
     fn add_sidebar(&mut self) {
         self.sidebar =
-            self.instantiate_control("res://addons/backstitch/public/gdscript/sidebar.tscn");
+            self.instantiate_control("res://addons/backstitch/public/scenes/sidebar.tscn");
         self.toolbar =
-            self.instantiate_control("res://addons/backstitch/public/gdscript/toolbar.tscn");
+            self.instantiate_control("res://addons/backstitch/public/scenes/toolbar.tscn");
         if let Some(sidebar) = self.sidebar.clone().as_mut() {
             self.base_mut()
                 .add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);

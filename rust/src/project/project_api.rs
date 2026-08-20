@@ -5,6 +5,7 @@ use samod::DocumentId;
 use thiserror::Error;
 
 use crate::{
+    auth::server_manager::ServerStatus,
     fs::file_utils::FileContent,
     helpers::{history_ref::HistoryRef, utils::ChangedFile},
     project::project_base::DiffStatus,
@@ -73,16 +74,22 @@ pub trait ProjectViewModel {
     /// Set a new username.
     fn set_user_name(&self, name: String);
 
-    /// Checks to see if a server is valid.
-    fn is_server_valid(&self, server: String) -> bool;
+    /// Checks to see if a server URL is valid. Returns Some if the server is valid, with any necessary corrections.
+    fn validate_server(&self, server: &String) -> Option<String>;
+    /// Get a server's status. Causes a server to register in the manager, but OK I think to call every frame.
+    fn ping_server(&self, server: &String, retry: bool) -> ServerStatus;
+    /// Begins an interactive authentication on the server. Does nothing if already authenticated.
+    fn authenticate_server(&self, server: &String);
+    /// If there's currently an interactive authentication, cancels it.
+    fn cancel_authenticate(&self);
     /// Get the current server URL
     fn get_server(&self) -> Option<String>;
     /// Set the current server URL
-    fn set_server(&self, server: Option<String>);
+    fn set_server(&self, server: Option<&String>);
     /// Add a server to the list of available servers
-    fn add_server(&self, server: String);
+    fn add_server(&self, server: &String);
     /// Remove a server from the list of available servers
-    fn remove_server(&self, server: String);
+    fn remove_server(&self, server: &String);
     /// Get the list of available servers
     fn get_available_servers(&self) -> Vec<String>;
 

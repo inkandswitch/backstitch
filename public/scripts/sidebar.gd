@@ -2,7 +2,7 @@
 class_name BackstitchSidebar
 extends MarginContainer
 
-const diff_inspector_script = preload("res://addons/backstitch/public/gdscript/diff_inspector_container.gd")
+const diff_inspector_script = preload("res://addons/backstitch/public/scripts/diff_inspector_container.gd")
 const branch_icon_history = preload("res://addons/backstitch/public/icons/Branch16.svg")
 const collapsible_closed_icon = preload("res://addons/backstitch/public/icons/CollapsibleClosed.svg")
 const collapsible_open_icon = preload("res://addons/backstitch/public/icons/CollapsibleOpen.svg")
@@ -147,6 +147,7 @@ func _on_init_button_pressed():
 	if not await require_user_name():
 		return
 
+	GodotProject.set_server(%ServerPicker.get_selection())
 	GodotProject.new_project()
 
 func _on_load_project_button_pressed():
@@ -159,6 +160,7 @@ func _on_load_project_button_pressed():
 	if not await require_user_name():
 		return
 
+	GodotProject.set_server(%ServerPicker.get_selection())
 	GodotProject.load_project(doc_id);
 	
 func _on_start_status_changed(status: Dictionary):
@@ -282,15 +284,6 @@ func _enter_tree():
 	instance = self
 
 func bind_listeners(godot_project):
-	%AddServerButton.pressed.connect(self._on_add_server_button_pressed)
-	%RemoveServerButton.pressed.connect(self._on_remove_server_button_pressed)
-	%ServerPicker.item_selected.connect(self._on_server_picker_item_selected)
-
-	%AddServerDialog.visible = false
-	%AddServerDialog.confirmed.connect(self._on_add_server_confirmed)
-
-	self._update_server_picker()
-
 	%InitializeButton.pressed.connect(self._on_init_button_pressed)
 	%LoadExistingButton.pressed.connect(self._on_load_project_button_pressed)
 	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
@@ -333,32 +326,23 @@ func bind_listeners(godot_project):
 	share_button.pressed.connect(_on_share_button_pressed)
 	action_menu_button.get_popup().id_pressed.connect(_on_action_menu_item_selected)
 
-	_style_button(sync_button)
-	_style_button(copy_project_id_button)
-	_style_button(share_button)
-	_style_button(action_menu_button)
-	_style_button(fork_button)
-	_style_button(merge_button)
-	_style_button(%MonkeyButton)
-	_style_button(%ClearDiffButton)
-	_style_button(%AddServerButton)
-	_style_button(%RemoveServerButton)
+	%ServerPicker.set_selection(GodotProject.get_server())
+
+	BackstitchUtils.style_button(sync_button)
+	BackstitchUtils.style_button(copy_project_id_button)
+	BackstitchUtils.style_button(share_button)
+	BackstitchUtils.style_button(action_menu_button)
+	BackstitchUtils.style_button(fork_button)
+	BackstitchUtils.style_button(merge_button)
+	BackstitchUtils.style_button(%MonkeyButton)
+	BackstitchUtils.style_button(%ClearDiffButton)
+
 	# Have to manually scale the icons of the popup menu
 	for item in action_menu_button.get_popup().get_item_count():
 		var menu: PopupMenu = action_menu_button.get_popup()
 		var icon = menu.get_item_icon(item)
 		if is_instance_valid(icon):
 			icon.base_scale = EditorInterface.get_editor_scale()
-
-
-func _style_button(button: Button):
-	var theme = EditorInterface.get_editor_theme()
-	button.theme_type_variation = "FlatButton"
-	button.theme = theme
-	# For some reason, the icon isn't scaling automatically in the editor
-	button.icon.base_scale = EditorInterface.get_editor_scale()
-	#print("Backstitch: Button icon base scale: ", button.icon.base_scale)
-
 
 func _try_init():
 	var godot_project = Engine.get_singleton("GodotProject")
@@ -415,44 +399,6 @@ func init() -> void:
 	# But that seems bad.
 	require_user_name()
 
-
-func _on_add_server_button_pressed() -> void:
-	%AddServerDialog.popup_centered()
-
-func _on_remove_server_button_pressed() -> void:
-	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
-	GodotProject.remove_server(text)
-	GodotProject.set_server("")
-	_update_server_picker()
-
-func _on_server_picker_item_selected(item: int) -> void:
-	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
-	if text == "(No server)": text = ""
-	GodotProject.set_server(text)
-
-	_update_server_picker()
-
-func _on_add_server_confirmed() -> void:
-	var server = %AddServerEntry.text.strip_edges()
-	%AddServerEntry.text = ""
-	GodotProject.add_server(server)
-	GodotProject.set_server(server)
-	_update_server_picker()
-
-func _update_server_picker() -> void:
-	%ServerPicker.clear()
-	var index := 0
-	%ServerPicker.add_item("(No server)", index)
-	%ServerPicker.select(index)
-	var selected = GodotProject.get_server()
-	for server in GodotProject.get_available_servers():
-		index += 1
-		%ServerPicker.add_item(server, index)
-		if selected == server:
-			%ServerPicker.select(index)
-
-	%RemoveServerButton.visible = selected != ""
-	%AlphaWarning.visible = selected.contains("alpha.backstitch.dev")
 
 func _on_sync_button_pressed():
 	var toaster = EditorInterface.get_editor_toaster()

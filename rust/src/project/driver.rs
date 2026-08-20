@@ -101,7 +101,6 @@ pub struct DriverInner {
     document_watcher: Arc<Mutex<Option<DocumentWatcher>>>,
     sync_automerge_to_fs: SyncAutomergeToFileSystem,
     sync_fs_to_automerge: SyncFileSystemToAutomerge,
-    // TODO (oidc): Ideally we want to allow pre-auth before the driver is even booted up.
     server_manager: ServerManager,
     differ: Differ,
 }

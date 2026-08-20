@@ -1,0 +1,104 @@
+[gd_scene format=3 uid="uid://jcw0obodpv4n"]
+
+[ext_resource type="Texture2D" uid="uid://dw14ph5xtnqmu" path="res://addons/backstitch/public/icons/Add.svg" id="1_1521i"]
+[ext_resource type="Script" uid="uid://cx5uulcpgapdw" path="res://addons/backstitch/public/scripts/server_picker.gd" id="1_s2bo6"]
+[ext_resource type="Texture2D" uid="uid://dsxbsom8wxynk" path="res://addons/backstitch/public/icons/Remove.svg" id="2_s2bo6"]
+[ext_resource type="Texture2D" uid="uid://bke3k5pmnruje" path="res://addons/backstitch/public/icons/StatusSync.svg" id="4_onoii"]
+[ext_resource type="Texture2D" uid="uid://3tawqhdx5k3s" path="res://addons/backstitch/public/icons/Reload.svg" id="5_pufsl"]
+
+[node name="ServerPicker" type="VBoxContainer" unique_id=90190963]
+script = ExtResource("1_s2bo6")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=311983482]
+layout_mode = 2
+
+[node name="ServerPicker" type="OptionButton" parent="HBoxContainer" unique_id=1777772261]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Select a server..."
+text_overrun_behavior = 3
+selected = 0
+item_count = 1
+popup/item_0/text = "(No server)"
+popup/item_0/id = 0
+
+[node name="AddServerButton" type="Button" parent="HBoxContainer" unique_id=1608314056]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add a new server..."
+icon = ExtResource("1_1521i")
+
+[node name="RemoveServerButton" type="Button" parent="HBoxContainer" unique_id=345690620]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+tooltip_text = "Remove server"
+icon = ExtResource("2_s2bo6")
+
+[node name="Status" type="HBoxContainer" parent="." unique_id=228704394]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="StatusIcon" type="TextureRect" parent="Status" unique_id=457184751]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+texture = ExtResource("4_onoii")
+stretch_mode = 2
+
+[node name="StatusText" type="Label" parent="Status" unique_id=810123446]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 20)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "OIJ ofeiJPWeoif
+JPOSidPOS
+infoidnvw oeijfwof oi jfewoi fjwfe ijwoefij"
+autowrap_mode = 2
+
+[node name="RetryButton" type="Button" parent="Status" unique_id=1201406881]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Retry the server connection"
+icon = ExtResource("5_pufsl")
+
+[node name="LoginButton" type="Button" parent="." unique_id=1402078666]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Sign In"
+
+[node name="AlphaWarning" type="Label" parent="." unique_id=1817861232]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(1, 1)
+layout_mode = 2
+text = "The Alpha Test Server is experimental and potentially unstable. We reserve the right to wipe the server at any time. Don't store any sensitive data."
+autowrap_mode = 2
+
+[node name="AlertPopup" type="AcceptDialog" parent="." unique_id=1707567048]
+unique_name_in_owner = true
+oversampling_override = 1.0
+position = Vector2i(0, 36)
+size = Vector2i(226, 100)
+dialog_text = "The server URL is invalid."
+
+[node name="AddServerDialog" type="ConfirmationDialog" parent="." unique_id=92397107]
+unique_name_in_owner = true
+oversampling_override = 1.0
+title = "Add Server"
+position = Vector2i(0, 36)
+size = Vector2i(319, 88)
+min_size = Vector2i(100, 70)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="AddServerDialog" unique_id=1828842098]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 311.0
+offset_bottom = 39.0
+
+[node name="AddServerEntry" type="LineEdit" parent="AddServerDialog/VBoxContainer" unique_id=2044920653]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "https://alpha.backstitch.dev"

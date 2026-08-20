@@ -10,7 +10,10 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     auth::{handshake::ServerInfo, server_manager::UserInfo},
     helpers::spawn_utils::spawn_named,
+    project::connection::dialer::AuthenticatedTungsteniteDialer,
 };
+
+mod dialer;
 
 /// Connects a repo to the remote server. Shuts down when dropped.
 #[derive(Debug)]
@@ -53,11 +56,9 @@ impl RemoteConnection {
 
         let handle = repo.dial(
             BackoffConfig::default(),
-            Arc::new(TungsteniteDialer::new(
+            Arc::new(AuthenticatedTungsteniteDialer::new(
                 url.clone(),
-                user_info
-                    .bearer_token()
-                    .map(|s| s.expose_secret().to_string()),
+                user_info.bearer_token(),
             )),
         )?;
 

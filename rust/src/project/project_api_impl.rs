@@ -171,6 +171,20 @@ impl ProjectViewModel for Project {
         })
     }
 
+    fn webviewer_url(&self) -> Option<String> {
+        let status = {
+            let url = Url::parse(&self.get_server()?).ok()?;
+            let server_manager = self.server_manager.clone();
+            self.runtime
+                .block_on(async move { server_manager.server_status(&url).await })
+        };
+
+        match status {
+            ServerStatus::Ready { server_info, .. } => server_info.webviewer.map(|v| v.to_string()),
+            _ => None,
+        }
+    }
+
     fn clear_project(&mut self) {
         if !self.has_project() {
             return;

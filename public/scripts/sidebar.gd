@@ -195,17 +195,12 @@ func update_init_panel():
 	branch_picker.disabled = !has_project
 	fork_button.disabled = !has_project
 	copy_project_id_button.disabled = !has_project
-	share_button.disabled = !(has_project && _share_available())
+	share_button.disabled = !(has_project && GodotProject.webviewer_url())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
 	_set_action_disabled(!has_project, ActionMenuItems.AUTO_GENERATE_DIFFS)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
-
-
-func _share_available() -> bool:
-	var server = GodotProject.get_server()
-	return server.contains("alpha.backstitch.dev")
 
 func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
@@ -970,7 +965,7 @@ func _on_share_button_pressed() -> void:
 	var project_id = GodotProject.get_project_id()
 	var branch_id = GodotProject.get_checked_out_branch().id;
 	if not project_id.is_empty() && not branch_id.is_empty():
-		DisplayServer.clipboard_set("https://web.backstitch.dev/?project=%s&branch=%s" % [project_id, branch_id])
+		DisplayServer.clipboard_set("%s?project=%s&branch=%s" % [GodotProject.webviewer_url(), project_id, branch_id])
 		toaster.push_toast("Share URL copied to clipboard.")
 	else:
 		toaster.push_toast("Couldn't create share URL!", EditorToaster.Severity.SEVERITY_ERROR)

@@ -237,8 +237,7 @@ impl GodotProject {
         } else {
             Some(server)
         };
-        self.project()
-            .set_server(server.as_deref())
+        self.project().set_server(server.as_deref())
     }
 
     #[func]
@@ -282,6 +281,11 @@ impl GodotProject {
     #[func]
     fn remove_server(&self, server: String) {
         self.project().remove_server(&server)
+    }
+
+    #[func]
+    fn webviewer_url(&self) -> String {
+        self.project().webviewer_url().unwrap_or("".to_string())
     }
 
     #[func]

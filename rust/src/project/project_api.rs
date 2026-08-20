@@ -92,6 +92,8 @@ pub trait ProjectViewModel {
     fn remove_server(&self, server: &str);
     /// Get the list of available servers
     fn get_available_servers(&self) -> Vec<String>;
+    /// Get the base URL of the Backstitch Webviewer for the current server.
+    fn webviewer_url(&self) -> Option<String>;
 
     /// Remove the existing project and de-init.
     fn clear_project(&mut self);

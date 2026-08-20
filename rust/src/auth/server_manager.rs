@@ -75,13 +75,18 @@ enum ServerState {
     },
 }
 
-/// An API-friendly
+/// An API-friendly way to query the status of the server.
 pub enum ServerStatus {
     None,
     Handshaking,
     HandshakeFailed,
-    AuthNeeded { provider: String },
-    Ready { user_info: Box<dyn UserInfo> },
+    AuthNeeded {
+        provider: String,
+    },
+    Ready {
+        user_info: Box<dyn UserInfo>,
+        server_info: ServerInfo,
+    },
 }
 
 #[derive(Debug)]
@@ -143,8 +148,13 @@ impl ServerManager {
             ServerState::AuthNeeded { authenticator, .. } => ServerStatus::AuthNeeded {
                 provider: authenticator.provider(),
             },
-            ServerState::Ready { user_info, .. } => ServerStatus::Ready {
+            ServerState::Ready {
+                user_info,
+                server_info,
+                ..
+            } => ServerStatus::Ready {
                 user_info: user_info.clone(),
+                server_info: server_info.clone(),
             },
         }
     }

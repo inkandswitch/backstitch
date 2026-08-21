@@ -57,24 +57,20 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                 );
             }
 
-            tracing::info!("REQUESTING");
-
             let (ws, _response) = match tokio_tungstenite::connect_async(request).await {
                 Ok(res) => res,
                 Err(e) => {
-                    match e {
+                    match &e {
                         tungstenite::Error::Http(response) => match response.status() {
                             // TODO: handle this case...
-                            StatusCode::UNAUTHORIZED => Err(e)?,
-                            _ => Err(e)?,
+                            StatusCode::UNAUTHORIZED => {}
+                            _ => {}
                         },
-                        _ => Err(e)?,
+                        _ => {}
                     }
-                    tracing::error!("{}", e);
                     Err(e)?
                 }
             };
-            tracing::info!("REQUESTED");
 
             // Wrap tungstenite errors into NetworkError
             let ws = ws

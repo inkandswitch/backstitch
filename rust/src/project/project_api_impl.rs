@@ -2,30 +2,202 @@ use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
 use samod::DocumentId;
+use url::Url;
 
 use crate::{
+    auth::server_manager::ServerStatus,
     fs::file_utils::FileContent,
     helpers::{
         history_ref::HistoryRef,
+        spawn_utils::spawn_named_on,
         utils::{
             BranchWrapper, ChangedFile, CommitInfo, DiffId, DiffWrapper,
             exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
     project::{
+        LocalChangesResult, Project, ProjectStartStatus,
         branch_db::DbError,
         project_api::{
             BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
-            CreateRevertPreviewBranchError, DiffViewModel, ProjectStartError, ProjectViewModel,
-            RequestDiffError, SyncStatus,
+            CreateRevertPreviewBranchError, DiffViewModel, ProjectViewModel, RequestDiffError,
+            SyncStatus,
         },
-        project_base::{DiffStatus, Project, ProjectCreateMode},
+        project_base::{DiffStatus, ProjectCreateMode},
     },
 };
 
 // TODO (Lilith): Figure out if there's a reasonable way to reduce blocking in this file.
 // In general I kind of hate this, but I guess a sync/async divide is never going to look pretty.
 impl ProjectViewModel for Project {
+    fn has_user_name(&self) -> bool {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.is_some() })
+    }
+
+    fn get_user_name(&self) -> String {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.unwrap_or("".to_string()) })
+    }
+
+    fn set_user_name(&self, name: String) {
+        let config = self.config.clone();
+        self.with_driver_blocking("Set username", |driver| async move {
+            config.set_user_name(Some(&name)).await;
+            driver.as_ref()?.set_username(Some(name)).await;
+            Some(())
+        });
+    }
+
+    fn validate_server(&self, server: &str) -> Option<String> {
+        // TODO: Be kinder about http/https inclusion... right now it's weird
+        Url::parse(server).ok().map(|u| u.to_string())
+    }
+
+    fn authenticate_server(&self, server: &str) {
+        let server_manager = self.server_manager.clone();
+        let Ok(url) = Url::parse(server).inspect_err(|e| tracing::error!("invalid URL {e}")) else {
+            return;
+        };
+        spawn_named_on("authenticate", self.runtime.handle(), async move {
+            let info = match server_manager.handshake(&url).await {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::error!("Unable to begin authentication due to: {e}");
+                    return;
+                }
+            };
+
+            match server_manager.authenticate(&info).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("unable to authenticate: {e}"),
+            }
+        });
+    }
+
+    fn cancel_authenticate(&self) {
+        let server_manager = self.server_manager.clone();
+        spawn_named_on("cancel authenticate", self.runtime.handle(), async move {
+            server_manager.cancel_wait().await;
+        });
+    }
+
+    fn ping_server(&self, server: &str, retry: bool) -> ServerStatus {
+        // users shouldn't let this happen; check is_server_valid first
+        let Ok(url) = Url::parse(server) else {
+            return ServerStatus::None;
+        };
+
+        let status = {
+            let url = url.clone();
+            let server_manager = self.server_manager.clone();
+            self.runtime
+                .block_on(async move { server_manager.server_status(&url).await })
+        };
+
+        match (status, retry) {
+            (ServerStatus::None, _) | (ServerStatus::HandshakeFailed, true) => {
+                let server_manager = self.server_manager.clone();
+                // spawn off a task to do the handshake
+                // if many of these spawn, that's ok, they'll work it out eventually
+                spawn_named_on("do handshake", self.runtime.handle(), async move {
+                    server_manager.handshake(&url).await
+                });
+                ServerStatus::Handshaking
+            }
+            (status, _) => status,
+        }
+    }
+
+    fn get_server(&self) -> Option<String> {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.server_url().await })
+            .map(|url| url.to_string())
+    }
+
+    fn set_server(&self, server: Option<&str>) {
+        let server = server.and_then(|s| {
+            Url::parse(s)
+                .inspect_err(|_| tracing::error!("Url {s} invalid; discarding"))
+                .ok()
+        });
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.set_server_url(server.as_ref()).await });
+    }
+
+    fn add_server(&self, server: &str) {
+        let Ok(server) =
+            Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
+            return;
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.insert(server);
+            config.set_available_servers(&servers).await;
+        });
+    }
+
+    fn remove_server(&self, server: &str) {
+        let Ok(server) =
+            Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
+            return;
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.swap_remove(&server);
+            config.set_available_servers(&servers).await;
+        });
+    }
+
+    fn get_available_servers(&self) -> Vec<String> {
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config
+                .available_servers()
+                .await
+                .into_iter()
+                .map(|url| url.to_string())
+                .collect()
+        })
+    }
+
+    fn webviewer_url(&self) -> Option<String> {
+        let status = {
+            let url = Url::parse(&self.get_server()?).ok()?;
+            let server_manager = self.server_manager.clone();
+            self.runtime
+                .block_on(async move { server_manager.server_status(&url).await })
+        };
+
+        match status {
+            ServerStatus::Ready { server_info, .. } => server_info.webviewer.map(|v| v.to_string()),
+            _ => None,
+        }
+    }
+
+    fn clear_project(&mut self) {
+        if !self.has_project() {
+            return;
+        }
+        self.stop();
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(None).await;
+            config.set_checked_out_branch_doc_id(None).await;
+        });
+    }
+
     fn has_project(&self) -> bool {
         self.driver.blocking_read().is_some()
     }
@@ -41,84 +213,246 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) -> Result<(), ProjectStartError> {
+    fn new_project(&self) {
         if self.has_project() {
-            return Ok(());
+            tracing::warn!("Project already exists; can't create a new one.");
+            return;
         }
         self.start(ProjectCreateMode::New)
     }
 
-    fn load_project(&mut self, id: &DocumentId, autostart: bool) -> Result<(), ProjectStartError> {
+    fn load_project(&self, id: &DocumentId, autostart: bool) {
         if self.has_project() {
-            return Ok(());
+            return;
         }
-        self.config_mut()
-            .set_project_value("project_doc_id", id.to_string().as_str());
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(Some(id)).await;
+        });
+
         self.start(if autostart {
             ProjectCreateMode::AutoLoaded
         } else {
             ProjectCreateMode::ManuallyLoaded
-        })?;
-        Ok(())
+        });
     }
 
     fn local_changes(&self) -> Vec<ChangedFile> {
-        self.local_changes.clone()
+        let rx = self.start_status_tx.subscribe();
+        if let ProjectStartStatus::NeedsCheckIn(changes) = rx.borrow().clone() {
+            return changes.clone();
+        }
+        Vec::new()
     }
 
-    fn checkin_local_changes(&mut self) {
-        let branch = self.initial_branch.clone();
-        let res: Result<(), ProjectStartError> =
-            self.with_driver_blocking("Checkin local changes", |driver| async move {
-                let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
-                driver.commit_local_changes(branch.as_ref()).await?;
-                Ok(())
-            });
+    fn check_in_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't check in local changes, because we don't have anything to check in!"
+            );
+            return;
+        };
 
-        // TODO: Do we want to give up and propagate this to the user, and clear the project?
-        // This could turn into a discard, depending on the error. Idk what it'd be though
-        match res {
-            Ok(_) => {}
-            Err(e) => tracing::error!(
-                "Unknown error while checking in local changes. Proceeding with start. {e}"
-            ),
-        }
-
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start: {e}"),
-        }
+        let _ = tx.send(LocalChangesResult::CheckIn);
     }
 
-    fn discard_local_changes(&mut self) {
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start. {e}"),
-        }
+    fn discard_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't discard local changes, because we don't have anything to check in!"
+            );
+            return;
+        };
+
+        let _ = tx.send(LocalChangesResult::Discard);
     }
-    fn clear_project(&mut self) {
+
+    fn get_sync_status(&self) -> SyncStatus {
+        if !self.has_project() {
+            // We have no reason to be connected, therefore just mark it as OK.
+            return SyncStatus::UpToDate;
+        }
+
+        let Some((info, ref_)) =
+            self.with_driver_blocking("Print sync debug", |driver| async move {
+                let d = driver.as_ref()?;
+                let info = d.get_connection_info().await?;
+                let branch_db = d.get_branch_db();
+                let r#ref = branch_db.get_checked_out_ref().await?;
+                // don't use checked out ref, because that might be updated too late! we care about what's synced here, not what's checked out
+                let ref_ = branch_db
+                    .get_latest_ref_on_branch(r#ref.branch())
+                    .await
+                    .inspect_err(|e| tracing::error!("error during get_sync_status: {e}"))
+                    .ok()?;
+                Some((info, ref_))
+            })
+        else {
+            return SyncStatus::Unknown;
+        };
+
+        let Some(branch) = self.get_checked_out_branch_state() else {
+            return SyncStatus::Unknown;
+        };
+        let Some(status) = info.docs.get(&branch.id) else {
+            return SyncStatus::Unknown;
+        };
+        let is_connected = info.last_received.is_some();
+
+        tracing::trace!(
+            "last_acked_heads: {:?}, current heads: {:?}",
+            status.last_acked_heads,
+            ref_.heads()
+        );
+
+        if status
+            .last_acked_heads
+            .as_ref()
+            .is_some_and(|s| s == ref_.heads())
+        {
+            if is_connected {
+                return SyncStatus::UpToDate;
+            }
+            return SyncStatus::Disconnected(0);
+        }
+
+        if is_connected {
+            return SyncStatus::Syncing;
+        }
+
+        let unsynced_count = self.changes.iter().filter(|(_hash, c)| !c.synced).count();
+
+        SyncStatus::Disconnected(unsynced_count)
+    }
+
+    fn print_sync_debug(&self) {
         if !self.has_project() {
             return;
         }
-        self.stop();
-        let mut config = self.config_mut();
-        config.set_project_value("project_doc_id", "");
-        config.set_project_value("checked_out_branch_doc_id", "");
+        let info = self.with_driver_blocking("Print sync debug", |driver| async move {
+            driver.as_ref()?.get_connection_info().await
+        });
+        let Some(info) = info else {
+            tracing::debug!("Sync info UNAVAILABLE!!!");
+            return;
+        };
+        let is_connected = info.last_received.is_some();
+
+        tracing::debug!("Sync info ===========================");
+        tracing::debug!("is connected: {is_connected}");
+        tracing::debug!("last received: {:?}", info.last_received);
+        tracing::debug!("last sent: {:?}", info.last_sent);
+
+        if let Some(branch) = self.get_checked_out_branch_state()
+            && let Some(status) = info.docs.get(&branch.id)
+        {
+            tracing::debug!("\t{}:", branch.name);
+            tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
+            tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
+            tracing::debug!("\tlast sent: {:?}", status.last_sent);
+            tracing::debug!("\tlast sent: {:?}", status.last_received);
+        }
+        tracing::debug!("=====================================");
+    }
+    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
+        let id = id.clone();
+
+        let (state, mut children) =
+            self.with_driver_blocking("Get branch", |driver| async move {
+                tracing::trace!("Getting branch state...");
+                let branch_db = driver.as_ref()?.get_branch_db();
+                let state = branch_db
+                    .get_branch_state(&id)
+                    .await
+                    .inspect_err(|e| tracing::error!("error getting branch: {e}"))
+                    .ok()?;
+                tracing::trace!("Getting branch children...");
+                let children = branch_db.get_branch_children(&id).await;
+                Some((state, children))
+            })?;
+
+        children.sort_by(|a, b| {
+            let a_state = self.get_branch(a);
+            let b_state = self.get_branch(b);
+            let Some(a_state) = a_state else {
+                return std::cmp::Ordering::Less;
+            };
+            let Some(b_state) = b_state else {
+                return std::cmp::Ordering::Greater;
+            };
+            a_state
+                .get_name()
+                .to_lowercase()
+                .cmp(&b_state.get_name().to_lowercase())
+        });
+
+        Some(BranchWrapper {
+            state: state.clone(),
+            children,
+        })
     }
 
-    fn has_user_name(&self) -> bool {
-        !self.config().get_user_value("user_name", "").is_empty()
+    fn get_main_branch(&self) -> Option<impl BranchViewModel> {
+        let id = self.with_driver_blocking("Get main branch", |driver| async move {
+            driver
+                .as_ref()?
+                .get_main_branch()
+                .await
+                .inspect_err(|e| tracing::error!("Error getting main branch: {e}"))
+                .ok()
+        })?;
+        self.get_branch(&id)
     }
 
-    fn get_user_name(&self) -> String {
-        self.config().get_user_value("user_name", "Anonymous")
+    fn get_checked_out_branch(&self) -> Option<impl BranchViewModel> {
+        let id = self.with_driver_blocking("Get checked out branch", |driver| async move {
+            driver.as_ref()?.get_branch_db().get_checked_out_ref().await
+        })?;
+        self.get_branch(id.branch())
     }
 
-    fn set_user_name(&self, name: String) {
-        self.config_mut().set_user_value("user_name", &name);
-        self.with_driver_blocking("Set username", |driver| async move {
-            driver.as_ref()?.set_username(Some(name)).await;
+    fn create_branch(&self, name: String) {
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return;
+        };
+        self.with_driver_blocking("Create branch", |driver| async move {
+            driver.as_ref()?.fork_branch(name, &branch_state.id).await;
             Some(())
+        });
+    }
+
+    fn checkout_branch(&self, branch: &DocumentId) {
+        let branch = branch.clone();
+        self.with_driver_blocking("Checkout branch", |driver| async move {
+            driver.as_ref()?.request_checkout(&branch).await;
+            Some(())
+        });
+    }
+
+    fn is_branch_loaded(&self, branch: &DocumentId) -> bool {
+        let branch = branch.clone();
+        self.with_driver_blocking("Is branch loaded", |driver| async move {
+            let Some(dr) = driver.as_ref() else {
+                return false;
+            };
+            dr.get_branch_db().is_branch_loaded(&branch).await
+        })
+    }
+
+    fn dump_current_branch(&self) {
+        let Some(ref_) = self.get_current_ref() else {
+            return;
+        };
+        self.with_driver_blocking("Dump current branch", |driver| async move {
+            let Some(dr) = driver.as_ref() else {
+                return;
+            };
+            dr.get_branch_db().dump_branch_doc(ref_.branch()).await;
         });
     }
 
@@ -266,6 +600,7 @@ impl ProjectViewModel for Project {
             });
         }
     }
+
     fn discard_preview_branch(&self) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
@@ -282,169 +617,6 @@ impl ProjectViewModel for Project {
 
     fn get_branch_history(&self) -> Vec<ChangeHash> {
         self.history.clone().unwrap_or_default()
-    }
-
-    fn get_sync_status(&self) -> SyncStatus {
-        if !self.has_project() {
-            // We have no reason to be connected, therefore just mark it as OK.
-            return SyncStatus::UpToDate;
-        }
-
-        let Some((info, ref_)) =
-            self.with_driver_blocking("Print sync debug", |driver| async move {
-                let d = driver.as_ref()?;
-                let info = d.get_connection_info().await?;
-                let branch_db = d.get_branch_db();
-                let r#ref = branch_db.get_checked_out_ref().await?;
-                // don't use checked out ref, because that might be updated too late! we care about what's synced here, not what's checked out
-                let ref_ = branch_db
-                    .get_latest_ref_on_branch(r#ref.branch())
-                    .await
-                    .inspect_err(|e| tracing::error!("error during get_sync_status: {e}"))
-                    .ok()?;
-                Some((info, ref_))
-            })
-        else {
-            return SyncStatus::Unknown;
-        };
-
-        let Some(branch) = self.get_checked_out_branch_state() else {
-            return SyncStatus::Unknown;
-        };
-        let Some(status) = info.docs.get(&branch.id) else {
-            return SyncStatus::Unknown;
-        };
-        let is_connected = info.last_received.is_some();
-
-        tracing::trace!(
-            "last_acked_heads: {:?}, current heads: {:?}",
-            status.last_acked_heads,
-            ref_.heads()
-        );
-
-        if status
-            .last_acked_heads
-            .as_ref()
-            .is_some_and(|s| s == ref_.heads())
-        {
-            if is_connected {
-                return SyncStatus::UpToDate;
-            }
-            return SyncStatus::Disconnected(0);
-        }
-
-        if is_connected {
-            return SyncStatus::Syncing;
-        }
-
-        let unsynced_count = self.changes.iter().filter(|(_hash, c)| !c.synced).count();
-
-        SyncStatus::Disconnected(unsynced_count)
-    }
-
-    fn print_sync_debug(&self) {
-        if !self.has_project() {
-            return;
-        }
-        let info = self.with_driver_blocking("Print sync debug", |driver| async move {
-            driver.as_ref()?.get_connection_info().await
-        });
-        let Some(info) = info else {
-            tracing::debug!("Sync info UNAVAILABLE!!!");
-            return;
-        };
-        let is_connected = info.last_received.is_some();
-
-        tracing::debug!("Sync info ===========================");
-        tracing::debug!("is connected: {is_connected}");
-        tracing::debug!("last received: {:?}", info.last_received);
-        tracing::debug!("last sent: {:?}", info.last_sent);
-
-        if let Some(branch) = self.get_checked_out_branch_state()
-            && let Some(status) = info.docs.get(&branch.id)
-        {
-            tracing::debug!("\t{}:", branch.name);
-            tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
-            tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
-            tracing::debug!("\tlast sent: {:?}", status.last_sent);
-            tracing::debug!("\tlast sent: {:?}", status.last_received);
-        }
-        tracing::debug!("=====================================");
-    }
-
-    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
-        let id = id.clone();
-
-        let (state, mut children) =
-            self.with_driver_blocking("Get branch", |driver| async move {
-                tracing::trace!("Getting branch state...");
-                let branch_db = driver.as_ref()?.get_branch_db();
-                let state = branch_db
-                    .get_branch_state(&id)
-                    .await
-                    .inspect_err(|e| tracing::error!("error getting branch: {e}"))
-                    .ok()?;
-                tracing::trace!("Getting branch children...");
-                let children = branch_db.get_branch_children(&id).await;
-                Some((state, children))
-            })?;
-
-        children.sort_by(|a, b| {
-            let a_state = self.get_branch(a);
-            let b_state = self.get_branch(b);
-            let Some(a_state) = a_state else {
-                return std::cmp::Ordering::Less;
-            };
-            let Some(b_state) = b_state else {
-                return std::cmp::Ordering::Greater;
-            };
-            a_state
-                .get_name()
-                .to_lowercase()
-                .cmp(&b_state.get_name().to_lowercase())
-        });
-
-        Some(BranchWrapper {
-            state: state.clone(),
-            children,
-        })
-    }
-
-    fn get_main_branch(&self) -> Option<impl BranchViewModel> {
-        let id = self.with_driver_blocking("Get main branch", |driver| async move {
-            driver
-                .as_ref()?
-                .get_main_branch()
-                .await
-                .inspect_err(|e| tracing::error!("Error getting main branch: {e}"))
-                .ok()
-        })?;
-        self.get_branch(&id)
-    }
-
-    fn get_checked_out_branch(&self) -> Option<impl BranchViewModel> {
-        let id = self.with_driver_blocking("Get checked out branch", |driver| async move {
-            driver.as_ref()?.get_branch_db().get_checked_out_ref().await
-        })?;
-        self.get_branch(id.branch())
-    }
-
-    fn create_branch(&self, name: String) {
-        let Some(branch_state) = self.get_checked_out_branch_state() else {
-            return;
-        };
-        self.with_driver_blocking("Create branch", |driver| async move {
-            driver.as_ref()?.fork_branch(name, &branch_state.id).await;
-            Some(())
-        });
-    }
-
-    fn checkout_branch(&self, branch: &DocumentId) {
-        let branch = branch.clone();
-        self.with_driver_blocking("Checkout branch", |driver| async move {
-            driver.as_ref()?.request_checkout(&branch).await;
-            Some(())
-        });
     }
 
     fn get_change(&self, hash: ChangeHash) -> Option<&impl ChangeViewModel> {
@@ -648,71 +820,6 @@ impl ProjectViewModel for Project {
                 .inspect_err(|e| tracing::error!("Error getting files at ref {e}"))
                 .ok()
         })
-    }
-
-    fn is_branch_loaded(&self, branch: &DocumentId) -> bool {
-        let branch = branch.clone();
-        self.with_driver_blocking("Is branch loaded", |driver| async move {
-            let Some(dr) = driver.as_ref() else {
-                return false;
-            };
-            dr.get_branch_db().is_branch_loaded(&branch).await
-        })
-    }
-
-    fn dump_current_branch(&self) {
-        let Some(ref_) = self.get_current_ref() else {
-            return;
-        };
-        self.with_driver_blocking("Dump current branch", |driver| async move {
-            let Some(dr) = driver.as_ref() else {
-                return;
-            };
-            dr.get_branch_db().dump_branch_doc(ref_.branch()).await;
-        });
-    }
-
-    fn get_server(&self) -> Option<String> {
-        // note... we're not doing URL parsing here because a user could just open up the text file and add
-        // some BS. So there's no invariant that these URLs are even valid.
-        let res = self.config().get_project_value("server_url", "");
-        (!res.is_empty()).then_some(res)
-    }
-
-    fn set_server(&self, server: Option<String>) {
-        self.config_mut()
-            .set_project_value("server_url", &server.unwrap_or("".to_string()));
-    }
-
-    fn add_server(&self, server: String) {
-        if server.is_empty() {
-            return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.push(server);
-        self.config_mut()
-            .set_project_value("available_servers", &servers.join(","));
-    }
-
-    fn remove_server(&self, server: String) {
-        if server.is_empty() {
-            return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.retain(|s| s != &server && !s.is_empty());
-        self.config_mut()
-            .set_project_value("available_servers", &servers.join(","));
-    }
-
-    fn get_available_servers(&self) -> Vec<String> {
-        let servers = self
-            .config()
-            .get_project_value("available_servers", "alpha.backstitch.dev:8085");
-        servers
-            .split(",")
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
     }
 }
 

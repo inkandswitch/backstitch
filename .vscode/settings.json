@@ -34,5 +34,6 @@
         "**/*.x86_64.o.d": true,
         "**/*.x86_64.san.a": true,
         "**/*.x86_64.san.o": true,
+        "**/*.gd.uid": true
     }
 }

@@ -1,7 +1,9 @@
+use crate::auth::server_manager::{AuthStatus, ServerStatus};
 use crate::fs::file_utils::FileContent;
 use crate::helpers::history_ref::HistoryRef;
 use crate::helpers::utils::{ChangedFile, DiffId};
 use crate::parser::godot_parser::TypeOrInstance;
+use crate::project::ProjectStartStatus;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
 use crate::project::project_base::DiffStatus;
 use automerge::ChangeHash;
@@ -358,4 +360,103 @@ where
     T: WithBaseField,
     T::Base: Inherits<Control>,
 {
+}
+
+impl GodotConvert for ProjectStartStatus {
+    type Via = VarDictionary;
+
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for ProjectStartStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            ProjectStartStatus::NotStarted => vdict! {
+                "status" => "not_started"
+            },
+            ProjectStartStatus::Starting => vdict! {
+                "status" => "starting"
+            },
+            ProjectStartStatus::NeedsCheckIn(_) => vdict! {
+                "status" => "needs_check_in"
+            },
+            ProjectStartStatus::Done => vdict! {
+                "status" => "done"
+            },
+            ProjectStartStatus::Failed(e) => vdict! {
+                "status" => "failed",
+                "error" => e.clone()
+            },
+        }
+    }
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
+}
+
+impl GodotConvert for AuthStatus {
+    type Via = VarDictionary;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for AuthStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            AuthStatus::NeedsUserLogin(url) => vdict! {
+                "status" => "needs_user_login",
+                "url" => url.to_string()
+            },
+            AuthStatus::Idle => vdict! {
+                "status" => "idle"
+            },
+            AuthStatus::NeedsUserLogout(url) => vdict! {
+                "status" => "needs_user_logout",
+                "url" => url.to_string()
+            },
+        }
+    }
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
+}
+
+impl GodotConvert for ServerStatus {
+    type Via = VarDictionary;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for ServerStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            ServerStatus::None => vdict! { "status" => "none" },
+            ServerStatus::Handshaking => vdict! { "status" => "handshaking" },
+            ServerStatus::HandshakeFailed => vdict! { "status" => "failed" },
+            ServerStatus::AuthNeeded { provider } => {
+                vdict! { "status" => "auth_needed", "provider" => provider.clone() }
+            }
+            ServerStatus::Ready { user_info, .. } => {
+                vdict! {
+                    "status" => "ready",
+                    "user_name" => user_info.username(),
+                    "authenticated" => user_info.bearer_token().is_some()
+                }
+            }
+        }
+    }
+
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
 }

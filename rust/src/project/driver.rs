@@ -1,3 +1,4 @@
+use crate::auth::server_manager::{ServerError, ServerManager};
 use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
@@ -100,6 +101,7 @@ pub struct DriverInner {
     document_watcher: Arc<Mutex<Option<DocumentWatcher>>>,
     sync_automerge_to_fs: SyncAutomergeToFileSystem,
     sync_fs_to_automerge: SyncFileSystemToAutomerge,
+    server_manager: ServerManager,
     differ: Differ,
 }
 
@@ -123,27 +125,27 @@ pub enum ProjectLoadError {
     MetadataIdNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error("the requested branch document was not found. Server status: {server_status:?}")]
     BranchDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error(
         "one or more linked binary document ID was not found. Server status: {server_status:?}"
     )]
     BinaryDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error(transparent)]
     RepoStopped(#[from] samod::Stopped),
-
     #[error("branch db error: {0}")]
     Db(Box<DbError>),
-
     #[error("branch wasn't successfully ingested")]
     NotIngested,
+
+    #[error(transparent)]
+    Server(#[from] ServerError),
+    #[error(transparent)]
+    Connection(#[from] RemoteConnectionError),
 }
 
 impl From<DbError> for ProjectLoadError {
@@ -182,14 +184,23 @@ impl Driver {
         gitignore.build().unwrap()
     }
 
-    /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
-    pub async fn start_connection(&self, server_url: &Url) -> Result<(), RemoteConnectionError> {
+    /// Start the connection task. URL must be valid, and have a scheme of http(s)://
+    /// Authenticates first. If a complex user-authentication
+    pub async fn start_connection(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
         if self.inner.connection.lock().await.is_some() {
             return Ok(());
         }
         // Start the connection
-        tracing::info!("Starting server connection with url {:?}", server_url);
-        let connection = RemoteConnection::new(self.repo.clone(), server_url.clone()).await?;
+        tracing::info!("Starting server connection with url {}", server_url);
+
+        // TODO (oidc): probably push this logic down to RemoteConnection
+        tracing::debug!("Handshaking with server...");
+        let server_info = self.inner.server_manager.handshake(server_url).await?;
+        tracing::debug!("Authenticating user...");
+        let user_info = self.inner.server_manager.authenticate(&server_info).await?;
+        tracing::debug!("Starting connection...");
+        let connection =
+            RemoteConnection::new(self.repo.clone(), &server_info, user_info.as_ref()).await?;
         let mut conn = self.inner.connection.lock().await;
         *conn = Some(connection);
         Ok(())
@@ -442,6 +453,7 @@ impl Driver {
     /// If we couldn't start the driver, [None] is returned.
     pub async fn new(
         main_thread_block: MainThreadBlock,
+        server_manager: ServerManager,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
@@ -484,7 +496,6 @@ impl Driver {
         let token = CancellationToken::new();
 
         Ok(Driver {
-            file_changes_rx: Mutex::new(file_changes_rx),
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
@@ -492,6 +503,7 @@ impl Driver {
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
+                fs_index,
                 pending_normalized_files: Default::default(),
                 connection: Default::default(),
                 branch_db,
@@ -500,11 +512,12 @@ impl Driver {
                 document_watcher: Default::default(),
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
+                server_manager,
                 differ,
-                fs_index,
             }),
             repo,
             token,
+            file_changes_rx: Mutex::new(file_changes_rx),
         })
     }
 
@@ -720,7 +733,7 @@ impl Driver {
         self.inner.fs_index.clone()
     }
 
-    // awkward
+    // awkward; turn this into a stream and DON'T provide the full file content!!
     pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
         let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
@@ -730,7 +743,7 @@ impl Driver {
         fs_changes
     }
 
-    // also awkward
+    // also awkward; return these as streams
     pub fn get_changes_rx(&self) -> watch::Receiver<Vec<CommitInfo>> {
         self.inner.change_ingester.get_changes_rx()
     }

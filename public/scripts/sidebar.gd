@@ -2,7 +2,7 @@
 class_name BackstitchSidebar
 extends MarginContainer
 
-const diff_inspector_script = preload("res://addons/backstitch/public/gdscript/diff_inspector_container.gd")
+const diff_inspector_script = preload("res://addons/backstitch/public/scripts/diff_inspector_container.gd")
 const branch_icon_history = preload("res://addons/backstitch/public/icons/Branch16.svg")
 const collapsible_closed_icon = preload("res://addons/backstitch/public/icons/CollapsibleClosed.svg")
 const collapsible_open_icon = preload("res://addons/backstitch/public/icons/CollapsibleOpen.svg")
@@ -116,11 +116,8 @@ func _update_ui_on_state_change():
 			update_ui()
 	)
 
-func _update_ui_on_sync_change():
-	waiting_callables.append(
-		func():
-			update_sync_status()
-	)
+func _update_ui_on_sync_status_change():
+	update_sync_status()
 
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()
@@ -134,32 +131,6 @@ func _auto_generate_diffs() -> bool:
 	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
-
-# Display a "Loading Backstitch" modal until we notice the branch has changed, then initialize.
-# Used when creating a new project, manually loading an existing project from ID, or auto-loading
-# an existing project from the project.
-func wait_for_checked_out_branch():
-	if not GodotProject.get_checked_out_branch():
-		branch_checked_out.connect(_on_branch_checked_out)
-		GodotProject.create_failed.connect(_on_create_failed)
-		task_modal.start_task("Loading Backstitch")
-	else:
-		init()
-
-func _on_branch_checked_out():
-	branch_checked_out.disconnect(_on_branch_checked_out)
-	GodotProject.create_failed.disconnect(_on_create_failed)
-	task_modal.end_task("Loading Backstitch")
-	init()
-
-func _on_create_failed(message: String):
-	branch_checked_out.disconnect(_on_branch_checked_out)
-	GodotProject.create_failed.disconnect(_on_create_failed)
-	task_modal.end_task("Loading Backstitch")
-
-	# TODO: Turn this into an actual annoying popup
-	var toaster = EditorInterface.get_editor_toaster()
-	toaster.push_toast("Couldn't start the project! Reason: %s" % message);
 
 # Asks the user for their username, if there is none stored.
 # If they cancel or close, returns false. If the username is confirmed, returns true.
@@ -176,8 +147,8 @@ func _on_init_button_pressed():
 	if not await require_user_name():
 		return
 
-	GodotProject.new_project();
-	await wait_for_checked_out_branch()
+	GodotProject.set_server(%ServerPicker.get_selection())
+	GodotProject.new_project()
 
 func _on_load_project_button_pressed():
 	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before loading an existing project."):
@@ -189,10 +160,32 @@ func _on_load_project_button_pressed():
 	if not await require_user_name():
 		return
 
+	GodotProject.set_server(%ServerPicker.get_selection())
 	GodotProject.load_project(doc_id);
 	
-	if not _check_for_local_changes():
-		await wait_for_checked_out_branch()
+func _on_start_status_changed(status: Dictionary):
+	match status["status"]:
+		"not_started":
+			update_ui()
+		"starting":
+			# TODO: Don't do this; we need to allow the auth flow
+			task_modal.start_task("Loading Backstitch")
+			update_ui()
+		"needs_check_in":
+			_check_for_local_changes()
+			update_ui()
+		"done":
+			task_modal.end_task("Loading Backstitch")
+			_check_for_local_changes()
+			init()
+			update_ui()
+		"failed":
+			task_modal.end_task("Loading Backstitch")
+			_check_for_local_changes()
+			update_ui()
+			var toaster = EditorInterface.get_editor_toaster()
+			toaster.push_toast("Couldn't start the project! Reason: %s" % status["error"]);
+
 
 func update_init_panel():
 	var has_project = GodotProject.has_project()
@@ -202,17 +195,12 @@ func update_init_panel():
 	branch_picker.disabled = !has_project
 	fork_button.disabled = !has_project
 	copy_project_id_button.disabled = !has_project
-	share_button.disabled = !(has_project && _share_available())
+	share_button.disabled = !(has_project && GodotProject.webviewer_url())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
 	_set_action_disabled(!has_project, ActionMenuItems.AUTO_GENERATE_DIFFS)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
-
-
-func _share_available() -> bool:
-	var server = GodotProject.get_server()
-	return server.contains("alpha.backstitch.dev")
 
 func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
@@ -283,21 +271,14 @@ func _ready() -> void:
 	else:
 		print("Sidebar: in editor!!!!!!!!!!!!")
 
+	update_ui()
+
 func _enter_tree():
 	if is_part_of_edited_scene():
 		return
 	instance = self
 
 func bind_listeners(godot_project):
-	%AddServerButton.pressed.connect(self._on_add_server_button_pressed)
-	%RemoveServerButton.pressed.connect(self._on_remove_server_button_pressed)
-	%ServerPicker.item_selected.connect(self._on_server_picker_item_selected)
-
-	%AddServerDialog.visible = false
-	%AddServerDialog.confirmed.connect(self._on_add_server_confirmed)
-
-	self._update_server_picker()
-
 	%InitializeButton.pressed.connect(self._on_init_button_pressed)
 	%LoadExistingButton.pressed.connect(self._on_load_project_button_pressed)
 	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
@@ -308,7 +289,9 @@ func bind_listeners(godot_project):
 	%UserNameDialog.confirmed.connect(_on_user_name_confirmed)
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
-	godot_project.sync_changed.connect(self._update_ui_on_sync_change);
+	godot_project.sync_status_changed.connect(self._update_ui_on_sync_status_change);
+	godot_project.start_status_changed.connect(self._on_start_status_changed);
+	# TODO: Auth status change
 
 	merge_button.pressed.connect(create_merge_preview_branch)
 	fork_button.pressed.connect(create_new_branch)
@@ -338,32 +321,23 @@ func bind_listeners(godot_project):
 	share_button.pressed.connect(_on_share_button_pressed)
 	action_menu_button.get_popup().id_pressed.connect(_on_action_menu_item_selected)
 
-	_style_button(sync_button)
-	_style_button(copy_project_id_button)
-	_style_button(share_button)
-	_style_button(action_menu_button)
-	_style_button(fork_button)
-	_style_button(merge_button)
-	_style_button(%MonkeyButton)
-	_style_button(%ClearDiffButton)
-	_style_button(%AddServerButton)
-	_style_button(%RemoveServerButton)
+	%ServerPicker.set_selection(GodotProject.get_server())
+
+	BackstitchUtils.style_button(sync_button)
+	BackstitchUtils.style_button(copy_project_id_button)
+	BackstitchUtils.style_button(share_button)
+	BackstitchUtils.style_button(action_menu_button)
+	BackstitchUtils.style_button(fork_button)
+	BackstitchUtils.style_button(merge_button)
+	BackstitchUtils.style_button(%MonkeyButton)
+	BackstitchUtils.style_button(%ClearDiffButton)
+
 	# Have to manually scale the icons of the popup menu
 	for item in action_menu_button.get_popup().get_item_count():
 		var menu: PopupMenu = action_menu_button.get_popup()
 		var icon = menu.get_item_icon(item)
 		if is_instance_valid(icon):
 			icon.base_scale = EditorInterface.get_editor_scale()
-
-
-func _style_button(button: Button):
-	var theme = EditorInterface.get_editor_theme()
-	button.theme_type_variation = "FlatButton"
-	button.theme = theme
-	# For some reason, the icon isn't scaling automatically in the editor
-	button.icon.base_scale = EditorInterface.get_editor_scale()
-	#print("Backstitch: Button icon base scale: ", button.icon.base_scale)
-
 
 func _try_init():
 	var godot_project = Engine.get_singleton("GodotProject")
@@ -375,7 +349,6 @@ func _try_init():
 			return
 		else:
 			print("Initialized, hiding init panel")
-			wait_for_checked_out_branch()
 	else:
 		print("No GodotProject singleton!!!!!!!!")
 
@@ -421,44 +394,6 @@ func init() -> void:
 	# But that seems bad.
 	require_user_name()
 
-
-func _on_add_server_button_pressed() -> void:
-	%AddServerDialog.popup_centered()
-
-func _on_remove_server_button_pressed() -> void:
-	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
-	GodotProject.remove_server(text)
-	GodotProject.set_server("")
-	_update_server_picker()
-
-func _on_server_picker_item_selected(item: int) -> void:
-	var text = %ServerPicker.get_item_text(%ServerPicker.selected).strip_edges()
-	if text == "(No server)": text = ""
-	GodotProject.set_server(text)
-
-	_update_server_picker()
-
-func _on_add_server_confirmed() -> void:
-	var server = %AddServerEntry.text.strip_edges()
-	%AddServerEntry.text = ""
-	GodotProject.add_server(server)
-	GodotProject.set_server(server)
-	_update_server_picker()
-
-func _update_server_picker() -> void:
-	%ServerPicker.clear()
-	var index := 0
-	%ServerPicker.add_item("(No server)", index)
-	%ServerPicker.select(index)
-	var selected = GodotProject.get_server()
-	for server in GodotProject.get_available_servers():
-		index += 1
-		%ServerPicker.add_item(server, index)
-		if selected == server:
-			%ServerPicker.select(index)
-
-	%RemoveServerButton.visible = selected != ""
-	%AlphaWarning.visible = selected.contains("alpha.backstitch.dev")
 
 func _on_sync_button_pressed():
 	var toaster = EditorInterface.get_editor_toaster()
@@ -1030,7 +965,7 @@ func _on_share_button_pressed() -> void:
 	var project_id = GodotProject.get_project_id()
 	var branch_id = GodotProject.get_checked_out_branch().id;
 	if not project_id.is_empty() && not branch_id.is_empty():
-		DisplayServer.clipboard_set("https://web.backstitch.dev/?project=%s&branch=%s" % [project_id, branch_id])
+		DisplayServer.clipboard_set("%s?project=%s&branch=%s" % [GodotProject.webviewer_url(), project_id, branch_id])
 		toaster.push_toast("Share URL copied to clipboard.")
 	else:
 		toaster.push_toast("Couldn't create share URL!", EditorToaster.Severity.SEVERITY_ERROR)
@@ -1112,5 +1047,4 @@ func _discard_changes(_action: String) -> void:
 
 func _checkin_changes() -> void:
 	%LocalChangesDialog.hide()
-	GodotProject.checkin_local_changes()
-	await wait_for_checked_out_branch()
+	GodotProject.check_in_local_changes()

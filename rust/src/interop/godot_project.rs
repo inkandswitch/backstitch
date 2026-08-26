@@ -963,7 +963,7 @@ impl GodotProjectPlugin {
 
     #[func]
     fn on_scene_saved(&mut self, path: String) {
-        if path == "res://addons/backstitch/public/gdscript/sidebar.tscn" {
+        if path == "res://addons/backstitch/public/scenes/sidebar.tscn" {
             tracing::info!("Scene saved {path}; reloading sidebar");
             self.on_reload_ui();
         }

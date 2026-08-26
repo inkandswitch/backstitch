@@ -53,7 +53,8 @@ impl ProjectViewModel for Project {
 
     fn validate_server(&self, server: &str) -> Option<String> {
         // TODO: Be kinder about http/https inclusion... right now it's weird
-        Url::parse(server).ok().map(|u| u.to_string())
+        let url = Url::parse(server).ok()?;
+        (url.scheme() == "http" || url.scheme() == "https").then_some(url.to_string())
     }
 
     fn authenticate_server(&self, server: &str) {
@@ -111,22 +112,40 @@ impl ProjectViewModel for Project {
         }
     }
 
-    fn get_server(&self) -> Option<String> {
+    fn get_saved_server(&self) -> Option<String> {
         let config = self.config.clone();
         self.runtime
             .block_on(async move { config.server_url().await })
             .map(|url| url.to_string())
     }
 
-    fn set_server(&self, server: Option<&str>) {
+    fn change_server(&self, server: Option<&str>) {
+        if !self.has_project() {
+            tracing::warn!("Can't change server without a project");
+            return;
+        }
         let server = server.and_then(|s| {
             Url::parse(s)
                 .inspect_err(|_| tracing::error!("Url {s} invalid; discarding"))
                 .ok()
         });
         let config = self.config.clone();
-        self.runtime
-            .block_on(async move { config.set_server_url(server.as_ref()).await });
+        self.runtime.block_on(async move {});
+        let driver = self.driver.clone();
+        // don't block here
+        spawn_named_on("change server", self.runtime.handle(), async move {
+            let dri = driver.read().await;
+            if let Some(d) = dri.as_ref() {
+                // Only do this once we're sure we're gonna affect the driver
+                config.set_server_url(server.as_ref()).await;
+                match server {
+                    Some(s) => {
+                        let _ = d.start_connection(&s).await;
+                    }
+                    None => d.clear_connection().await,
+                }
+            };
+        });
     }
 
     fn add_server(&self, server: &str) {
@@ -173,14 +192,16 @@ impl ProjectViewModel for Project {
 
     fn webviewer_url(&self) -> Option<String> {
         let status = {
-            let url = Url::parse(&self.get_server()?).ok()?;
+            let url = Url::parse(&self.get_saved_server()?).ok()?;
             let server_manager = self.server_manager.clone();
             self.runtime
                 .block_on(async move { server_manager.server_status(&url).await })
         };
 
         match status {
-            ServerStatus::Ready { server_info, .. } => server_info.webviewer.map(|v| v.to_string()),
+            ServerStatus::Ready { server_info, .. } => {
+                server_info.webviewer_url.map(|v| v.to_string())
+            }
             _ => None,
         }
     }
@@ -213,29 +234,50 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&self) {
+    fn new_project(&self, server_url: Option<&str>) {
         if self.has_project() {
             tracing::warn!("Project already exists; can't create a new one.");
             return;
         }
-        self.start(ProjectCreateMode::New)
+        let server_url = server_url
+            .and_then(|u| {
+                let v = self.validate_server(u);
+                if v.is_none() {
+                    tracing::error!("Invalid URL {u}; discarding");
+                };
+                v
+            })
+            .and_then(|u| Url::parse(&u).ok());
+        self.start(ProjectCreateMode::New, server_url)
     }
 
-    fn load_project(&self, id: &DocumentId, autostart: bool) {
+    fn load_project(&self, id: &DocumentId, server_url: Option<&str>, autostart: bool) {
         if self.has_project() {
             return;
         }
+        let server_url = server_url
+            .and_then(|u| {
+                let v = self.validate_server(u);
+                if v.is_none() {
+                    tracing::error!("Invalid URL {u}; discarding");
+                };
+                v
+            })
+            .and_then(|u| Url::parse(&u).ok());
 
         let config = self.config.clone();
         self.runtime.block_on(async move {
             config.set_project_doc_id(Some(id)).await;
         });
 
-        self.start(if autostart {
-            ProjectCreateMode::AutoLoaded
-        } else {
-            ProjectCreateMode::ManuallyLoaded
-        });
+        self.start(
+            if autostart {
+                ProjectCreateMode::AutoLoaded
+            } else {
+                ProjectCreateMode::ManuallyLoaded
+            },
+            server_url,
+        );
     }
 
     fn local_changes(&self) -> Vec<ChangedFile> {

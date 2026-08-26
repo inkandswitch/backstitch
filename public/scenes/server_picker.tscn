@@ -71,9 +71,9 @@ text = "Sign In"
 
 [node name="AlphaWarning" type="Label" parent="." unique_id=1817861232]
 unique_name_in_owner = true
-visible = false
-custom_minimum_size = Vector2(1, 1)
+custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
+size_flags_vertical = 0
 text = "The Alpha Test Server is experimental and potentially unstable. We reserve the right to wipe the server at any time. Don't store any sensitive data."
 autowrap_mode = 2
 

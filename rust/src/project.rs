@@ -5,12 +5,13 @@ use samod::ConnectionInfo;
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
-    sync::{Mutex, RwLock, oneshot, watch},
+    sync::{Mutex, RwLock, broadcast, oneshot, watch},
     task::JoinError,
 };
+use url::Url;
 
 use crate::{
-    auth::server_manager::{AuthStatus, ServerManager},
+    auth::server_manager::{AuthStatus, ServerManager, ServerStatus},
     helpers::{
         history_ref::HistoryRef,
         utils::{ChangedFile, CommitInfo, DiffId},
@@ -101,6 +102,7 @@ pub struct Project {
     checked_out_ref_rx: Option<watch::Receiver<Option<HistoryRef>>>,
     connection_info_rx: Option<watch::Receiver<Option<ConnectionInfo>>>,
     auth_status_rx: watch::Receiver<AuthStatus>,
+    server_status_rx: broadcast::Receiver<(Url, ServerStatus)>,
     start_status_rx: watch::Receiver<ProjectStartStatus>,
 
     start_status_tx: watch::Sender<ProjectStartStatus>,

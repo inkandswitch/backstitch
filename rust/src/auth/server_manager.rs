@@ -5,7 +5,7 @@ use secrecy::SecretString;
 use thiserror::Error;
 use tokio::{
     select,
-    sync::{Mutex, RwLock, watch},
+    sync::{Mutex, RwLock, broadcast, watch},
 };
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -75,7 +75,8 @@ enum ServerState {
     },
 }
 
-/// An API-friendly way to query the status of the server.
+/// The status of a tracked server.
+#[derive(Debug, Clone)]
 pub enum ServerStatus {
     None,
     Handshaking,
@@ -84,6 +85,7 @@ pub enum ServerStatus {
         provider: String,
     },
     Ready {
+        provider: String,
         user_info: Box<dyn UserInfo>,
         server_info: ServerInfo,
     },
@@ -103,10 +105,12 @@ pub struct ServerManager {
     /// multiple queued!
     auth_token: Arc<RwLock<Option<CancellationToken>>>,
     servers: Arc<Mutex<HashMap<Url, Server>>>,
-    status_tx: Arc<watch::Sender<AuthStatus>>,
+    auth_status_tx: watch::Sender<AuthStatus>,
+    // this is a little awkward
+    server_status_tx: broadcast::Sender<(Url, ServerStatus)>,
 }
 
-/// Provided as status updates from the auth stream, for a given server.
+/// Provided as status updates from the auth stream during the interactive authentication process, for a given server.
 /// These are the immediately waiting auth events. For a server status that doesn't require auth, use [ServerStatus].
 #[derive(Debug, Clone)]
 pub enum AuthStatus {
@@ -129,11 +133,13 @@ pub enum ServerError {
 
 impl ServerManager {
     pub fn new() -> Self {
-        let (tx, _) = watch::channel(AuthStatus::Idle);
+        let (auth_tx, _) = watch::channel(AuthStatus::Idle);
+        let (server_tx, _) = broadcast::channel(256);
         Self {
             auth_token: Default::default(),
             servers: Default::default(),
-            status_tx: Arc::new(tx),
+            auth_status_tx: auth_tx,
+            server_status_tx: server_tx,
         }
     }
 
@@ -142,7 +148,11 @@ impl ServerManager {
         let Some(server) = servers.get(url) else {
             return ServerStatus::None;
         };
-        match &server.state {
+        Self::state_to_status(&server.state)
+    }
+
+    fn state_to_status(state: &ServerState) -> ServerStatus {
+        match state {
             ServerState::Handshaking => ServerStatus::Handshaking,
             ServerState::HandshakeFailed => ServerStatus::HandshakeFailed,
             ServerState::AuthNeeded { authenticator, .. } => ServerStatus::AuthNeeded {
@@ -151,11 +161,62 @@ impl ServerManager {
             ServerState::Ready {
                 user_info,
                 server_info,
-                ..
+                authenticator,
             } => ServerStatus::Ready {
                 user_info: user_info.clone(),
                 server_info: server_info.clone(),
+                provider: authenticator.provider(),
             },
+        }
+    }
+
+    /// If the server returns UNAUTHORIZED, we should invalidate it here.
+    /// If we're able to re-validate the UserInfo, returns the new UserInfo.
+    /// Otherwise returns None (this will require a full authentication).
+    // TODO: This probably has bugs when called by multiple callers (i.e. if we need endpoints other than /sync.)
+    // To fix this, we'd want to make UserInfo a handle instead of a raw struct; that way, callers can always get the most recent tok.
+    pub async fn try_reauthenticate(&self, server_info: &ServerInfo) -> Option<Box<dyn UserInfo>> {
+        let mut servers = self.servers.lock().await;
+        let server = servers.get_mut(&server_info.url)?;
+
+        let ServerState::Ready {
+            server_info,
+            authenticator,
+            user_info,
+        } = &server.state
+        else {
+            return None;
+        };
+
+        let new_user_info = if user_info.is_valid() {
+            None
+        } else {
+            authenticator
+                .immediate_authenticate()
+                .await
+                .inspect_err(|e| tracing::error!("Error during immediate authenticate: {e}"))
+                .ok()
+                .flatten()
+        };
+
+        // If the user info isn't valid (i.e. the token has expired) we can try reauthenticating
+        let state = match new_user_info {
+            Some(user_info) => ServerState::Ready {
+                server_info: server_info.clone(),
+                authenticator: authenticator.clone(),
+                user_info: user_info.clone(),
+            },
+            None => ServerState::AuthNeeded {
+                server_info: server_info.clone(),
+                authenticator: authenticator.clone(),
+            },
+        };
+
+        self.set_server_state(server_info.url.clone(), server, state);
+
+        match &server.state {
+            ServerState::Ready { user_info, .. } => Some(user_info.clone()),
+            _ => None,
         }
     }
 
@@ -205,7 +266,7 @@ impl ServerManager {
                 } => return Ok(server_info.clone()),
             }
 
-            server.state = ServerState::Handshaking;
+            self.set_server_state(url.clone(), server, ServerState::Handshaking);
         }
 
         let server_info = handshake::server_handshake(url).await;
@@ -217,7 +278,7 @@ impl ServerManager {
                 let server = servers
                     .get_mut(url)
                     .expect("We added this earlier; nobody should have been able to remove it.");
-                server.state = ServerState::HandshakeFailed;
+                self.set_server_state(url.clone(), server, ServerState::HandshakeFailed);
                 return Err(e.into());
             }
             Ok(info) => info,
@@ -245,18 +306,29 @@ impl ServerManager {
         let server = servers
             .get_mut(url)
             .expect("We added this earlier; nobody should have been able to remove it.");
-        server.state = match user_info {
-            Some(user_info) => ServerState::Ready {
-                authenticator,
-                server_info: server_info.clone(),
-                user_info,
+        self.set_server_state(
+            url.clone(),
+            server,
+            match user_info {
+                Some(user_info) => ServerState::Ready {
+                    authenticator,
+                    server_info: server_info.clone(),
+                    user_info,
+                },
+                None => ServerState::AuthNeeded {
+                    server_info: server_info.clone(),
+                    authenticator,
+                },
             },
-            None => ServerState::AuthNeeded {
-                server_info: server_info.clone(),
-                authenticator,
-            },
-        };
+        );
         Ok(server_info)
+    }
+
+    fn set_server_state(&self, url: Url, server: &mut Server, state: ServerState) {
+        server.state = state;
+        let _ = self
+            .server_status_tx
+            .send((url, Self::state_to_status(&server.state)));
     }
 
     /// Authenticate with the server, if needed.
@@ -303,10 +375,14 @@ impl ServerManager {
                         return Ok(user_info.clone());
                     }
                     let authenticator = authenticator.clone();
-                    server.state = ServerState::AuthNeeded {
-                        server_info: server_info.clone(),
-                        authenticator: authenticator.clone(),
-                    };
+                    self.set_server_state(
+                        server_info.url.clone(),
+                        server,
+                        ServerState::AuthNeeded {
+                            server_info: server_info.clone(),
+                            authenticator: authenticator.clone(),
+                        },
+                    );
                     authenticator
                 }
             }
@@ -315,7 +391,7 @@ impl ServerManager {
         // Otherwise, we gotta do the actual auth.
         let user_info = select! {
             _ = token.as_ref().unwrap().cancelled() => {
-                self.status_tx.send_replace(AuthStatus::Idle);
+                self.auth_status_tx.send_replace(AuthStatus::Idle);
                 return Err(ServerError::UserCancelled)
             },
             res = self.authenticate_inner(&authenticator) => res
@@ -331,7 +407,25 @@ impl ServerManager {
             authenticator,
             user_info: user_info.clone(),
         };
+        let _ = self.server_status_tx.send((
+            server_info.url.clone(),
+            Self::state_to_status(&server.state),
+        ));
+        drop(servers);
         Ok(user_info)
+    }
+
+    /// Returns the cached user info if the server is already authenticated.
+    /// This never performs authentication or reauthentication. If the server is
+    /// not currently authenticated with valid cached user info, returns `None`.
+    pub async fn try_authenticate(&self, server_info: &ServerInfo) -> Option<Box<dyn UserInfo>> {
+        let servers = self.servers.lock().await;
+        let server = servers.get(&server_info.url)?;
+
+        match &server.state {
+            ServerState::Ready { user_info, .. } if user_info.is_valid() => Some(user_info.clone()),
+            _ => None,
+        }
     }
 
     async fn authenticate_inner(
@@ -344,10 +438,10 @@ impl ServerManager {
         Ok(loop {
             select! {
                 status = authenticator.status_changed() => {
-                    self.status_tx.send_replace(status);
+                    self.auth_status_tx.send_replace(status);
                 }
                 result = &mut authenticate => {
-                    self.status_tx.send_replace(AuthStatus::Idle);
+                    self.auth_status_tx.send_replace(AuthStatus::Idle);
                     break result.map_err(|e| ServerError::Auth(e))?;
                 }
             }
@@ -413,7 +507,13 @@ impl ServerManager {
         }
     }
 
-    pub fn subscribe_status(&self) -> watch::Receiver<AuthStatus> {
-        self.status_tx.subscribe()
+    /// Subscribe to the [AuthStatus] stream, returning events from interactive authentications.
+    pub fn subscribe_auth_status(&self) -> watch::Receiver<AuthStatus> {
+        self.auth_status_tx.subscribe()
+    }
+
+    /// Subscribe to the [ServerStatus] stream, returning status changes from ALL status changes for ALL servers.
+    pub fn subscribe_server_status(&self) -> broadcast::Receiver<(Url, ServerStatus)> {
+        self.server_status_tx.subscribe()
     }
 }

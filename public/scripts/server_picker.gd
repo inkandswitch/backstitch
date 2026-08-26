@@ -3,7 +3,6 @@ extends Control
 class_name BackstitchServerPicker
 
 var _selection := ""
-var status_cache: Dictionary[String, Variant] = {}
 
 const status_warning_icon = preload("res://addons/backstitch/public/icons/StatusWarning.svg")
 const status_sync_icon = preload("res://addons/backstitch/public/icons/StatusSync.svg")
@@ -13,6 +12,8 @@ const status_error_icon = preload("res://addons/backstitch/public/icons/StatusEr
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
+
+	GodotProject.server_status_changed.connect(self._update_status)
 
 	print("Initializing server picker...")
 	%AddServerButton.pressed.connect(self._on_add_server_button_pressed)
@@ -37,12 +38,7 @@ func _process(_delta: float) -> void:
 		return
 
 	if _selection != "":
-		var status = status_cache.get(_selection)
-		if status == null || (status.status != "ready" && status.status != "failed"):
-			# check every frame til ready; a little awkward but should work
-			status = GodotProject.ping_server(_selection, false)
-			status_cache[_selection] = status
-		_update_status(status)
+		%Status.visible = true
 	else:
 		%Status.visible = false
 		
@@ -54,7 +50,8 @@ func set_selection(selection: String) -> void:
 func get_selection() -> String:
 	return _selection
 
-func _update_status(status: Variant) -> void:
+func _update_status() -> void:
+	var status = GodotProject.ping_server(_selection, false)
 	%Status.visible = true
 	var image := status_sync_icon
 	var text := "Checking server status..."
@@ -75,7 +72,7 @@ func _update_status(status: Variant) -> void:
 			%LoginButton.visible = false
 			image = status_success_icon
 			if status.authenticated:
-				text = "You're signed-in to the server as %s!" % status.user_name
+				text = "You're signed-in to the server as %s!" % status.username
 			else:
 				text = "The server is up and reachable!"
 		_:
@@ -87,9 +84,8 @@ func _update_status(status: Variant) -> void:
 	%StatusText.text = text
 	
 func _on_retry_button_pressed() -> void:
-	var status = GodotProject.ping_server(_selection, true)
-	status_cache[_selection] = status
-	_update_status(status)
+	GodotProject.ping_server(_selection, true)
+	_update_status()
 
 func _on_login_button_pressed() -> void:
 	GodotProject.authenticate_server(_selection)
@@ -137,3 +133,4 @@ func _update_server_picker() -> void:
 
 	%RemoveServerButton.visible = _selection != ""
 	%AlphaWarning.visible = _selection.contains("alpha.backstitch.dev")
+	_update_status()

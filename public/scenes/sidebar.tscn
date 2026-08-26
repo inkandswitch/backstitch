@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://bxgybx6gjahju" path="res://addons/backstitch/public/scripts/sidebar.gd" id="1_ebh36"]
 [ext_resource type="Texture2D" uid="uid://b88aqsd5v8fi1" path="res://addons/backstitch/public/icons/StatusSuccess.svg" id="2_wyrt0"]
-[ext_resource type="Texture2D" uid="uid://xec6o14n4y2v" path="res://addons/backstitch/public/icons/Person.svg" id="3_m2w8q"]
 [ext_resource type="Texture2D" uid="uid://bcvyklo067kll" path="res://addons/backstitch/public/icons/ActionCopy.svg" id="3_wyrt0"]
 [ext_resource type="Theme" uid="uid://hr3cor4s2ov2" path="res://addons/backstitch/public/resources/diff_editor_theme.tres" id="4_7letu"]
 [ext_resource type="Texture2D" uid="uid://cawwfjvfbpkso" path="res://addons/backstitch/public/icons/ExternalLink.svg" id="4_uefkb"]
@@ -26,9 +25,9 @@
 [ext_resource type="Texture2D" uid="uid://bjp4gkyrnd1dr" path="res://addons/backstitch/public/icons/ArrowUp32.svg" id="15_pt2pe"]
 [ext_resource type="PackedScene" uid="uid://jcw0obodpv4n" path="res://addons/backstitch/public/scenes/server_picker.tscn" id="15_xpcm3"]
 [ext_resource type="Texture2D" uid="uid://by20y2qtuv28k" path="res://addons/backstitch/public/icons/Merge.svg" id="16_lnig1"]
-[ext_resource type="Script" uid="uid://br6fqffbca0hq" path="res://addons/backstitch/public/scripts/collapse_button.gd" id="20_lnig1"]
 [ext_resource type="Texture2D" uid="uid://2cgni4fdnkx6" path="res://addons/backstitch/public/icons/GuiClose24.svg" id="23_dclp7"]
 [ext_resource type="Texture2D" uid="uid://c8twwi4bj6pxh" path="res://addons/backstitch/public/icons/Confirm24.svg" id="23_k46dq"]
+[ext_resource type="PackedScene" uid="uid://cu8olg0a6a0j0" path="res://addons/backstitch/public/scenes/footer.tscn" id="24_xpcm3"]
 [ext_resource type="Script" uid="uid://ddj4tsbib43se" path="res://addons/backstitch/public/scripts/monkey_tester.gd" id="28_l5ixe"]
 [ext_resource type="PackedScene" uid="uid://bvulea8g7uu76" path="res://addons/backstitch/public/scenes/authenticator.tscn" id="31_swq5j"]
 
@@ -413,17 +412,8 @@ layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=817757212]
+[node name="Footer" parent="VBoxContainer" unique_id=557023826 instance=ExtResource("24_xpcm3")]
 layout_mode = 2
-
-[node name="UserButton" type="Button" parent="VBoxContainer/HBoxContainer" unique_id=1059480308]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 10
-tooltip_text = "Change username."
-text = "Text sdf sdf sdfsdf"
-icon = ExtResource("3_m2w8q")
-script = ExtResource("20_lnig1")
 
 [node name="ConfirmationDialog" type="ConfirmationDialog" parent="." unique_id=302808494]
 oversampling_override = 1.0
@@ -642,24 +632,6 @@ size_flags_vertical = 3
 layout_mode = 2
 size_flags_horizontal = 8
 theme_override_constants/separation = 8
-
-[node name="UserNameDialog" type="ConfirmationDialog" parent="." unique_id=310781976]
-unique_name_in_owner = true
-oversampling_override = 1.0
-title = "Set User Name"
-position = Vector2i(0, 36)
-min_size = Vector2i(100, 70)
-
-[node name="VBoxContainer" type="VBoxContainer" parent="UserNameDialog" unique_id=1496103014]
-offset_left = 8.0
-offset_top = 8.0
-offset_right = 192.0
-offset_bottom = 51.0
-
-[node name="UserNameEntry" type="LineEdit" parent="UserNameDialog/VBoxContainer" unique_id=1182832485]
-unique_name_in_owner = true
-layout_mode = 2
-placeholder_text = "User Name..."
 
 [node name="AddServerDialog" type="ConfirmationDialog" parent="." unique_id=2126550828]
 unique_name_in_owner = true

@@ -74,18 +74,19 @@ pub trait ProjectViewModel {
     /// Set a new username.
     fn set_user_name(&self, name: String);
 
-    /// Checks to see if a server URL is valid. Returns Some if the server is valid, with any necessary corrections.
+    /// Checks to see if a server URL is valid. Returns the URL if the server is valid, with any necessary corrections.
     fn validate_server(&self, server: &str) -> Option<String>;
-    /// Get a server's status. Causes a server to register in the manager, but OK I think to call every frame.
+    /// Get a server's status, handshaking and registering the server if needed.
     fn ping_server(&self, server: &str, retry: bool) -> ServerStatus;
     /// Begins an interactive authentication on the server. Does nothing if already authenticated.
     fn authenticate_server(&self, server: &str);
     /// If there's currently an interactive authentication, cancels it.
     fn cancel_authenticate(&self);
-    /// Get the current server URL
-    fn get_server(&self) -> Option<String>;
-    /// Set the current server URL
-    fn set_server(&self, server: Option<&str>);
+    /// Get the last-connected server URL.
+    fn get_saved_server(&self) -> Option<String>;
+    /// Change the current server URL. May trigger an authentication.
+    /// Only valid if the project is started.
+    fn change_server(&self, server: Option<&str>);
     /// Add a server to the list of available servers
     fn add_server(&self, server: &str);
     /// Remove a server from the list of available servers
@@ -102,11 +103,11 @@ pub trait ProjectViewModel {
     /// Get the current project [DocumentId], if it exists. Otherwise, return [None]
     fn get_project_id(&self) -> Option<DocumentId>;
     /// Starts the creation of a new project, in the background.
-    fn new_project(&self);
+    fn new_project(&self, server_url: Option<&str>);
     /// Starts the load of a project, in the background, given a [DocumentId].
     /// If `autostart` is true, this is treated as automatically restarting a loaded project.
     /// Otherwise, it behaves as if the user is loading into a project.
-    fn load_project(&self, id: &DocumentId, autostart: bool);
+    fn load_project(&self, id: &DocumentId, server_url: Option<&str>, autostart: bool);
 
     /// Get the current unresolved local changes from the project.
     /// We'll need to ask the user if they want to check these in.

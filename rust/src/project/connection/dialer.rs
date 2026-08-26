@@ -1,10 +1,11 @@
-use std::pin::Pin;
+use std::{pin::Pin, sync::Arc};
 
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
 use reqwest::StatusCode;
 use samod::{Dialer, Transport, websocket::WsMessage};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
+use tokio::sync::{Mutex, watch};
 use tungstenite::client::IntoClientRequest;
 use url::Url;
 
@@ -16,15 +17,39 @@ pub enum DialerError {
 
 /// A [Dialer] that supports websocket dialing/upgrading, as well as a bearer token
 // Adapted from samod::TungsteniteDialer
+#[derive(Debug)]
 pub struct AuthenticatedTungsteniteDialer {
     url: Url,
-    bearer_token: Option<SecretString>,
+    bearer_token: Arc<Mutex<Option<SecretString>>>,
+    auth_failed_tx: watch::Sender<bool>,
 }
 
 impl AuthenticatedTungsteniteDialer {
     /// Create a new `TungsteniteDialer` for the given URL.
-    pub fn new(url: Url, bearer_token: Option<SecretString>) -> Self {
-        Self { url, bearer_token }
+    pub fn new(url: Url) -> Self {
+        let (tx, _rx) = watch::channel(false);
+        Self {
+            url,
+            bearer_token: Default::default(),
+            auth_failed_tx: tx,
+        }
+    }
+
+    pub async fn set_bearer_token(&self, bearer_token: Option<SecretString>) {
+        let mut tok = self.bearer_token.lock().await;
+        *tok = bearer_token;
+        self.auth_failed_tx.send_replace(false);
+    }
+
+    pub async fn auth_failed(&self) {
+        // Listen til we get an auth_failed; once it's failed once it's cooked for ever
+        let mut rx = self.auth_failed_tx.subscribe();
+        loop {
+            if *rx.borrow() {
+                return;
+            }
+            let _ = rx.changed().await;
+        }
     }
 }
 
@@ -43,11 +68,12 @@ impl Dialer for AuthenticatedTungsteniteDialer {
         >,
     > {
         let url = self.url.clone();
-        let token = self.bearer_token.clone();
+        let auth_failed_tx = self.auth_failed_tx.clone();
+        let bearer_token = self.bearer_token.clone();
         Box::pin(async move {
             let mut request = url.as_str().into_client_request()?;
 
-            if let Some(token) = token {
+            if let Some(token) = bearer_token.lock().await.clone() {
                 request.headers_mut().insert(
                     tungstenite::http::header::AUTHORIZATION,
                     tungstenite::http::HeaderValue::from_str(&format!(
@@ -57,14 +83,17 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                 );
             }
 
-            let (ws, _response) = match tokio_tungstenite::connect_async(request).await {
+            let (ws, _response) = match tokio_tungstenite::connect_async(request.clone()).await {
                 Ok(res) => res,
                 Err(e) => {
+                    tracing::error!("error while dialing {e}");
                     match &e {
                         tungstenite::Error::Http(response) => match response.status() {
-                            // TODO: handle this case...
-                            StatusCode::UNAUTHORIZED => {}
-                            _ => {}
+                            StatusCode::UNAUTHORIZED => {
+                                tracing::error!("UNAUTHORIZED");
+                                auth_failed_tx.send_replace(true);
+                            }
+                            code => tracing::error!("HTTP error {code}"),
                         },
                         _ => {}
                     }

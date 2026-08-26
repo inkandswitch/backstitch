@@ -13,7 +13,7 @@ use samod::DocumentId;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{OwnedRwLockReadGuard, RwLock, watch};
+use tokio::sync::{OwnedRwLockReadGuard, RwLock, broadcast, watch};
 
 #[derive(Debug, PartialEq, Clone)]
 pub(super) enum ProjectCreateMode {
@@ -38,6 +38,7 @@ pub enum GodotProjectSignal {
     BranchCheckedOut,
     StartStatusChanged(ProjectStartStatus),
     AuthStatusChanged(AuthStatus),
+    ServerStatusChanged,
 }
 
 impl Project {
@@ -79,7 +80,8 @@ impl Project {
             start_status_rx: start_rx,
             start_lock: Default::default(),
             local_changes_tx: Default::default(),
-            auth_status_rx: server_manager.subscribe_status(),
+            auth_status_rx: server_manager.subscribe_auth_status(),
+            server_status_rx: server_manager.subscribe_server_status(),
             server_manager,
             config,
         }
@@ -225,6 +227,26 @@ impl Project {
             signals.push(GodotProjectSignal::AuthStatusChanged(
                 self.auth_status_rx.borrow().clone(),
             ));
+        }
+
+        let mut found = false;
+        loop {
+            match self.server_status_rx.try_recv() {
+                // We're not currently minutely tracking the servers -- just send a notification and frontend will call get_status
+                Ok((_url, _status)) => {
+                    found = true;
+                    // continue draining, don't break
+                }
+                Err(e) => match e {
+                    broadcast::error::TryRecvError::Empty => break,
+                    broadcast::error::TryRecvError::Closed => break,
+                    // We don't care about lag
+                    broadcast::error::TryRecvError::Lagged(_) => {}
+                },
+            }
+        }
+        if found {
+            signals.push(GodotProjectSignal::ServerStatusChanged);
         }
 
         tracing::trace!("Running project process...");

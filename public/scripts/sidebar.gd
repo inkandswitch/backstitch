@@ -32,9 +32,6 @@ const undo_redo_icon = preload("res://addons/backstitch/public/icons/UndoRedo.sv
 # Changes panel
 @onready var inspector: DiffInspectorContainer = %BigDiffer
 
-# Footer
-@onready var user_button: Button = %UserButton
-
 # Merge/revert preview
 @onready var merge_preview_modal: Control = %MergePreviewModal
 @onready var cancel_merge_button: Button = %CancelMergeButton
@@ -132,23 +129,11 @@ func _auto_generate_diffs() -> bool:
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
 
-# Asks the user for their username, if there is none stored.
-# If they cancel or close, returns false. If the username is confirmed, returns true.
-func require_user_name() -> bool:
-	if !GodotProject.has_user_name():
-		_on_user_button_pressed(true)
-		await user_name_dialog_closed
-		return GodotProject.has_user_name()
-	return true
-
 func _on_init_button_pressed():
 	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before initializing a new project."):
 		return
-	if not await require_user_name():
-		return
 
-	GodotProject.set_server(%ServerPicker.get_selection())
-	GodotProject.new_project()
+	GodotProject.new_project(%ServerPicker.get_selection())
 
 func _on_load_project_button_pressed():
 	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before loading an existing project."):
@@ -157,11 +142,8 @@ func _on_load_project_button_pressed():
 	if doc_id.is_empty():
 		BackstitchUtils.popup_box(self, $ErrorDialog, "Project ID is empty", "Error")
 		return
-	if not await require_user_name():
-		return
 
-	GodotProject.set_server(%ServerPicker.get_selection())
-	GodotProject.load_project(doc_id);
+	GodotProject.load_project(doc_id, %ServerPicker.get_selection());
 	
 func _on_start_status_changed(status: Dictionary):
 	match status["status"]:
@@ -206,21 +188,6 @@ func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
 	var index = popup.get_item_index(action)
 	popup.set_item_disabled(index, disabled)
-
-func _on_user_button_pressed(disable_cancel: bool = false):
-	%UserNameEntry.text = GodotProject.get_user_name()
-	%UserNameDialog.popup_centered()
-	%UserNameDialog.get_cancel_button().visible = not disable_cancel
-
-func _on_user_name_canceled():
-	user_name_dialog_closed.emit()
-
-func _on_user_name_confirmed():
-	var new_user_name = %UserNameEntry.text.strip_edges()
-	if new_user_name != "": GodotProject.set_user_name(new_user_name)
-	user_name_dialog_closed.emit()
-	print("Backstitch: Updating UI due to username confirmation...")
-	update_ui()
 
 func _on_clear_project_button_pressed():
 	BackstitchUtils.popup_box(self, $ConfirmationDialog, "Are you sure you want to clear the project?", "Clear Project",
@@ -281,12 +248,7 @@ func _enter_tree():
 func bind_listeners(godot_project):
 	%InitializeButton.pressed.connect(self._on_init_button_pressed)
 	%LoadExistingButton.pressed.connect(self._on_load_project_button_pressed)
-	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%UserNameDialog.get_ok_button(), %UserNameEntry)
 	BackstitchUtils.add_listener_disable_button_if_text_is_empty(%LoadExistingButton, %ProjectIDBox)
-	user_button.pressed.connect(_on_user_button_pressed)
-
-	%UserNameDialog.canceled.connect(_on_user_name_canceled)
-	%UserNameDialog.confirmed.connect(_on_user_name_confirmed)
 
 	godot_project.state_changed.connect(self._update_ui_on_state_change);
 	godot_project.sync_status_changed.connect(self._update_ui_on_sync_status_change);
@@ -321,7 +283,7 @@ func bind_listeners(godot_project):
 	share_button.pressed.connect(_on_share_button_pressed)
 	action_menu_button.get_popup().id_pressed.connect(_on_action_menu_item_selected)
 
-	%ServerPicker.set_selection(GodotProject.get_server())
+	%ServerPicker.set_selection(GodotProject.get_saved_server())
 
 	BackstitchUtils.style_button(sync_button)
 	BackstitchUtils.style_button(copy_project_id_button)
@@ -387,13 +349,6 @@ func init() -> void:
 	print("Sidebar initialized!")
 	print("Backstitch: Updating UI due to init...")
 	update_ui()
-
-	# Here, the user could easily just hit X and remain anonymous. This can only happen in the case
-	# of a project loaded from a file, where the user's config hasn't been set.
-	# If we want to force the user to enter a username, we could do `while(!require_user_name()): pass`.
-	# But that seems bad.
-	require_user_name()
-
 
 func _on_sync_button_pressed():
 	var toaster = EditorInterface.get_editor_toaster()
@@ -673,10 +628,6 @@ func update_action_buttons():
 		merge_button.disabled = false
 		merge_button.tooltip_text = "Merge \"%s\" into \"%s\"" % [current_branch.name, parent_branch.name]
 
-func update_user_name():
-	user_button.text = GodotProject.get_user_name()
-	if user_button.text == "": user_button.text = "Anonymous"
-
 func update_merge_preview():
 	var active = GodotProject.is_merge_preview_branch_active()
 	merge_preview_modal.visible = active
@@ -735,7 +686,6 @@ func update_ui() -> void:
 	update_history_tree()
 	update_sync_status()
 	update_action_buttons()
-	update_user_name()
 	update_inspector()
 	update_revert_preview()
 	update_merge_preview()

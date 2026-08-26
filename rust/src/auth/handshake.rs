@@ -10,8 +10,9 @@ const MINIMUM_SERVER_VERSION: &str = "2.0.0";
 #[derive(Clone, Debug)]
 pub struct ServerInfo {
     pub url: Url,
+    pub sync_url: Url,
     pub auth: AuthConfig,
-    pub webviewer: Option<Url>,
+    pub webviewer_url: Option<Url>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +36,8 @@ struct HandshakeResponse {
     version: semver::Version,
     minimum_backstitch_version: semver::Version,
     auth: String,
-    webviewer: Option<Url>,
+    sync: String,
+    webviewer: Option<String>,
     // This has to be a string, because the Url crate likes to add a bad trailing slash.
     oidc_issuer: Option<String>,
     oidc_client_id: Option<String>,
@@ -63,6 +65,15 @@ pub enum HandshakeError {
         current_version: String,
         minimum_version: String,
     },
+}
+
+fn parse_or_append(path: &str, base_url: &Url) -> Result<Url, HandshakeError> {
+    match Url::parse(path) {
+        Ok(url) if url.has_authority() => Ok(url),
+        _ => base_url
+            .join(path)
+            .map_err(|_| HandshakeError::MalformedResponse(format!("invalid path {path}"))),
+    }
 }
 
 pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
@@ -131,7 +142,11 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
 
     Ok(ServerInfo {
         url: url.clone(),
+        sync_url: parse_or_append(&response.sync, &url)?,
         auth,
-        webviewer: response.webviewer,
+        webviewer_url: match response.webviewer {
+            Some(path) => Some(parse_or_append(&path, &url)?),
+            None => None,
+        },
     })
 }

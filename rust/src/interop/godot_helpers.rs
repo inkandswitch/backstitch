@@ -446,11 +446,17 @@ impl ToGodot for ServerStatus {
             ServerStatus::AuthNeeded { provider } => {
                 vdict! { "status" => "auth_needed", "provider" => provider.clone() }
             }
-            ServerStatus::Ready { user_info, .. } => {
+            ServerStatus::Ready {
+                user_info,
+                provider,
+                ..
+            } => {
                 vdict! {
                     "status" => "ready",
-                    "user_name" => user_info.username(),
-                    "authenticated" => user_info.bearer_token().is_some()
+                    "username" => user_info.username(),
+                    "authenticated" => user_info.bearer_token().is_some(),
+                    "email" => user_info.email().unwrap_or("<not provided>".to_string()),
+                    "provider" => provider.clone()
                 }
             }
         }

@@ -269,7 +269,7 @@ impl OidcAuthenticator {
         );
 
         // Try and retrieve a stored session. If we fail, log the error and continue with an interactive login.
-        let _stored_session = self
+        let stored_session = self
             .retrieve_session()
             .inspect_err(|e| {
                 match e {
@@ -281,9 +281,6 @@ impl OidcAuthenticator {
                 }
             })
             .ok();
-
-        // TODO(oidc): Remove
-        let stored_session = None;
 
         Ok(if let Some(session) = stored_session {
             match self.refresh_login(&client, &http_client, &session).await {

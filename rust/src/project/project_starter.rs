@@ -23,7 +23,7 @@ struct LoadSuccess {
 
 // TODO: Consider moving this stuff to the driver? Not sure
 impl Project {
-    pub(super) fn start(&self, mode: ProjectCreateMode) {
+    pub(super) fn start(&self, mode: ProjectCreateMode, server_url: Option<Url>) {
         tracing::info!("Starting a project...");
         let start_lock = self.start_lock.clone();
         let project_dir = self.project_dir.clone();
@@ -48,6 +48,7 @@ impl Project {
                 project_dir,
                 mode,
                 config,
+                server_url,
             )
             .await;
             match result {
@@ -86,12 +87,11 @@ impl Project {
         project_dir: PathBuf,
         mode: ProjectCreateMode,
         config: Config,
+        server_url: Option<Url>,
     ) -> Result<Driver, ProjectStartError> {
         tracing::info!("Creating with mode: {:?}", mode);
 
         start_status_tx.send_replace(ProjectStartStatus::Starting);
-
-        let server_url = config.server_url().await;
 
         // If the metadata ID is not a valid document ID, give up.
         // Not relevant for new projects.

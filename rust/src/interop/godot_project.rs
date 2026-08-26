@@ -207,6 +207,9 @@ impl GodotProject {
     #[signal]
     fn auth_status_changed(auth_status: GString);
 
+    #[signal]
+    fn server_status_changed();
+
     fn project(&self) -> StdRwLockReadGuard<'_, Project> {
         self.project.read().unwrap_or_else(PoisonError::into_inner)
     }
@@ -231,13 +234,13 @@ impl GodotProject {
     }
 
     #[func]
-    fn set_server(&self, server: String) {
+    fn change_server(&self, server: String) {
         let server = if server.is_empty() {
             None
         } else {
             Some(server)
         };
-        self.project().set_server(server.as_deref())
+        self.project().change_server(server.as_deref())
     }
 
     #[func]
@@ -264,8 +267,8 @@ impl GodotProject {
     }
 
     #[func]
-    fn get_server(&self) -> String {
-        self.project().get_server().unwrap_or("".to_string())
+    fn get_saved_server(&self) -> String {
+        self.project().get_saved_server().unwrap_or("".to_string())
     }
 
     #[func]
@@ -307,12 +310,16 @@ impl GodotProject {
     }
 
     #[func]
-    fn new_project(&mut self) {
-        self.project().new_project();
+    fn new_project(&mut self, server: String) {
+        self.project().new_project(if server == "" {
+            None
+        } else {
+            Some(server.as_str())
+        });
     }
 
     #[func]
-    fn load_project(&mut self, id: String) {
+    fn load_project(&mut self, id: String, server: String) {
         let id = match DocumentId::from_str(&id) {
             Ok(id) => id,
             Err(e) => {
@@ -328,7 +335,15 @@ impl GodotProject {
             }
         };
 
-        self.project().load_project(&id, false);
+        self.project().load_project(
+            &id,
+            if server == "" {
+                None
+            } else {
+                Some(server.as_str())
+            },
+            false,
+        );
     }
 
     #[func]
@@ -744,7 +759,14 @@ impl INode for GodotProject {
             if self.deferred_start == 0
                 && let Some(id) = self.project().get_project_doc_id()
             {
-                self.project().load_project(&id, true);
+                self.project().load_project(
+                    &id,
+                    self.project()
+                        .get_saved_server()
+                        .as_ref()
+                        .map(|s| s.as_str()),
+                    true,
+                );
             }
             return;
         }
@@ -785,6 +807,10 @@ impl INode for GodotProject {
                         "emit_signal",
                         &["auth_status_changed".to_variant(), status.to_variant()],
                     );
+                }
+                GodotProjectSignal::ServerStatusChanged => {
+                    self.base_mut()
+                        .call_deferred("emit_signal", &["server_status_changed".to_variant()]);
                 }
             }
         }

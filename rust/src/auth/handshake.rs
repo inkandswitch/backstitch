@@ -107,7 +107,7 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
     }
 
     if response.minimum_backstitch_version
-        < semver::Version::from_str(env!("CARGO_PKG_VERSION")).unwrap()
+        > semver::Version::from_str(env!("CARGO_PKG_VERSION")).unwrap()
     {
         return Err(HandshakeError::UnsupportedClient {
             current_version: env!("CARGO_PKG_VERSION").to_string(),

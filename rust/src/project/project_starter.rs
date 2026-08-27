@@ -34,6 +34,7 @@ impl Project {
         let server_manager = self.server_manager.clone();
         let config = self.config.clone();
         spawn_named_on("start project", self.runtime.handle(), async move {
+            config.set_server_url(server_url.as_ref()).await;
             let _guard = start_lock.lock().await;
             if driver.read().await.is_some() {
                 tracing::error!("Driver is already started!");

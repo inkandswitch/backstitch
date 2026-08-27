@@ -158,14 +158,15 @@ impl ProjectViewModel for Project {
                 .ok()
         });
         let config = self.config.clone();
+        let s = server.clone();
+        self.runtime
+            .block_on(async move { config.set_server_url(s.as_ref()).await });
         self.runtime.block_on(async move {});
         let driver = self.driver.clone();
         // don't block here
         spawn_named_on("change server", self.runtime.handle(), async move {
             let dri = driver.read().await;
             if let Some(d) = dri.as_ref() {
-                // Only do this once we're sure we're gonna affect the driver
-                config.set_server_url(server.as_ref()).await;
                 match server {
                     Some(s) => {
                         let _ = d.start_connection(&s).await;

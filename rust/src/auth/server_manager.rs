@@ -51,7 +51,7 @@ pub trait Authenticator: Send + Sync + Debug {
     -> Result<Option<Box<dyn UserInfo>>, Box<dyn AuthError>>;
 
     /// Deauthenticate (log-out) the user.
-    async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>>;
+    async fn interactive_deauthenticate(&self) -> Result<(), Box<dyn AuthError>>;
 
     /// Triggered during an interactive authentication, if user interaction is required.
     async fn status_changed(&self) -> AuthStatus;
@@ -402,16 +402,15 @@ impl ServerManager {
         let server = servers
             .get_mut(&server_info.url)
             .expect("There had better be a cached server!");
-        server.state = ServerState::Ready {
-            server_info: server_info.clone(),
-            authenticator,
-            user_info: user_info.clone(),
-        };
-        let _ = self.server_status_tx.send((
+        self.set_server_state(
             server_info.url.clone(),
-            Self::state_to_status(&server.state),
-        ));
-        drop(servers);
+            server,
+            ServerState::Ready {
+                server_info: server_info.clone(),
+                authenticator,
+                user_info: user_info.clone(),
+            },
+        );
         Ok(user_info)
     }
 
@@ -448,56 +447,90 @@ impl ServerManager {
         })
     }
 
-    // pub async fn deauthenticate(&self, server_info: &ServerInfo) -> Result<(), ServerError> {
-    //     // Lock: Only one authentication allowed at a time!
-    //     let mut token = self.auth_token.write().await;
-    //     if let Some(token) = token.take() {
-    //         token.cancel();
-    //     }
+    /// Deuthenticate with the server (logout), if possible.
+    /// If user intervention is required, will hang until user completes the flow.
+    /// Subscribe to [status_changed] for updates.
+    pub async fn deauthenticate(&self, server_info: &ServerInfo) -> Result<(), ServerError> {
+        // don't deauthenticate a non-authenticated server
+        match server_info.auth {
+            handshake::AuthConfig::Oidc(_) => {}
+            handshake::AuthConfig::None => return Ok(()),
+        }
 
-    //     *token = Some(CancellationToken::new());
+        // Lock: Only one interactive authentication allowed at a time!
+        let mut token = self.auth_token.write().await;
+        if let Some(token) = token.take() {
+            token.cancel();
+        }
 
-    //     // We want to keep this held as read(), that way, nobody is allowed to begin another authentication
-    //     // until we've dropped this.
-    //     let token = token.downgrade();
+        *token = Some(CancellationToken::new());
 
-    //     // We always try and do the deauth.
-    //     select! {
-    //         // If we cancel,
-    //         _ = token.as_ref().unwrap().cancelled() => {
-    //             self.status_tx.send_replace(AuthStatus::Ok);
-    //             return Err(ServerError::UserCancelled)
-    //         },
-    //         res = self.deauthenticate_inner(server_info) => res
-    //     }
-    // }
+        // We want to keep this held as read(), that way, nobody is allowed to begin another authentication
+        // until we've dropped this.
+        let token = token.downgrade();
 
-    // async fn deauthenticate_inner(&self, server_info: &ServerInfo) -> Result<(), ServerError> {
-    //     let authenticator = self.get_or_create_authenticator(server_info).await;
-    //     let deauthenticate = authenticator.deauthenticate();
-    //     tokio::pin!(deauthenticate);
+        // Attempt to grab the user info from the cache.
+        let authenticator = {
+            let mut servers = self.servers.lock().await;
+            let server = servers
+                .get_mut(&server_info.url)
+                .expect("The user shouldn't have a ServerInfo unless it exists");
+            match &server.state {
+                ServerState::Handshaking => panic!(
+                    "We cannot deauthenticate a handshaking server, so the user shouldn't have a ServerInfo."
+                ),
+                ServerState::HandshakeFailed => {
+                    panic!("The handshake failed, so the user shouldn't have a ServerInfo.")
+                }
+                ServerState::AuthNeeded { authenticator, .. } => authenticator.clone(),
+                ServerState::Ready { authenticator, .. } => authenticator.clone(),
+            }
+        };
 
-    //     let mut servers = self.servers.lock().await;
-    //     let server = servers
-    //         .get_mut(&server_info.url)
-    //         .expect("There had better be a cached server!");
-    //     server.user_info = None;
+        let res = select! {
+            _ = token.as_ref().unwrap().cancelled() => {
+                self.auth_status_tx.send_replace(AuthStatus::Idle);
+                return Err(ServerError::UserCancelled)
+            },
+            res = self.deauthenticate_inner(&authenticator) => res
+        };
 
-    //     loop {
-    //         select! {
-    //             status = authenticator.status_changed() => {
-    //                 self.status_tx.send_replace(status);
-    //             }
-    //             result = &mut deauthenticate => {
-    //                 self.status_tx.send_replace(AuthStatus::Ok);
-    //                 result.map_err(|e| ServerError::Deauth(e))?;
-    //                 break;
-    //             }
-    //         }
-    //     }
+        // Set back to AuthNeeded even on failure
+        let mut servers = self.servers.lock().await;
+        let server = servers
+            .get_mut(&server_info.url)
+            .expect("There had better be a cached server!");
 
-    //     Ok(())
-    // }
+        self.set_server_state(
+            server_info.url.clone(),
+            server,
+            ServerState::AuthNeeded {
+                server_info: server_info.clone(),
+                authenticator,
+            },
+        );
+        res
+    }
+
+    async fn deauthenticate_inner(
+        &self,
+        authenticator: &Arc<dyn Authenticator>,
+    ) -> Result<(), ServerError> {
+        let deauthenticate = authenticator.interactive_deauthenticate();
+        tokio::pin!(deauthenticate);
+
+        Ok(loop {
+            select! {
+                status = authenticator.status_changed() => {
+                    self.auth_status_tx.send_replace(status);
+                }
+                result = &mut deauthenticate => {
+                    self.auth_status_tx.send_replace(AuthStatus::Idle);
+                    break result.map_err(|e| ServerError::Deauth(e))?;
+                }
+            }
+        })
+    }
 
     /// Call when the user needs to cancel the authentication/deauthentication.
     pub async fn cancel_wait(&self) {

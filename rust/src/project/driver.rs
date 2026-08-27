@@ -198,6 +198,17 @@ impl Driver {
         res
     }
 
+    /// Restarts the currently active connection, if it exists.
+    /// Does not cause an authentication.
+    pub async fn retry_connection(&self, server_url: &Url) {
+        if self.inner.connection.has_connection().await {
+            match self.inner.connection.connect(server_url).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Error retrying connection: {e}"),
+            }
+        }
+    }
+
     async fn try_handshake_auth(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
         tracing::debug!("Handshaking with server...");
         let server_info = self.inner.server_manager.handshake(server_url).await?;

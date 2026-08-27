@@ -193,7 +193,7 @@ impl Authenticator for OidcAuthenticator {
             .map_err(|e| Box::new(e) as Box<dyn AuthError>)
     }
 
-    async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
+    async fn interactive_deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
         let res = self
             .deauthenticate()
             .await

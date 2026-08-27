@@ -78,6 +78,34 @@ impl ProjectViewModel for Project {
         });
     }
 
+    fn deauthenticate_server(&self, server: &str) {
+        let server_manager = self.server_manager.clone();
+        let driver = self.driver.clone();
+        let Ok(url) = Url::parse(server).inspect_err(|e| tracing::error!("invalid URL {e}")) else {
+            return;
+        };
+        spawn_named_on("deauthenticate", self.runtime.handle(), async move {
+            let info = match server_manager.handshake(&url).await {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::error!("Unable to begin deauthentication due to: {e}");
+                    return;
+                }
+            };
+
+            match server_manager.deauthenticate(&info).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("unable to deauthenticate: {e}"),
+            }
+
+            // if we have a project, reconnect to the current server to redo authentication.
+            let d = driver.read().await;
+            if let Some(driver) = d.as_ref() {
+                driver.retry_connection(&info.url).await;
+            }
+        });
+    }
+
     fn cancel_authenticate(&self) {
         let server_manager = self.server_manager.clone();
         spawn_named_on("cancel authenticate", self.runtime.handle(), async move {

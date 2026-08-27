@@ -80,6 +80,8 @@ pub trait ProjectViewModel {
     fn ping_server(&self, server: &str, retry: bool) -> ServerStatus;
     /// Begins an interactive authentication on the server. Does nothing if already authenticated.
     fn authenticate_server(&self, server: &str);
+    /// Begins an interactive logout on the server. Does nothing if not logged in, or if server doesn't require auth.
+    fn deauthenticate_server(&self, server: &str);
     /// If there's currently an interactive authentication, cancels it.
     fn cancel_authenticate(&self);
     /// Get the last-connected server URL.

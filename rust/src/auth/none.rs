@@ -58,7 +58,7 @@ impl Authenticator for NoneAuthenticator {
             name: "TEMP".to_string(),
         }) as Box<dyn UserInfo>))
     }
-    async fn deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
+    async fn interactive_deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
         Ok(())
     }
 

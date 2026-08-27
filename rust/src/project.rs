@@ -76,11 +76,6 @@ pub enum ProjectStartError {
         "we couldn't find the referenced main branch on your computer or on the provided server"
     )]
     MainBranchNotFound,
-    #[error(
-        "the server URL {0} is invalid! It must be a url of format <scheme>://hostname.com:<port>. \
-        The only supported schemes are http:// and https://."
-    )]
-    ServerUrlInvalid(String),
     #[error("the document ID is invalid!")]
     DocumentIdInvalid,
 }

@@ -262,6 +262,11 @@ impl GodotProject {
     }
 
     #[func]
+    fn deauthenticate_server(&self, server: String) {
+        self.project().deauthenticate_server(&server);
+    }
+
+    #[func]
     fn cancel_authenticate(&self) {
         self.project().cancel_authenticate();
     }

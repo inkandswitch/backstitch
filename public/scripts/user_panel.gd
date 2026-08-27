@@ -23,7 +23,7 @@ func _ready() -> void:
 	%UserDialog.canceled.connect(_on_user_name_finished)
 
 	GodotProject.server_status_changed.connect(_update_self)
-	GodotProject.auth_status_changed.connect(_update_self)
+	GodotProject.auth_status_changed.connect(func(_status): _update_self())
 	# this maybe not super reliable -- we're assuming changing a server
 	# always updates the sync status when we need to change servers.
 	# Ideally a server change actually has a server_changed event or smth
@@ -99,7 +99,7 @@ func _on_login_button_pressed():
 	GodotProject.authenticate_server(GodotProject.get_saved_server())
 
 func _on_logout_button_pressed() -> void:
-	#GodotProject.deauthenticate_server(GodotProject.get_saved_server())
+	GodotProject.deauthenticate_server(GodotProject.get_saved_server())
 	%UserDialog.visible = false # close
 
 func _on_user_button_pressed():

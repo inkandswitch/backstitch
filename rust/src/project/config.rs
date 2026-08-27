@@ -47,7 +47,7 @@ impl Config {
     pub async fn server_url(&self) -> Option<Url> {
         let mut str = Self::get_string(&self.project, "server_url").await?;
         // Remap legacy TCP to new HTTP
-        if str.contains("alpha.backstitch.dev") {
+        if str.contains("alpha.backstitch.dev:8085") {
             str = "https://alpha.backstitch.dev/".to_string()
         }
         Url::parse(&str)
@@ -72,7 +72,7 @@ impl Config {
             .split(",")
             .map(|s| {
                 // Remap legacy TCP to new HTTP
-                if s.contains("alpha.backstitch.dev") {
+                if s.contains("alpha.backstitch.dev:8085") {
                     "https://alpha.backstitch.dev/"
                 } else {
                     s

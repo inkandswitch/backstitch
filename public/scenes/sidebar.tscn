@@ -650,7 +650,7 @@ offset_bottom = 39.0
 [node name="AddServerEntry" type="LineEdit" parent="AddServerDialog/VBoxContainer" unique_id=2139367185]
 unique_name_in_owner = true
 layout_mode = 2
-placeholder_text = "alpha.backstitch.dev:8085"
+placeholder_text = "https://alpha.backstitch.dev/"
 
 [node name="MonkeyTester" type="Node" parent="." unique_id=1409873935]
 unique_name_in_owner = true

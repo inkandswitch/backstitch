@@ -55,7 +55,7 @@ struct ConnectionInfo {
 #[derive(Debug, Clone)]
 pub enum RemoteConnectionEvent {
     /// We've successfully connected.
-    Connected,
+    Connected { username: Option<String> },
     /// A connection failed, and we will retry.
     Failed,
     /// A connection was canceled, and we will not retry.
@@ -132,7 +132,7 @@ impl RemoteConnection {
         pin!(events);
         Ok(match events.next().await {
             Some(event) => match event {
-                RemoteConnectionEvent::Connected => true,
+                RemoteConnectionEvent::Connected { .. } => true,
                 RemoteConnectionEvent::Failed => false,
                 // shouldn't happen except maybe during total shutdown
                 RemoteConnectionEvent::Cancelled => false,
@@ -159,7 +159,7 @@ impl RemoteConnection {
     }
 
     /// Subscribe to future events.
-    pub fn events(&self) -> impl Stream<Item = RemoteConnectionEvent> {
+    pub fn events(&self) -> impl Stream<Item = RemoteConnectionEvent> + Send + 'static {
         BroadcastStream::new(self.inner.events_tx.subscribe())
             .filter_map(|result| async move { result.ok() })
     }
@@ -292,7 +292,7 @@ impl RemoteConnectionInner {
                     if let Some(e) = event {
                         match e {
                             DialerEvent::Connected { .. } => {
-                                let _ = self.events_tx.send(RemoteConnectionEvent::Connected);
+                                let _ = self.events_tx.send(RemoteConnectionEvent::Connected { username: user_info.username() });
                             },
                             // send the event -- samod's dialer will keep trying
                             DialerEvent::Disconnected { .. } => {

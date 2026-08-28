@@ -74,7 +74,8 @@ pub struct BranchDb {
     gitignore: Arc<Gitignore>,
     repo: Repo,
 
-    username: Arc<Mutex<Option<String>>>,
+    default_username: Arc<Mutex<Option<String>>>,
+    authenticated_username: Arc<Mutex<Option<String>>>,
 
     binary_states: Arc<Mutex<HashMap<DocumentId, Option<DocHandle>>>>,
     branch_sync_states: Arc<Mutex<HashMap<DocumentId, Arc<Mutex<BranchSyncState>>>>>,
@@ -95,7 +96,8 @@ impl BranchDb {
             project_dir,
             repo,
             gitignore: Arc::new(gitignore),
-            username: Default::default(),
+            default_username: Default::default(),
+            authenticated_username: Default::default(),
             binary_states: Default::default(),
             metadata_state: Default::default(),
             checked_out_ref: Default::default(),
@@ -108,8 +110,22 @@ impl BranchDb {
         self.project_dir.clone()
     }
 
-    pub async fn set_username(&self, username: Option<String>) {
-        let mut user = self.username.lock().await;
+    /// Set the default, fallback username for non-authenticated servers or disconnect.
+    pub async fn set_default_username(&self, username: Option<String>) {
+        let mut user = self.default_username.lock().await;
         *user = username;
+    }
+
+    /// Set the fixed username provisioned from the server or other identity provider.
+    pub async fn set_authenticated_username(&self, username: Option<String>) {
+        let mut user = self.authenticated_username.lock().await;
+        *user = username;
+    }
+
+    /// Get the most-relevant username to use for commits.
+    async fn resolve_username(&self) -> Option<String> {
+        let default = self.default_username.lock().await.clone();
+        let connected = self.authenticated_username.lock().await.clone();
+        return connected.or(default);
     }
 }

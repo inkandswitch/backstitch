@@ -45,7 +45,7 @@ impl BranchDb {
         })
         .await?;
 
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", target_name, source_name),
             id: handle.document_id().clone(),
@@ -94,7 +94,7 @@ impl BranchDb {
             None
         };
 
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         if let Some(merge_metadata) = merge_metadata {
             let target = target.clone();
             self.with_shadow_document(&target, async |d| {
@@ -145,7 +145,7 @@ impl BranchDb {
         })
         .await?;
 
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", ref_.short_heads(), current_ref.short_heads()),
             id: handle.document_id().clone(),

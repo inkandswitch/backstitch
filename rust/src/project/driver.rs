@@ -489,7 +489,7 @@ impl Driver {
         let git_ignore: Gitignore = Self::build_gitignore(&project_path);
         let branch_db = BranchDb::new(repo.clone(), project_path, git_ignore);
         branch_db
-            .set_username(if username.trim() == "" {
+            .set_default_username(if username.trim() == "" {
                 None
             } else {
                 Some(username.trim().to_string())
@@ -513,6 +513,35 @@ impl Driver {
         let token = CancellationToken::new();
 
         let connection = RemoteConnection::new(repo.clone(), server_manager.clone());
+
+        // This is pretty awkward. Spawn a subtask to listen to server events, and set the branch db's connected username.
+        // This way, for authenticated servers, we can always commit using the username if we're connected.
+        // TODO: In the future, we should refactor the username system to go based on the stored session for a connected
+        // server instead. That way, during checkin, the user isn't committing with an unset/anonymous name.
+        // Also, we probably want to use the `sub` claim instead and mark the commit as authorized.
+        {
+            let connection_events = connection.events();
+            let token = token.clone();
+            let branch_db = branch_db.clone();
+            spawn_named("username setter", async move {
+                pin!(connection_events);
+                loop {
+                    select! {
+                        _ = token.cancelled() => break,
+                        Some(event) = connection_events.next() => {
+                            match event {
+                                RemoteConnectionEvent::Connected { username } => {
+                                    branch_db.set_authenticated_username(username).await;
+                                }
+                                _ => {
+                                    branch_db.set_authenticated_username(None).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
 
         Ok(Driver {
             inner: Arc::new(DriverInner {
@@ -541,7 +570,7 @@ impl Driver {
     }
 
     pub async fn set_username(&self, username: Option<String>) {
-        self.inner.branch_db.set_username(username).await;
+        self.inner.branch_db.set_default_username(username).await;
     }
 
     /// If we're connected to the server, returns true.
@@ -561,7 +590,7 @@ impl Driver {
                 continue;
             };
             match event {
-                RemoteConnectionEvent::Connected => return true,
+                RemoteConnectionEvent::Connected { .. } => return true,
                 RemoteConnectionEvent::Failed => {
                     if attempt < retries {
                         attempt += 1;

@@ -150,8 +150,11 @@ func _on_start_status_changed(status: Dictionary):
 		"not_started":
 			update_ui()
 		"starting":
-			# TODO: Don't do this; we need to allow the auth flow
+			# TODO: Don't do this; we need to allow the auth flow/change checkin
+			# It causes an error: "window can't be made exlusive". But it does technically work.
+			# We need an exclusive modal manager
 			task_modal.start_task("Loading Backstitch")
+			_check_for_local_changes()
 			update_ui()
 		"needs_check_in":
 			_check_for_local_changes()
@@ -607,12 +610,11 @@ func update_history_tree():
 	else:
 		history_saved_selection = null
 
-func _check_for_local_changes() -> bool:
-	if GodotProject.local_changes().size() == 0: return false
-	var dialog: AcceptDialog = %LocalChangesDialog
-	if dialog.visible: return true
-	_popup_local_changes_dialog()
-	return true
+func _check_for_local_changes() -> void:
+	if GodotProject.local_changes().size() == 0:
+		%LocalChangesDialog.visible = false
+	elif !%LocalChangesDialog.visible:
+		_popup_local_changes_dialog()
 
 
 func update_action_buttons():

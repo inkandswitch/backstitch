@@ -193,6 +193,7 @@ impl Project {
                     }
                     LocalChangesResult::Discard => {}
                 }
+                start_status_tx.send_replace(ProjectStartStatus::Starting);
             }
         }
 

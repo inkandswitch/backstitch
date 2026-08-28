@@ -316,7 +316,7 @@ impl GodotProject {
 
     #[func]
     fn new_project(&mut self, server: String) {
-        self.project().new_project(if server == "" {
+        self.project().new_project(if server.is_empty() {
             None
         } else {
             Some(server.as_str())
@@ -342,7 +342,7 @@ impl GodotProject {
 
         self.project().load_project(
             &id,
-            if server == "" {
+            if server.is_empty() {
                 None
             } else {
                 Some(server.as_str())
@@ -766,10 +766,7 @@ impl INode for GodotProject {
             {
                 self.project().load_project(
                     &id,
-                    self.project()
-                        .get_saved_server()
-                        .as_ref()
-                        .map(|s| s.as_str()),
+                    self.project().get_saved_server().as_deref(),
                     true,
                 );
             }

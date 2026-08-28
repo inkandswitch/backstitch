@@ -78,7 +78,7 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                     tungstenite::http::header::AUTHORIZATION,
                     tungstenite::http::HeaderValue::from_str(&format!(
                         "Bearer {}",
-                        token.expose_secret().to_string()
+                        token.expose_secret()
                     ))?,
                 );
             }
@@ -87,15 +87,14 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                 Ok(res) => res,
                 Err(e) => {
                     tracing::error!("error while dialing {e}");
-                    match &e {
-                        tungstenite::Error::Http(response) => match response.status() {
+                    if let tungstenite::Error::Http(response) = &e {
+                        match response.status() {
                             StatusCode::UNAUTHORIZED => {
                                 tracing::error!("UNAUTHORIZED");
                                 auth_failed_tx.send_replace(true);
                             }
                             code => tracing::error!("HTTP error {code}"),
-                        },
-                        _ => {}
+                        }
                     }
                     Err(e)?
                 }

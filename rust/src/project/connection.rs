@@ -223,7 +223,7 @@ impl RemoteConnectionInner {
         token: CancellationToken,
     ) -> Result<(), RemoteConnectionError> {
         tracing::debug!("Handshaking with server...");
-        let server_info = self.server_manager.handshake(&url).await?;
+        let server_info = self.server_manager.handshake(url).await?;
         tracing::debug!("Authenticating user...");
         let user_info = self
             .server_manager

@@ -87,7 +87,7 @@ pub enum ServerStatus {
     Ready {
         provider: String,
         user_info: Box<dyn UserInfo>,
-        server_info: ServerInfo,
+        server_info: Box<ServerInfo>,
     },
 }
 
@@ -164,7 +164,7 @@ impl ServerManager {
                 authenticator,
             } => ServerStatus::Ready {
                 user_info: user_info.clone(),
-                server_info: server_info.clone(),
+                server_info: Box::new(server_info.clone()),
                 provider: authenticator.provider(),
             },
         }
@@ -519,7 +519,7 @@ impl ServerManager {
         let deauthenticate = authenticator.interactive_deauthenticate();
         tokio::pin!(deauthenticate);
 
-        Ok(loop {
+        let _: () = loop {
             select! {
                 status = authenticator.status_changed() => {
                     self.auth_status_tx.send_replace(status);
@@ -529,7 +529,8 @@ impl ServerManager {
                     break result.map_err(|e| ServerError::Deauth(e))?;
                 }
             }
-        })
+        };
+        Ok(())
     }
 
     /// Call when the user needs to cancel the authentication/deauthentication.

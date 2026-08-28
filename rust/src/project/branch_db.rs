@@ -126,6 +126,6 @@ impl BranchDb {
     async fn resolve_username(&self) -> Option<String> {
         let default = self.default_username.lock().await.clone();
         let connected = self.authenticated_username.lock().await.clone();
-        return connected.or(default);
+        connected.or(default)
     }
 }

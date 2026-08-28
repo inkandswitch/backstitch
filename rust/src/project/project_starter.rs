@@ -80,6 +80,7 @@ impl Project {
     ///   connected, and start the sync loop.
     ///
     /// If we're creating a new project, instead of loading, we can skip most of this!
+    #[allow(clippy::too_many_arguments)] // clippy's right... but I don't have time to fix this. The solution is to make ProjectInner.
     async fn start_inner(
         server_manager: ServerManager,
         start_status_tx: watch::Sender<ProjectStartStatus>,

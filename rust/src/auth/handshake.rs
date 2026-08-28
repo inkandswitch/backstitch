@@ -142,10 +142,10 @@ pub async fn server_handshake(url: &Url) -> Result<ServerInfo, HandshakeError> {
 
     Ok(ServerInfo {
         url: url.clone(),
-        sync_url: parse_or_append(&response.sync, &url)?,
+        sync_url: parse_or_append(&response.sync, url)?,
         auth,
         webviewer_url: match response.webviewer {
-            Some(path) => Some(parse_or_append(&path, &url)?),
+            Some(path) => Some(parse_or_append(&path, url)?),
             None => None,
         },
     })

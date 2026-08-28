@@ -127,12 +127,12 @@ pub struct OidcUserInfo {
 }
 
 impl UserInfo for OidcUserInfo {
-    fn username(&self) -> String {
-        self.stored_session.name.clone()
+    fn username(&self) -> Option<String> {
+        Some(self.stored_session.name.clone())
     }
 
-    fn subject(&self) -> String {
-        self.stored_session.subject.clone()
+    fn subject(&self) -> Option<String> {
+        Some(self.stored_session.subject.clone())
     }
 
     fn email(&self) -> Option<String> {

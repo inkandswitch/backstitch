@@ -20,9 +20,9 @@ pub trait AuthError: Send + Sync + std::error::Error + 'static {}
 
 pub trait UserInfo: Send + Sync + Debug {
     /// Get the username associated with this user
-    fn username(&self) -> String;
+    fn username(&self) -> Option<String>;
     /// Get the subject associated with this user. A subject is any UUID identifying the user, and may be the same as the username.
-    fn subject(&self) -> String;
+    fn subject(&self) -> Option<String>;
     /// Get the email associated with this user.
     fn email(&self) -> Option<String>;
     /// Whether the user is valid. This might be false if the user needs an authentication refresh.

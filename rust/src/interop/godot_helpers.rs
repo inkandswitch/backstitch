@@ -453,7 +453,7 @@ impl ToGodot for ServerStatus {
             } => {
                 vdict! {
                     "status" => "ready",
-                    "username" => user_info.username(),
+                    "username" => user_info.username().unwrap_or("".to_string()),
                     "authenticated" => user_info.bearer_token().is_some(),
                     "email" => user_info.email().unwrap_or("<not provided>".to_string()),
                     "provider" => provider.clone()

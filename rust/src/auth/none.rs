@@ -4,17 +4,15 @@ use secrecy::SecretString;
 use crate::auth::server_manager::{AuthError, AuthStatus, Authenticator, UserInfo};
 
 #[derive(Clone, Debug)]
-pub struct NoneUserInfo {
-    name: String,
-}
+pub struct NoneUserInfo;
 
 impl UserInfo for NoneUserInfo {
-    fn username(&self) -> String {
-        self.name.clone()
+    fn username(&self) -> Option<String> {
+        None
     }
 
-    fn subject(&self) -> String {
-        self.name.clone()
+    fn subject(&self) -> Option<String> {
+        None
     }
 
     fn email(&self) -> Option<String> {
@@ -47,16 +45,12 @@ impl NoneAuthenticator {
 impl Authenticator for NoneAuthenticator {
     async fn interactive_authenticate(&self) -> Result<Box<dyn UserInfo>, Box<dyn AuthError>> {
         // TODO (oidc): force the user to provide a name; get a name from storage; etc
-        Ok(Box::new(NoneUserInfo {
-            name: "TEMP".to_string(),
-        }) as Box<dyn UserInfo>)
+        Ok(Box::new(NoneUserInfo) as Box<dyn UserInfo>)
     }
     async fn immediate_authenticate(
         &self,
     ) -> Result<Option<Box<dyn UserInfo>>, Box<dyn AuthError>> {
-        Ok(Some(Box::new(NoneUserInfo {
-            name: "TEMP".to_string(),
-        }) as Box<dyn UserInfo>))
+        Ok(Some(Box::new(NoneUserInfo) as Box<dyn UserInfo>))
     }
     async fn interactive_deauthenticate(&self) -> Result<(), Box<dyn AuthError>> {
         Ok(())

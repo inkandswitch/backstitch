@@ -70,7 +70,6 @@ impl ProjectViewModel for Project {
                     return;
                 }
             };
-
             match server_manager.authenticate(&info).await {
                 Ok(_) => {}
                 Err(e) => tracing::error!("unable to authenticate: {e}"),

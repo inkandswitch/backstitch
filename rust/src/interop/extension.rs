@@ -26,6 +26,8 @@ unsafe impl ExtensionLibrary for MyExtension {
     fn on_stage_init(level: InitStage) {
         if level == InitStage::Scene {
             initialize_tracing();
+            #[cfg(target_os = "android")]
+            initialize_android_cert_dir();
             tracing::info!("** on_level_init: Scene");
             Engine::singleton().register_singleton("GodotProject", &GodotProject::new_alloc());
             let loader = BackstitchResourceLoader::new_gd();
@@ -71,6 +73,42 @@ unsafe impl ExtensionLibrary for MyExtension {
             unregister_singleton("GodotProject");
         }
     }
+}
+
+/// Point OpenSSL at Android's CA store.
+///
+/// We build OpenSSL from source for Android, so its compiled-in `OPENSSLDIR` refers to a path on
+/// the build machine, and `openssl-probe` only looks for Termux and generic Linux locations. Left
+/// alone, neither finds any root certificates and every TLS handshake fails to verify the peer.
+/// Both directories below use OpenSSL's hashed-`CApath` layout, so `SSL_CERT_DIR` is enough.
+#[cfg(target_os = "android")]
+fn initialize_android_cert_dir() {
+    use std::path::Path;
+
+    const CERT_DIRS: [&str; 2] = [
+        // Updatable CA store, present from API 34 on and preferred when available.
+        "/apex/com.android.conscrypt/cacerts",
+        "/system/etc/security/cacerts",
+    ];
+
+    if std::env::var_os("SSL_CERT_DIR").is_some() || std::env::var_os("SSL_CERT_FILE").is_some() {
+        return;
+    }
+
+    let Some(cert_dir) = CERT_DIRS
+        .iter()
+        .copied()
+        .find(|dir| Path::new(dir).is_dir())
+    else {
+        tracing::warn!(
+            "no Android CA store found; TLS connections will not be able to verify peers"
+        );
+        return;
+    };
+
+    // Sound because extension init runs before we spawn any threads that could read the env.
+    unsafe { std::env::set_var("SSL_CERT_DIR", cert_dir) };
+    tracing::info!("using Android CA store at {cert_dir}");
 }
 
 fn unregister_singleton(singleton_name: &str) {

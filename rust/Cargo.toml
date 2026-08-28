@@ -54,11 +54,17 @@ tokio-util = "0.7.18"
 sys-locale = "0.3.2"
 blake3 = { version = "1.8.4", features = ["serde"] }
 wincode = { version = "0.6.0", features = ["derive"] }
-fjall = "3.1.4"
+fjall = { git = "https://github.com/nikitalita/fjall", branch = "handle-unsupported-file-lock" }
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
 indexmap = "2.14"
+
+# `samod/tungstenite` forces `native-tls`, which resolves to openssl-sys on Android.
+# There is no system OpenSSL to link against there, so we have to build
+# it from source with the NDK toolchain.
+[target.'cfg(target_os = "android")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 
 [build-dependencies]
 cbindgen = "^0.27"

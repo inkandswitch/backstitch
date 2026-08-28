@@ -1,8 +1,9 @@
 # workspace is in rust
 [workspace]
-members = [
-    "rust",
-]
+members = ["rust"]
+
+[workspace.package]
+version = "3.0.0"
 
 
 # create profile release_debug

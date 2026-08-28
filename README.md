@@ -25,7 +25,7 @@ Learn more on our [website](https://backstitch.dev/).
 - Maintaining separate backups while testing
 - Only using it in low-risk situations
 
-**About the sync server:** The plugin optionally syncs your data with our alpha sync server, located at `alpha.backstitch.dev:8085`. We cannot guarantee long-term data availability or privacy on this server — please use it for testing purposes only. However, the sync server is optional. Even without it, you can work offline and retain all your data locally, similar to Git.
+**About the sync server:** The plugin optionally syncs your data with our alpha sync server, located at `https://alpha.backstitch.dev/`. We cannot guarantee long-term data availability or privacy on this server — please use it for testing purposes only. However, the sync server is optional. Even without it, you can work offline and retain all your data locally, similar to Git.
 
 **We'd love your feedback!** If you're testing the plugin with your project, please share your experience, bug reports, or suggestions at [paul@inkandswitch.com](mailto:paul@inkandswitch.com).
 

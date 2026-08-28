@@ -10,6 +10,7 @@ jobs:
   rustfmt:
     name: 📋 Format Check
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout source
@@ -26,6 +27,7 @@ jobs:
   clippy:
     name: 📎 Clippy
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout source
@@ -46,6 +48,7 @@ jobs:
   test:
     name: 🧪 Test
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout source

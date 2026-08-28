@@ -1,6 +1,6 @@
 [package]
 name = "backstitch_rust"
-version = "0.0.1"
+version.workspace = true
 authors = [
   "Orion Henry <orion.henry@gmail.com>",
   "Jason Kankiewicz <jason.kankiewicz@gmail.com>",
@@ -20,8 +20,8 @@ default = []
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
-automerge = "0.10.0"
-autosurgeon = "0.12.0"
+automerge = "0.11.0"
+autosurgeon = "0.13.0"
 futures = "0.3.31"
 godot = { version = "0.5.4", features = ["experimental-threads"] }
 tokio = { version = "1.49.0", features = ["full"] }
@@ -41,7 +41,7 @@ ignore = "0.4.22"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
-samod = { version = "0.12.3", features = [
+samod = { git = "https://github.com/LilithSilver/samod.git", branch = "update-tungstenite", features = [
   "tokio",
   "threadpool",
   "tungstenite",
@@ -59,6 +59,19 @@ jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
 indexmap = "2.14"
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
+url = "2.5.8"
+open = "5.4.0"
+axum = "0.8.9"
+html-escape = "0.2.14"
+reqwest = { version = "0.13.4", features = ["json"] }
+semver = { version = "1.0.28", features = ["serde"] }
+async-trait = "0.1.91"
+secrecy = "0.10.3"
+keyring = { version = "4.1.6", features = ["v1"] }
+toml = "1.1.4"
+tungstenite = "0.30.0"
+tokio-tungstenite = "0.30.0"
 
 [build-dependencies]
 cbindgen = "^0.27"

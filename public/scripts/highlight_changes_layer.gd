@@ -23,7 +23,7 @@ func _ready():
 
 	# Create and assign the shader material
 	shader_material = ShaderMaterial.new()
-	var shader = load("res://addons/backstitch/public/gdscript/highlight_shader.gdshader")
+	var shader = load("res://addons/backstitch/public/resources/highlight_shader.gdshader")
 	shader_material.shader = shader
 	color_rect.material = shader_material
 

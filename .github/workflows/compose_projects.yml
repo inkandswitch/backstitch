@@ -70,8 +70,8 @@ jobs:
         run: |
           cat <<'EOF' > ${{ matrix.project.name }}/backstitch.cfg
           [backstitch]
-          server_url="alpha.backstitch.dev:8085"
-          available_servers="alpha.backstitch.dev:8085"
+          server_url="https://alpha.backstitch.dev/"
+          available_servers="https://alpha.backstitch.dev/"
           EOF
       - name: Copy to addons
         shell: sh

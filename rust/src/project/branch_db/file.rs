@@ -153,7 +153,7 @@ impl BranchDb {
         if reinserting {
             tracing::info!("Found broken hashes; reinserting");
             let ref_clone = ref_.clone();
-            let username = self.username.lock().await.clone();
+            let username = self.resolve_username().await;
             let new_hashes = new_hashes.clone();
             self.with_shadow_document(ref_.branch(), async move |d| {
                 let Some(files_id) = d.get_obj_id_at(ROOT, "files", ref_clone.heads()) else {

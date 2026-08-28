@@ -18,7 +18,7 @@ impl BranchDb {
     /// Checks out the initial commit of the main branch automatically.
     pub async fn create_metadata_doc(&self) -> Result<DocHandle, DbError> {
         tracing::info!("Creating new metadata doc...");
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
 
         // Because we always change the checked out ref after creating, we need to lock this in write mode.
         let r = self.get_checked_out_ref_mut();
@@ -112,7 +112,7 @@ impl BranchDb {
             meta.as_ref().ok_or(DbError::NoMetadataState)?.0.clone()
         };
 
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         tokio::task::spawn_blocking(move || {
             meta_handle.with_document(|d| -> Result<_, DbError> {
                 let mut branches_metadata: BranchesMetadataDoc = hydrate(d)?;
@@ -143,7 +143,7 @@ impl BranchDb {
             meta.as_ref().ok_or(DbError::NoMetadataState)?.0.clone()
         };
         let branch_clone = branch.clone();
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         tokio::task::spawn_blocking(move || {
             meta_handle.with_document(|d| {
                 let mut tx = d.transaction();
@@ -195,7 +195,7 @@ impl BranchDb {
         // canonical document does.
         // We wait for document_watcher to ingest the metadata handle and start tracking the new branch.
         let new_handle = self.clone_branch(source).await?;
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
         let id = new_handle.document_id();
 
         self.add_branch_to_meta(Branch {

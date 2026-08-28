@@ -32,7 +32,7 @@ impl BranchDb {
         // I don't think we need to do that anymore, but we need to test without it.
 
         let count = files.len();
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
 
         // TODO: we should have `FileSystemEvent` objects as parameters, and they should store a precomputed hash; then we can just pass them in here.
         let mut binary_entries: Vec<(String, DocHandle, blake3::Hash)> = Vec::new();
@@ -246,7 +246,7 @@ impl BranchDb {
         tracing::info!("Creating new binary doc...");
         let handle = self.repo.create(Automerge::new()).await.unwrap();
 
-        let username = self.username.lock().await.clone();
+        let username = self.resolve_username().await;
 
         // we're allowed to transact in the background: nobody needs this to exist yet.
         let h = handle.clone();

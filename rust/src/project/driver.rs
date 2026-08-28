@@ -1,3 +1,4 @@
+use crate::auth::server_manager::{ServerError, ServerManager};
 use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
@@ -5,7 +6,7 @@ use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
-use crate::project::connection::{RemoteConnection, RemoteConnectionError};
+use crate::project::connection::{RemoteConnection, RemoteConnectionError, RemoteConnectionEvent};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
 use crate::project::fs::fs_traversal::FileSystemTraversal;
@@ -16,16 +17,17 @@ use crate::project::peer_watcher::PeerWatcher;
 use futures::StreamExt;
 use futures::future::join_all;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo, Url};
+use samod::{ConcurrencyConfig, ConnectionInfo, DocHandle, DocumentId, Repo};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio::{pin, select};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 #[cfg(test)]
 mod tests;
@@ -93,13 +95,14 @@ pub struct DriverInner {
     pending_normalized_files: Arc<Mutex<HashMap<PathBuf, blake3::Hash>>>,
 
     // subtasks
-    connection: Arc<Mutex<Option<RemoteConnection>>>,
+    connection: RemoteConnection,
     branch_db: BranchDb,
     peer_watcher: Arc<PeerWatcher>,
     change_ingester: ChangeIngester,
     document_watcher: Arc<Mutex<Option<DocumentWatcher>>>,
     sync_automerge_to_fs: SyncAutomergeToFileSystem,
     sync_fs_to_automerge: SyncFileSystemToAutomerge,
+    server_manager: ServerManager,
     differ: Differ,
 }
 
@@ -123,27 +126,27 @@ pub enum ProjectLoadError {
     MetadataIdNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error("the requested branch document was not found. Server status: {server_status:?}")]
     BranchDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error(
         "one or more linked binary document ID was not found. Server status: {server_status:?}"
     )]
     BinaryDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error(transparent)]
     RepoStopped(#[from] samod::Stopped),
-
     #[error("branch db error: {0}")]
     Db(Box<DbError>),
-
     #[error("branch wasn't successfully ingested")]
     NotIngested,
+
+    #[error(transparent)]
+    Server(#[from] ServerError),
+    #[error(transparent)]
+    Connection(#[from] RemoteConnectionError),
 }
 
 impl From<DbError> for ProjectLoadError {
@@ -182,17 +185,41 @@ impl Driver {
         gitignore.build().unwrap()
     }
 
-    /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
-    pub async fn start_connection(&self, server_url: &Url) -> Result<(), RemoteConnectionError> {
-        if self.inner.connection.lock().await.is_some() {
-            return Ok(());
-        }
+    /// Start the connection task. URL must be valid, and have a scheme of http(s)://
+    /// Authenticates first. If a complex user-authentication is required, may hang.
+    pub async fn start_connection(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
         // Start the connection
-        tracing::info!("Starting server connection with url {:?}", server_url);
-        let connection = RemoteConnection::new(self.repo.clone(), server_url.clone()).await?;
-        let mut conn = self.inner.connection.lock().await;
-        *conn = Some(connection);
+        tracing::info!("Starting server connection with url {}", server_url);
+        let res = self.try_handshake_auth(server_url).await;
+
+        tracing::debug!("Starting connection...");
+        // Even on failure of handshake, we want to start the connection, so it can retry periodically
+        let _ = self.inner.connection.connect(server_url).await?;
+        res
+    }
+
+    /// Restarts the currently active connection, if it exists.
+    /// Does not cause an authentication.
+    pub async fn retry_connection(&self, server_url: &Url) {
+        if self.inner.connection.has_connection().await {
+            match self.inner.connection.connect(server_url).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Error retrying connection: {e}"),
+            }
+        }
+    }
+
+    async fn try_handshake_auth(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
+        tracing::debug!("Handshaking with server...");
+        let server_info = self.inner.server_manager.handshake(server_url).await?;
+        tracing::debug!("Authenticating user...");
+        let _ = self.inner.server_manager.authenticate(&server_info).await?;
         Ok(())
+    }
+
+    /// Clears an active connection, if it exists. Returns after graceful shutdown.
+    pub async fn clear_connection(&self) {
+        self.inner.connection.disconnect().await;
     }
 
     async fn get_metadata_handle(
@@ -211,16 +238,17 @@ impl Driver {
         }
 
         // If our connection isn't even initialized, we just give up.
-        let connection = self.inner.connection.lock().await;
-        let Some(connection) = connection.as_ref() else {
+        if !self.inner.connection.has_connection().await {
             return Err(ProjectLoadError::MetadataIdNotFound {
                 server_status: ProjectLoadServerStatus::Disconnected,
             });
-        };
+        }
 
         // Next, we make sure we're connected to the server
         // If the hang gets annoying when starting, we could set this to 1 to reduce it to a minimum.
-        if !Self::ensure_server_connection(connection, 3).await {
+        // TODO: This is kind of not needed maybe? now that connection.connect() waits til a first attempt?
+        // maybe? idk. idk. sigh.
+        if !Self::ensure_server_connection(&self.inner.connection, 1).await {
             tracing::error!(
                 "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
             );
@@ -268,7 +296,7 @@ impl Driver {
         drop(doc_watcher);
         self.get_branch_db().clear_branch_states().await;
 
-        let server_status = if self.inner.connection.lock().await.is_some() {
+        let server_status = if self.inner.connection.has_connection().await {
             ProjectLoadServerStatus::Connected
         } else {
             ProjectLoadServerStatus::Disconnected
@@ -276,7 +304,7 @@ impl Driver {
 
         // The document watcher will auto-ingest the provided metadata handle.
         if server_status == ProjectLoadServerStatus::Connected {
-            self.create_document_watcher(&metadata_handle, 30000).await;
+            self.create_document_watcher(&metadata_handle, 3000).await;
         } else {
             // Poll time 0 means zero polling -- good for local documents.
             self.create_document_watcher(&metadata_handle, 0).await;
@@ -442,6 +470,7 @@ impl Driver {
     /// If we couldn't start the driver, [None] is returned.
     pub async fn new(
         main_thread_block: MainThreadBlock,
+        server_manager: ServerManager,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
@@ -460,7 +489,7 @@ impl Driver {
         let git_ignore: Gitignore = Self::build_gitignore(&project_path);
         let branch_db = BranchDb::new(repo.clone(), project_path, git_ignore);
         branch_db
-            .set_username(if username.trim() == "" {
+            .set_default_username(if username.trim() == "" {
                 None
             } else {
                 Some(username.trim().to_string())
@@ -483,8 +512,38 @@ impl Driver {
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
 
+        let connection = RemoteConnection::new(repo.clone(), server_manager.clone());
+
+        // This is pretty awkward. Spawn a subtask to listen to server events, and set the branch db's connected username.
+        // This way, for authenticated servers, we can always commit using the username if we're connected.
+        // TODO: In the future, we should refactor the username system to go based on the stored session for a connected
+        // server instead. That way, during checkin, the user isn't committing with an unset/anonymous name.
+        // Also, we probably want to use the `sub` claim instead and mark the commit as authorized.
+        {
+            let connection_events = connection.events();
+            let token = token.clone();
+            let branch_db = branch_db.clone();
+            spawn_named("username setter", async move {
+                pin!(connection_events);
+                loop {
+                    select! {
+                        _ = token.cancelled() => break,
+                        Some(event) = connection_events.next() => {
+                            match event {
+                                RemoteConnectionEvent::Connected { username } => {
+                                    branch_db.set_authenticated_username(username).await;
+                                }
+                                _ => {
+                                    branch_db.set_authenticated_username(None).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         Ok(Driver {
-            file_changes_rx: Mutex::new(file_changes_rx),
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
@@ -492,24 +551,26 @@ impl Driver {
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
+                fs_index,
                 pending_normalized_files: Default::default(),
-                connection: Default::default(),
+                connection,
                 branch_db,
                 peer_watcher,
                 change_ingester,
                 document_watcher: Default::default(),
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
+                server_manager,
                 differ,
-                fs_index,
             }),
             repo,
             token,
+            file_changes_rx: Mutex::new(file_changes_rx),
         })
     }
 
     pub async fn set_username(&self, username: Option<String>) {
-        self.inner.branch_db.set_username(username).await;
+        self.inner.branch_db.set_default_username(username).await;
     }
 
     /// If we're connected to the server, returns true.
@@ -518,18 +579,21 @@ impl Driver {
     async fn ensure_server_connection(connection: &RemoteConnection, retries: u32) -> bool {
         // We must subscribe to the events stream BEFORE checking the status.
         // This is so that between two lines of code, the status doesn't change before we've inited our stream.
-        let mut events = connection.events();
-        if connection.is_connected() {
+        let events = connection.events();
+        pin!(events);
+        if connection.is_connected().await {
             return true;
         }
+        let mut attempt = 0;
         loop {
             let Some(event) = events.next().await else {
                 continue;
             };
             match event {
-                samod::DialerEvent::Connected { peer_info: _ } => return true,
-                samod::DialerEvent::Reconnecting { attempt } => {
+                RemoteConnectionEvent::Connected { .. } => return true,
+                RemoteConnectionEvent::Failed => {
                     if attempt < retries {
+                        attempt += 1;
                         continue;
                     }
                     return false;
@@ -720,7 +784,7 @@ impl Driver {
         self.inner.fs_index.clone()
     }
 
-    // awkward
+    // awkward; turn this into a stream and DON'T provide the full file content!!
     pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
         let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
@@ -730,7 +794,7 @@ impl Driver {
         fs_changes
     }
 
-    // also awkward
+    // also awkward; return these as streams
     pub fn get_changes_rx(&self) -> watch::Receiver<Vec<CommitInfo>> {
         self.inner.change_ingester.get_changes_rx()
     }

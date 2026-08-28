@@ -56,3 +56,10 @@ static func create_unsaved_files_dialog(parent: Control, message: String):
 		dialog.popup_centered()
 		return true
 	return false
+
+static func style_button(button: Button):
+	var theme = EditorInterface.get_editor_theme()
+	button.theme_type_variation = "FlatButton"
+	button.theme = theme
+	# For some reason, the icon isn't scaling automatically in the editor
+	button.icon.base_scale = EditorInterface.get_editor_scale()

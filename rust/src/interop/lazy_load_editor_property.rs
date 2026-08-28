@@ -34,7 +34,7 @@ impl LazyLoadTokenEditorProperty {
             loading_rect: None,
             material: OnReady::from_loaded(
                 // TODO: figure out how to create this ourselves once statically
-                "res://addons/backstitch/public/gdscript/loading_circle.tres",
+                "res://addons/backstitch/public/resources/loading_circle.tres",
             ),
             token,
             resource: None,

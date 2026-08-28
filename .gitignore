@@ -343,3 +343,4 @@ cmake-build-*/
 .cargo/*.p12
 .cargo/*.base64
 *.obj.import
+rustc-ice-*.txt

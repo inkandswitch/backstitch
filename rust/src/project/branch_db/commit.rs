@@ -27,7 +27,7 @@ enum Entry {
     },
     Scene {
         path: String,
-        scene: GodotScene,
+        scene: Box<GodotScene>,
         hash: blake3::Hash,
     },
     Delete {
@@ -108,7 +108,7 @@ impl BranchDb {
                         .unwrap_or_else(|| tx.put_object(&files, &path, ObjType::Map).unwrap());
 
                     // If this happens, it's a bug with the caller... but check, for debug purposes.
-                    if let Some(old_hash) = Self::get_existing_hash(&tx, &scene_file)
+                    if let Some(old_hash) = Self::get_existing_hash(tx, &scene_file)
                         && old_hash == hash
                     {
                         tracing::error!(
@@ -181,7 +181,7 @@ impl BranchDb {
                 Some(FileContent::Scene(godot_scene)) => {
                     entries.push(Entry::Scene {
                         path,
-                        scene: *godot_scene,
+                        scene: Box::new(*godot_scene),
                         hash: hash.unwrap(),
                     });
                 }
@@ -260,9 +260,7 @@ impl BranchDb {
         .await
         .unwrap();
 
-        let Some(new_heads) = new_heads else {
-            return None;
-        };
+        let new_heads = new_heads?;
 
         // Unlock state, then attempt a reconcile.
         // The reconcile may fail if we are currently syncing binary docs.

@@ -304,7 +304,7 @@ impl Driver {
 
         // The document watcher will auto-ingest the provided metadata handle.
         if server_status == ProjectLoadServerStatus::Connected {
-            self.create_document_watcher(&metadata_handle, 3000).await;
+            self.create_document_watcher(&metadata_handle, 15000).await;
         } else {
             // Poll time 0 means zero polling -- good for local documents.
             self.create_document_watcher(&metadata_handle, 0).await;

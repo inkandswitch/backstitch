@@ -290,7 +290,9 @@ impl DocumentWatcherInner {
         let h = handle.clone();
         let meta = tokio::task::spawn_blocking(move || {
             // TODO: correct error handling on hydration failure; currently panics!
-            let branches_metadata: BranchesMetadataDoc = h.with_document(|d| hydrate(d).unwrap());
+            let branches_metadata: BranchesMetadataDoc = h.with_document(|d| {
+                hydrate(d).expect("there was an issue with document hydration!")
+            });
             branches_metadata
         })
         .await

@@ -15,6 +15,7 @@ const SECTION: &str = "backstitch";
 /// and per-user settings that live outside of it.
 #[derive(Debug, Clone)]
 pub struct Config {
+    // TODO: We actually want a third here -- we need a user config in .backstitch for storing the checked out branch ID.
     project: FileBackedToml,
     user: FileBackedToml,
 }
@@ -104,14 +105,14 @@ impl Config {
     }
 
     pub async fn checked_out_branch_doc_id(&self) -> Option<DocumentId> {
-        DocumentId::from_str(&Self::get_string(&self.user, "checked_out_branch_doc_id").await?)
+        DocumentId::from_str(&Self::get_string(&self.project, "checked_out_branch_doc_id").await?)
             .inspect_err(|e| tracing::error!("Couldn't get project_doc_id: {e}"))
             .ok()
     }
 
     pub async fn set_checked_out_branch_doc_id(&self, value: Option<&DocumentId>) {
         Self::set_string(
-            &self.user,
+            &self.project,
             "checked_out_branch_doc_id",
             value.map(|id| id.to_string()).as_deref(),
         )

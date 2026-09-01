@@ -1,12 +1,18 @@
+use crate::auth::server_manager::{AuthStatus, ServerStatus};
 use crate::fs::file_utils::FileContent;
-use crate::helpers::utils::ChangedFile;
+use crate::helpers::history_ref::HistoryRef;
+use crate::helpers::utils::{ChangedFile, DiffId};
 use crate::parser::godot_parser::TypeOrInstance;
+use crate::project::ProjectStartStatus;
 use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
+use crate::project::project_base::DiffStatus;
 use automerge::ChangeHash;
 use godot::builtin::Variant;
+use godot::classes::{Control, Font, StyleBox};
 use godot::meta::conv::{ArgPassing, ByValue};
 use godot::meta::shape::GodotShape;
 use godot::meta::{GodotType, ToArg};
+use godot::obj::WithBaseField;
 use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
 use sedimentree_core::id::SedimentreeId;
 use std::fmt::Display;
@@ -129,6 +135,34 @@ impl ToGodotExt for PathBuf {
     }
 }
 
+impl GodotConvert for HistoryRef {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for HistoryRef {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
+impl GodotConvert for DiffId {
+    type Via = GString;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffId {
+    type Pass = ByValue;
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        GString::from(&self.to_string())
+    }
+}
+
 // I couldn't figure out how to use GodotConvert with impls, so just use methods for these.
 
 pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDictionary {
@@ -146,10 +180,10 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
     }
 }
 
-pub(crate) fn diff_view_model_to_dict(diff: &impl DiffViewModel) -> VarDictionary {
+pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary {
     vdict! {
         "dict" => &diff.get_diff().to_godot(),
-        "title" => &diff.get_title().to_variant()
+        "title" => &diff.get_title().to_variant(),
     }
 }
 
@@ -259,5 +293,176 @@ impl ToVariantExt for Option<TypeOrInstance> {
             Some(type_or_instance) => type_or_instance.to_variant(),
             None => Variant::nil(),
         }
+    }
+}
+
+impl GodotConvert for DiffStatus {
+    type Via = Variant;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for DiffStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> Variant {
+        match self {
+            DiffStatus::Loading => "loading".to_variant(),
+            DiffStatus::Ready(project_diff) => project_diff.to_variant(),
+        }
+    }
+}
+
+pub trait ThemeGetter: WithBaseField
+where
+    Self::Base: Inherits<Control>,
+{
+    fn get_theme_constant(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_constant_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_stylebox(&self, name: &str, theme_type: &str) -> Option<Gd<StyleBox>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_stylebox_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_color(&self, name: &str, theme_type: &str) -> Color {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_color_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font(&self, name: &str, theme_type: &str) -> Option<Gd<Font>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_font_size(&self, name: &str, theme_type: &str) -> i32 {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_font_size_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+}
+
+impl<T> ThemeGetter for T
+where
+    T: WithBaseField,
+    T::Base: Inherits<Control>,
+{
+}
+
+impl GodotConvert for ProjectStartStatus {
+    type Via = VarDictionary;
+
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for ProjectStartStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            ProjectStartStatus::NotStarted => vdict! {
+                "status" => "not_started"
+            },
+            ProjectStartStatus::Starting => vdict! {
+                "status" => "starting"
+            },
+            ProjectStartStatus::NeedsCheckIn(_) => vdict! {
+                "status" => "needs_check_in"
+            },
+            ProjectStartStatus::Done => vdict! {
+                "status" => "done"
+            },
+            ProjectStartStatus::Failed(e) => vdict! {
+                "status" => "failed",
+                "error" => e.clone()
+            },
+        }
+    }
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
+}
+
+impl GodotConvert for AuthStatus {
+    type Via = VarDictionary;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for AuthStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            AuthStatus::NeedsUserLogin(url) => vdict! {
+                "status" => "needs_user_login",
+                "url" => url.to_string()
+            },
+            AuthStatus::Idle => vdict! {
+                "status" => "idle"
+            },
+            AuthStatus::NeedsUserLogout(url) => vdict! {
+                "status" => "needs_user_logout",
+                "url" => url.to_string()
+            },
+        }
+    }
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
+    }
+}
+
+impl GodotConvert for ServerStatus {
+    type Via = VarDictionary;
+    fn godot_shape() -> GodotShape {
+        GodotShape::Variant
+    }
+}
+
+impl ToGodot for ServerStatus {
+    type Pass = ByValue;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        match self {
+            ServerStatus::None => vdict! { "status" => "none" },
+            ServerStatus::Handshaking => vdict! { "status" => "handshaking" },
+            ServerStatus::HandshakeFailed => vdict! { "status" => "failed" },
+            ServerStatus::AuthNeeded { provider } => {
+                vdict! { "status" => "auth_needed", "provider" => provider.clone() }
+            }
+            ServerStatus::Ready {
+                user_info,
+                provider,
+                ..
+            } => {
+                vdict! {
+                    "status" => "ready",
+                    "username" => user_info.username().unwrap_or("".to_string()),
+                    "authenticated" => user_info.bearer_token().is_some(),
+                    "email" => user_info.email().unwrap_or("<not provided>".to_string()),
+                    "provider" => provider.clone()
+                }
+            }
+        }
+    }
+
+    fn to_variant(&self) -> Variant {
+        self.to_godot().to_variant()
     }
 }

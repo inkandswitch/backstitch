@@ -1,36 +1,257 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::SedimentreeId;
+use samod::DocumentId;
+use url::Url;
 
 use crate::{
-    diff::differ::ProjectDiff,
+    auth::server_manager::ServerStatus,
     fs::file_utils::FileContent,
     helpers::{
         history_ref::HistoryRef,
+        spawn_utils::spawn_named_on,
         utils::{
-            BranchWrapper, ChangedFile, CommitInfo, DiffWrapper, exact_human_readable_timestamp,
-            human_readable_timestamp,
+            BranchWrapper, ChangedFile, CommitInfo, DiffId, DiffWrapper,
+            exact_human_readable_timestamp, human_readable_timestamp,
         },
     },
-    interop::godot_accessors::BackstitchConfigAccessor,
     project::{
+        LocalChangesResult, Project, ProjectStartStatus,
+        branch_db::DbError,
         project_api::{
-            BranchViewModel, ChangeViewModel, DiffViewModel, ProjectStartError, ProjectViewModel,
+            BranchViewModel, ChangeViewModel, CreateMergePreviewBranchError,
+            CreateRevertPreviewBranchError, DiffViewModel, ProjectViewModel, RequestDiffError,
             SyncStatus,
         },
-        project_base::{Project, ProjectCreateMode},
+        project_base::{DiffStatus, ProjectCreateMode},
     },
 };
 
 // TODO (Lilith): Figure out if there's a reasonable way to reduce blocking in this file.
 // In general I kind of hate this, but I guess a sync/async divide is never going to look pretty.
 impl ProjectViewModel for Project {
-    fn has_project(&self) -> bool {
-        self.driver.blocking_lock().is_some()
+    fn has_user_name(&self) -> bool {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.is_some() })
     }
 
-    fn get_project_id(&self) -> Option<SedimentreeId> {
+    fn get_user_name(&self) -> String {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.user_name().await.unwrap_or("".to_string()) })
+    }
+
+    fn set_user_name(&self, name: String) {
+        let config = self.config.clone();
+        self.with_driver_blocking("Set username", |driver| async move {
+            config.set_user_name(Some(&name)).await;
+            driver.as_ref()?.set_username(Some(name)).await;
+            Some(())
+        });
+    }
+
+    fn validate_server(&self, server: &str) -> Option<String> {
+        // TODO: Be kinder about http/https inclusion... right now it's weird
+        let url = Url::parse(server).ok()?;
+        (url.scheme() == "http" || url.scheme() == "https").then_some(url.to_string())
+    }
+
+    fn authenticate_server(&self, server: &str) {
+        let server_manager = self.server_manager.clone();
+        let Ok(url) = Url::parse(server).inspect_err(|e| tracing::error!("invalid URL {e}")) else {
+            return;
+        };
+        spawn_named_on("authenticate", self.runtime.handle(), async move {
+            let info = match server_manager.handshake(&url).await {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::error!("Unable to begin authentication due to: {e}");
+                    return;
+                }
+            };
+            match server_manager.authenticate(&info).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("unable to authenticate: {e}"),
+            }
+        });
+    }
+
+    fn deauthenticate_server(&self, server: &str) {
+        let server_manager = self.server_manager.clone();
+        let driver = self.driver.clone();
+        let Ok(url) = Url::parse(server).inspect_err(|e| tracing::error!("invalid URL {e}")) else {
+            return;
+        };
+        spawn_named_on("deauthenticate", self.runtime.handle(), async move {
+            let info = match server_manager.handshake(&url).await {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::error!("Unable to begin deauthentication due to: {e}");
+                    return;
+                }
+            };
+
+            match server_manager.deauthenticate(&info).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("unable to deauthenticate: {e}"),
+            }
+
+            // if we have a project, reconnect to the current server to redo authentication.
+            let d = driver.read().await;
+            if let Some(driver) = d.as_ref() {
+                driver.retry_connection(&info.url).await;
+            }
+        });
+    }
+
+    fn cancel_authenticate(&self) {
+        let server_manager = self.server_manager.clone();
+        spawn_named_on("cancel authenticate", self.runtime.handle(), async move {
+            server_manager.cancel_wait().await;
+        });
+    }
+
+    fn ping_server(&self, server: &str, retry: bool) -> ServerStatus {
+        // users shouldn't let this happen; check is_server_valid first
+        let Ok(url) = Url::parse(server) else {
+            return ServerStatus::None;
+        };
+
+        let status = {
+            let url = url.clone();
+            let server_manager = self.server_manager.clone();
+            self.runtime
+                .block_on(async move { server_manager.server_status(&url).await })
+        };
+
+        match (status, retry) {
+            (ServerStatus::None, _) | (ServerStatus::HandshakeFailed, true) => {
+                let server_manager = self.server_manager.clone();
+                // spawn off a task to do the handshake
+                // if many of these spawn, that's ok, they'll work it out eventually
+                spawn_named_on("do handshake", self.runtime.handle(), async move {
+                    server_manager.handshake(&url).await
+                });
+                ServerStatus::Handshaking
+            }
+            (status, _) => status,
+        }
+    }
+
+    fn get_saved_server(&self) -> Option<String> {
+        let config = self.config.clone();
+        self.runtime
+            .block_on(async move { config.server_url().await })
+            .map(|url| url.to_string())
+    }
+
+    fn change_server(&self, server: Option<&str>) {
+        if !self.has_project() {
+            tracing::warn!("Can't change server without a project");
+            return;
+        }
+        let server = server.and_then(|s| {
+            Url::parse(s)
+                .inspect_err(|_| tracing::error!("Url {s} invalid; discarding"))
+                .ok()
+        });
+        let config = self.config.clone();
+        let s = server.clone();
+        self.runtime
+            .block_on(async move { config.set_server_url(s.as_ref()).await });
+        self.runtime.block_on(async move {});
+        let driver = self.driver.clone();
+        // don't block here
+        spawn_named_on("change server", self.runtime.handle(), async move {
+            let dri = driver.read().await;
+            if let Some(d) = dri.as_ref() {
+                match server {
+                    Some(s) => {
+                        let _ = d.start_connection(&s).await;
+                    }
+                    None => d.clear_connection().await,
+                }
+            };
+        });
+    }
+
+    fn add_server(&self, server: &str) {
+        let Ok(server) =
+            Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
+            return;
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.insert(server);
+            config.set_available_servers(&servers).await;
+        });
+    }
+
+    fn remove_server(&self, server: &str) {
+        let Ok(server) =
+            Url::parse(server).inspect_err(|_| tracing::error!("Url {server} invalid; discarding"))
+        else {
+            return;
+        };
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            let mut servers = config.available_servers().await;
+            let _ = servers.swap_remove(&server);
+            config.set_available_servers(&servers).await;
+        });
+    }
+
+    fn get_available_servers(&self) -> Vec<String> {
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config
+                .available_servers()
+                .await
+                .into_iter()
+                .map(|url| url.to_string())
+                .collect()
+        })
+    }
+
+    fn webviewer_url(&self) -> Option<String> {
+        let status = {
+            let url = Url::parse(&self.get_saved_server()?).ok()?;
+            let server_manager = self.server_manager.clone();
+            self.runtime
+                .block_on(async move { server_manager.server_status(&url).await })
+        };
+
+        match status {
+            ServerStatus::Ready { server_info, .. } => {
+                server_info.webviewer_url.map(|v| v.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn clear_project(&mut self) {
+        if !self.has_project() {
+            return;
+        }
+        self.stop();
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(None).await;
+            config.set_checked_out_branch_doc_id(None).await;
+        });
+    }
+
+    fn has_project(&self) -> bool {
+        self.driver.blocking_read().is_some()
+    }
+
+    fn get_project_id(&self) -> Option<DocumentId> {
         self.with_driver_blocking("Get project ID", |driver| async move {
             driver
                 .as_ref()?
@@ -41,235 +262,84 @@ impl ProjectViewModel for Project {
         })
     }
 
-    fn new_project(&mut self) -> Result<(), ProjectStartError> {
+    fn new_project(&self, server_url: Option<&str>) {
         if self.has_project() {
-            return Ok(());
+            tracing::warn!("Project already exists; can't create a new one.");
+            return;
         }
-        self.start(ProjectCreateMode::New)
+        let server_url = server_url
+            .and_then(|u| {
+                let v = self.validate_server(u);
+                if v.is_none() {
+                    tracing::error!("Invalid URL {u}; discarding");
+                };
+                v
+            })
+            .and_then(|u| Url::parse(&u).ok());
+        self.start(ProjectCreateMode::New, server_url)
     }
 
-    fn load_project(
-        &mut self,
-        id: &SedimentreeId,
-        autostart: bool,
-    ) -> Result<(), ProjectStartError> {
+    fn load_project(&self, id: &DocumentId, server_url: Option<&str>, autostart: bool) {
         if self.has_project() {
-            return Ok(());
+            return;
         }
-        BackstitchConfigAccessor::set_project_value("project_doc_id", id.to_string().as_str());
-        self.start(if autostart {
-            ProjectCreateMode::AutoLoaded
-        } else {
-            ProjectCreateMode::ManuallyLoaded
-        })?;
-        Ok(())
+        let server_url = server_url
+            .and_then(|u| {
+                let v = self.validate_server(u);
+                if v.is_none() {
+                    tracing::error!("Invalid URL {u}; discarding");
+                };
+                v
+            })
+            .and_then(|u| Url::parse(&u).ok());
+
+        let config = self.config.clone();
+        self.runtime.block_on(async move {
+            config.set_project_doc_id(Some(id)).await;
+        });
+
+        self.start(
+            if autostart {
+                ProjectCreateMode::AutoLoaded
+            } else {
+                ProjectCreateMode::ManuallyLoaded
+            },
+            server_url,
+        );
     }
 
     fn local_changes(&self) -> Vec<ChangedFile> {
-        self.local_changes.clone()
-    }
-
-    fn checkin_local_changes(&mut self) {
-        let branch = self.initial_branch.clone();
-        let res: Result<(), ProjectStartError> =
-            self.with_driver_blocking("Checkin local changes", |driver| async move {
-                let driver = driver.as_ref().ok_or(ProjectStartError::NoDriver)?;
-                driver.commit_local_changes(branch.as_ref()).await?;
-                Ok(())
-            });
-
-        // TODO: Do we want to give up and propagate this to the user, and clear the project?
-        // This could turn into a discard, depending on the error. Idk what it'd be though
-        match res {
-            Ok(_) => {}
-            Err(e) => tracing::error!(
-                "Unknown error while checking in local changes. Proceeding with start. {e}"
-            ),
+        let rx = self.start_status_tx.subscribe();
+        if let ProjectStartStatus::NeedsCheckIn(changes) = rx.borrow().clone() {
+            return changes.clone();
         }
-
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start: {e}"),
-        }
+        Vec::new()
     }
 
-    fn discard_local_changes(&mut self) {
-        match self.finalize_start() {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Unknown error while finalizing the project start. {e}"),
-        }
-    }
-    fn clear_project(&mut self) {
-        if !self.has_project() {
-            return;
-        }
-        self.stop();
-        BackstitchConfigAccessor::set_project_value("project_doc_id", "");
-        BackstitchConfigAccessor::set_project_value("checked_out_branch_doc_id", "");
-    }
-
-    fn has_user_name(&self) -> bool {
-        !BackstitchConfigAccessor::get_user_value("user_name", "").is_empty()
-    }
-
-    fn get_user_name(&self) -> String {
-        BackstitchConfigAccessor::get_user_value("user_name", "Anonymous")
-    }
-
-    fn set_user_name(&self, name: String) {
-        BackstitchConfigAccessor::set_user_value("user_name", &name);
-        self.with_driver_blocking("Set username", |driver| async move {
-            driver.as_ref()?.set_username(Some(name)).await;
-            Some(())
-        });
-    }
-
-    fn can_create_merge_preview_branch(&self) -> bool {
-        let Some(main_branch) = self.get_main_branch() else {
-            return false;
-        };
-        match self.get_checked_out_branch_state() {
-            Some(branch_state) => branch_state.id != main_branch.get_id(),
-            _ => false,
-        }
-    }
-
-    fn create_merge_preview_branch(&mut self) {
-        let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
-            return;
-        };
-        let Some(fork_info) = checked_out_branch.forked_from else {
+    fn check_in_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't check in local changes, because we don't have anything to check in!"
+            );
             return;
         };
 
-        let source = checked_out_branch.id;
-        let target = fork_info.branch().clone();
-        self.with_driver_blocking("Create merge preview branch", |driver| async move {
-            driver
-                .as_ref()?
-                .create_merge_preview_branch(&source, &target)
-                .await;
-            Some(())
-        });
+        let _ = tx.send(LocalChangesResult::CheckIn);
     }
 
-    fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool {
-        if self.is_revert_preview_branch_active() || self.is_merge_preview_branch_active() {
-            return false;
-        }
-        if self.get_change(head).is_some_and(|c|
-        	// Allow reverts for only the second setup commit
-        	!c.is_setup() || self.get_branch_history().iter().position(|&h| h == head) == Some(1))
-        {
-            return self.get_checked_out_branch_state().is_some();
-        }
-        false
-    }
-    fn create_revert_preview_branch(&mut self, head: ChangeHash) {
-        let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
+    fn discard_local_changes(&self) {
+        let mut tx_guard = self.local_changes_tx.blocking_lock();
+        let tx = tx_guard.take();
+        let Some(tx) = tx else {
+            tracing::error!(
+                "Can't discard local changes, because we don't have anything to check in!"
+            );
             return;
         };
 
-        self.with_driver_blocking("Create revert preview branch", move |driver| async move {
-            driver
-                .as_ref()?
-                .create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head]))
-                .await;
-            Some(())
-        });
-    }
-
-    fn is_revert_preview_branch_active(&self) -> bool {
-        let branch_state = self.get_checked_out_branch_state();
-        match branch_state {
-            Some(state) => state.reverted_to.is_some(),
-            _ => false,
-        }
-    }
-
-    fn is_merge_preview_branch_active(&self) -> bool {
-        let branch_state = self.get_checked_out_branch_state();
-        match branch_state {
-            Some(state) => state.merge_into.is_some(),
-            _ => false,
-        }
-    }
-
-    fn is_safe_to_merge(&self) -> bool {
-        let Some(current_branch) = self.get_checked_out_branch_state() else {
-            return false;
-        };
-        let Some(merge_info) = current_branch.merge_into.as_ref() else {
-            return false;
-        };
-        let Some(fork_info) = current_branch.forked_from.as_ref() else {
-            return false;
-        };
-
-        let forked_from = fork_info.branch().clone();
-        let merge_into = merge_info.branch().clone();
-        let Some((source_branch, latest_dest_heads)) =
-            self.with_driver_blocking("Is safe to merge", |driver| async move {
-                let branch_db = driver.as_ref()?.get_branch_db();
-                let source_branch = branch_db
-                    .get_branch_state(&forked_from)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
-                    .ok()?;
-                let latest_dest_heads = branch_db
-                    .get_latest_ref_on_branch(&merge_into)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
-                    .ok()?
-                    .heads()
-                    .clone();
-                Some((source_branch, latest_dest_heads))
-            })
-        else {
-            return false;
-        };
-
-        source_branch
-            .forked_from
-            .as_ref()
-            .is_some_and(|i| i.heads() == &latest_dest_heads)
-    }
-
-    fn confirm_preview_branch(&mut self) {
-        let Some(branch_state) = self.get_checked_out_branch_state() else {
-            return;
-        };
-
-        if branch_state.reverted_to.is_some() {
-            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
-                driver.as_ref()?.confirm_revert_preview_branch().await;
-                Some(())
-            });
-        } else if let Some(merge_info) = branch_state.merge_into {
-            let source = branch_state.id.clone();
-            let target = merge_info.branch().clone();
-            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
-                driver.as_ref()?.merge_branch(&source, &target).await;
-                Some(())
-            });
-        }
-    }
-    fn discard_preview_branch(&mut self) {
-        let Some(branch_state) = self.get_checked_out_branch_state() else {
-            return;
-        };
-        if branch_state.reverted_to.is_none() && branch_state.merge_into.is_none() {
-            tracing::error!("Cannot discard branch; not a preview branch!");
-            return;
-        };
-        self.with_driver_blocking("Discard preview branch", |driver| async move {
-            driver.as_ref()?.discard_current_branch().await;
-            Some(())
-        });
-    }
-
-    fn get_branch_history(&self) -> Vec<ChangeHash> {
-        self.history.clone().unwrap_or_default()
+        let _ = tx.send(LocalChangesResult::Discard);
     }
 
     fn get_sync_status(&self) -> SyncStatus {
@@ -359,8 +429,7 @@ impl ProjectViewModel for Project {
         }
         tracing::debug!("=====================================");
     }
-
-    fn get_branch(&self, id: &SedimentreeId) -> Option<impl BranchViewModel + use<>> {
+    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
         let id = id.clone();
 
         let (state, mut children) =
@@ -417,7 +486,7 @@ impl ProjectViewModel for Project {
         self.get_branch(id.branch())
     }
 
-    fn create_branch(&mut self, name: String) {
+    fn create_branch(&self, name: String) {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
@@ -427,7 +496,7 @@ impl ProjectViewModel for Project {
         });
     }
 
-    fn checkout_branch(&mut self, branch: &SedimentreeId) {
+    fn checkout_branch(&self, branch: &DocumentId) {
         let branch = branch.clone();
         self.with_driver_blocking("Checkout branch", |driver| async move {
             driver.as_ref()?.request_checkout(&branch).await;
@@ -435,88 +504,205 @@ impl ProjectViewModel for Project {
         });
     }
 
+    fn is_branch_loaded(&self, branch: &DocumentId) -> bool {
+        let branch = branch.clone();
+        self.with_driver_blocking("Is branch loaded", |driver| async move {
+            let Some(dr) = driver.as_ref() else {
+                return false;
+            };
+            dr.get_branch_db().is_branch_loaded(&branch).await
+        })
+    }
+
+    fn dump_current_branch(&self) {
+        let Some(ref_) = self.get_current_ref() else {
+            return;
+        };
+        self.with_driver_blocking("Dump current branch", |driver| async move {
+            let Some(dr) = driver.as_ref() else {
+                return;
+            };
+            dr.get_branch_db().dump_branch_doc(ref_.branch()).await;
+        });
+    }
+
+    fn can_create_merge_preview_branch(&self) -> bool {
+        let Some(main_branch) = self.get_main_branch() else {
+            return false;
+        };
+        match self.get_checked_out_branch_state() {
+            Some(branch_state) => branch_state.id != main_branch.get_id(),
+            _ => false,
+        }
+    }
+
+    fn create_merge_preview_branch(&self) -> Result<(), CreateMergePreviewBranchError> {
+        let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
+            return Err(CreateMergePreviewBranchError::NoCheckedOutBranch);
+        };
+        let Some(fork_info) = checked_out_branch.forked_from else {
+            return Err(CreateMergePreviewBranchError::NoForkedFrom);
+        };
+
+        let source = checked_out_branch.id;
+        let target = fork_info.branch().clone();
+        self.with_driver_blocking("Create merge preview branch", |driver| async move {
+            driver
+                .as_ref()
+                .ok_or_else(|| CreateMergePreviewBranchError::NoDriver)?
+                .create_merge_preview_branch(&source, &target)
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateMergePreviewBranchError::NoChangesToMerge,
+                    _ => CreateMergePreviewBranchError::DbError(Box::new(e)),
+                })?;
+            Ok(())
+        })
+    }
+
+    fn can_create_revert_preview_branch(&self, head: ChangeHash) -> bool {
+        if self.is_revert_preview_branch_active() || self.is_merge_preview_branch_active() {
+            return false;
+        }
+        if self.get_change(head).is_some_and(|c|
+        	// Allow reverts for only the second setup commit
+        	!c.is_setup() || self.get_branch_history().iter().position(|&h| h == head) == Some(1))
+        {
+            return self.get_checked_out_branch_state().is_some();
+        }
+        false
+    }
+
+    fn create_revert_preview_branch(
+        &self,
+        head: ChangeHash,
+    ) -> Result<(), CreateRevertPreviewBranchError> {
+        let Some(checked_out_branch) = self.get_checked_out_branch_state() else {
+            return Err(CreateRevertPreviewBranchError::NoCheckedOutBranch);
+        };
+
+        self.with_driver_blocking("Create revert preview branch", move |driver| async move {
+            driver
+                .as_ref()
+                .ok_or_else(|| CreateRevertPreviewBranchError::NoDriver)?
+                .create_revert_preview_branch(&HistoryRef::new(checked_out_branch.id, vec![head]))
+                .await
+                .map_err(|e| match e {
+                    DbError::NoFilters => CreateRevertPreviewBranchError::NoChangesToRevert,
+                    _ => CreateRevertPreviewBranchError::DbError(Box::new(e)),
+                })?;
+            Ok(())
+        })
+    }
+
+    fn is_revert_preview_branch_active(&self) -> bool {
+        let branch_state = self.get_checked_out_branch_state();
+        match branch_state {
+            Some(state) => state.reverted_to.is_some(),
+            _ => false,
+        }
+    }
+
+    fn is_merge_preview_branch_active(&self) -> bool {
+        let branch_state = self.get_checked_out_branch_state();
+        match branch_state {
+            Some(state) => state.merge_into.is_some(),
+            _ => false,
+        }
+    }
+
+    fn is_safe_to_merge(&self) -> bool {
+        let Some(current_branch) = self.get_checked_out_branch_state() else {
+            return false;
+        };
+        let Some(merge_info) = current_branch.merge_into.as_ref() else {
+            return false;
+        };
+        let Some(fork_info) = current_branch.forked_from.as_ref() else {
+            return false;
+        };
+
+        let forked_from = fork_info.branch().clone();
+        let merge_into = merge_info.branch().clone();
+        let Some((source_branch, latest_dest_heads)) =
+            self.with_driver_blocking("Is safe to merge", |driver| async move {
+                let branch_db = driver.as_ref()?.get_branch_db();
+                let source_branch = branch_db
+                    .get_branch_state(&forked_from)
+                    .await
+                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
+                    .ok()?;
+                let latest_dest_heads = branch_db
+                    .get_latest_ref_on_branch(&merge_into)
+                    .await
+                    .inspect_err(|e| tracing::error!("Error during is_safe_to_merge {e}"))
+                    .ok()?
+                    .heads()
+                    .clone();
+                Some((source_branch, latest_dest_heads))
+            })
+        else {
+            return false;
+        };
+
+        source_branch
+            .forked_from
+            .as_ref()
+            .is_some_and(|i| i.heads() == &latest_dest_heads)
+    }
+
+    fn confirm_preview_branch(&self) {
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return;
+        };
+
+        if branch_state.reverted_to.is_some() {
+            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
+                driver.as_ref()?.confirm_revert_preview_branch().await;
+                Some(())
+            });
+        } else if let Some(merge_info) = branch_state.merge_into {
+            let source = branch_state.id.clone();
+            let target = merge_info.branch().clone();
+            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
+                driver.as_ref()?.merge_branch(&source, &target).await;
+                Some(())
+            });
+        }
+    }
+
+    fn discard_preview_branch(&self) {
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return;
+        };
+        if branch_state.reverted_to.is_none() && branch_state.merge_into.is_none() {
+            tracing::error!("Cannot discard branch; not a preview branch!");
+            return;
+        };
+        self.with_driver_blocking("Discard preview branch", |driver| async move {
+            driver.as_ref()?.discard_current_branch().await;
+            Some(())
+        });
+    }
+
+    fn get_branch_history(&self) -> Vec<ChangeHash> {
+        self.history.clone().unwrap_or_default()
+    }
+
     fn get_change(&self, hash: ChangeHash) -> Option<&impl ChangeViewModel> {
         self.changes.get(&hash)
     }
 
-    fn get_default_diff(&self) -> Option<impl DiffViewModel> {
-        let (branch_state, heads_after) =
-            self.with_driver_blocking("Get default diff", |driver| async move {
-                let branch_db = driver.as_ref()?.get_branch_db();
-
-                let branch = branch_db.get_checked_out_ref().await?.branch().clone();
-
-                let state = branch_db
-                    .get_branch_state(&branch)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error getting branch state default diff {e}"))
-                    .ok()?;
-                let synced_heads = branch_db
-                    .get_latest_ref_on_branch(&branch)
-                    .await
-                    .inspect_err(|e| tracing::error!("Error getting default diff {e}"))
-                    .ok()?
-                    .heads()
-                    .clone();
-                Some((state, synced_heads))
-            })?;
-
-        // There is no default diff for the main branch!
-        if branch_state.id == self.get_main_branch().unwrap().get_id() {
-            return None;
-        }
-
-        let heads_before = if self.is_merge_preview_branch_active() {
-            branch_state.merge_into.as_ref()?.heads()
-        }
-        // revert preview and regular branch both use forked_at
-        else {
-            branch_state.forked_from.as_ref()?.heads()
-        };
-
-        // generate the summary
-        let title;
-        if self.is_merge_preview_branch_active() {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            let target_name = self
-                .get_branch(branch_state.merge_into.as_ref()?.branch())?
-                .get_name();
-            title = format!("Showing changes for {} -> {}", source_name, target_name);
-        } else if self.is_revert_preview_branch_active() {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            // assume reverted_to is always just 1 hash
-            let short_heads = &branch_state.reverted_to?.heads().first()?.to_string()[..7];
-            title = format!(
-                "Showing changes for {} reverted to {}",
-                source_name, short_heads
-            );
-        } else {
-            let source_name = self
-                .get_branch(branch_state.forked_from.as_ref()?.branch())?
-                .get_name();
-            title = format!(
-                "Showing changes from {} -> {}",
-                source_name, branch_state.name
-            );
-        }
-
-        let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
-        let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
-
-        Some(DiffWrapper {
-            diff: self.get_cached_diff(before, after),
-            title,
-        })
-    }
-
-    fn get_diff(&self, selected_hash: ChangeHash) -> Option<impl DiffViewModel> {
-        let change = self.changes.get(&selected_hash)?;
+    fn try_get_diff(
+        &self,
+        selected_hash: ChangeHash,
+    ) -> Result<impl DiffViewModel, RequestDiffError> {
+        let change = self
+            .changes
+            .get(&selected_hash)
+            .ok_or(RequestDiffError::CommitNotFound)?;
         if change.is_setup() {
-            return None;
+            return Err(RequestDiffError::NoDiffAvailable);
         }
         let heads_before;
         let heads_after = vec![change.hash];
@@ -530,25 +716,141 @@ impl ProjectViewModel for Project {
             }
         }
 
-        let branch_state = self.get_checked_out_branch_state()?;
+        let branch_state = self
+            .get_checked_out_branch_state()
+            .ok_or(RequestDiffError::NoBranchCheckedOut)?;
 
         if let Some(prev_hash) = prev_hash {
             heads_before = vec![prev_hash];
         } else {
-            heads_before = branch_state.forked_from.as_ref()?.heads().clone();
+            heads_before = branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+                .clone();
         }
 
         let before = HistoryRef::new(branch_state.id.clone(), heads_before);
         let after = HistoryRef::new(branch_state.id.clone(), heads_after);
+        let title = format!(
+            "Showing changes from {} - {}",
+            change.get_summary(),
+            change.get_human_timestamp()
+        );
+        let diff = self.request_diff(DiffId::new(before, after))?;
+        Ok(DiffWrapper { title, diff })
+    }
 
-        Some(DiffWrapper {
-            diff: self.get_cached_diff(before, after),
-            title: format!(
-                "Showing changes from {} - {}",
-                change.get_summary(),
-                change.get_human_timestamp()
-            ),
-        })
+    fn try_get_default_diff(&self) -> Result<impl DiffViewModel, RequestDiffError> {
+        let Some(branch_state) = self.get_checked_out_branch_state() else {
+            return Err(RequestDiffError::NoBranchCheckedOut);
+        };
+        let doc_id = branch_state.id.clone();
+
+        let heads_after = self.with_driver_blocking("Get default diff", |driver| async move {
+            Ok(driver
+                .as_ref()
+                .ok_or(RequestDiffError::NoDriver)?
+                .get_branch_db()
+                .get_latest_ref_on_branch(&doc_id)
+                .await
+                .map_err(|_| RequestDiffError::NoBranchCheckedOut)?
+                .heads()
+                .clone())
+        })?;
+
+        // There is no default diff for the main branch!
+        if branch_state.id == self.get_main_branch().unwrap().get_id() {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        let heads_before = if self.is_merge_preview_branch_active() {
+            branch_state
+                .merge_into
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        }
+        // revert preview and regular branch both use forked_at
+        else {
+            branch_state
+                .forked_from
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .heads()
+        };
+
+        if heads_before == &heads_after {
+            return Err(RequestDiffError::NoDiffAvailable);
+        }
+
+        // generate the summary
+        let title = if self.is_merge_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            let target_name = self
+                .get_branch(
+                    branch_state
+                        .merge_into
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            format!("Showing changes for {} -> {}", source_name, target_name)
+        } else if self.is_revert_preview_branch_active() {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+
+            let short_heads = &branch_state
+                .reverted_to
+                .as_ref()
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .short_heads();
+            format!(
+                "Showing changes for {} reverted to {}",
+                source_name, short_heads
+            )
+        } else {
+            let source_name = self
+                .get_branch(
+                    branch_state
+                        .forked_from
+                        .as_ref()
+                        .ok_or(RequestDiffError::BranchesDiverge)?
+                        .branch(),
+                )
+                .ok_or(RequestDiffError::BranchesDiverge)?
+                .get_name();
+            format!(
+                "Showing changes from {} -> {}",
+                source_name, branch_state.name
+            )
+        };
+
+        let before = HistoryRef::new(branch_state.id.clone(), heads_before.clone());
+        let after = HistoryRef::new(branch_state.id.clone(), heads_after.clone());
+
+        let diff = self.request_diff(DiffId::new(before, after))?;
+        Ok(DiffWrapper { diff, title })
     }
 
     fn get_current_ref(&self) -> Option<HistoryRef> {
@@ -588,72 +890,6 @@ impl ProjectViewModel for Project {
                 .inspect_err(|e| tracing::error!("Error getting files at ref {e}"))
                 .ok()
         })
-    }
-
-    fn is_branch_loaded(&self, branch: &SedimentreeId) -> bool {
-        let branch = branch.clone();
-        self.with_driver_blocking("Is branch loaded", |driver| async move {
-            let Some(dr) = driver.as_ref() else {
-                return false;
-            };
-            dr.get_branch_db().is_branch_loaded(&branch).await
-        })
-    }
-
-    fn dump_current_branch(&self) {
-        let Some(ref_) = self.get_current_ref() else {
-            return;
-        };
-        self.with_driver_blocking("Dump current branch", |driver| async move {
-            let Some(dr) = driver.as_ref() else {
-                return;
-            };
-            dr.get_branch_db().dump_branch_doc(ref_.branch()).await;
-        });
-    }
-
-    fn get_server(&self) -> Option<String> {
-        // note... we're not doing URL parsing here because a user could just open up the text file and add
-        // some BS. So there's no invariant that these URLs are even valid.
-        let res = BackstitchConfigAccessor::get_project_value("server_url", "");
-        (!res.is_empty()).then_some(res)
-    }
-
-    fn set_server(&self, server: Option<String>) {
-        BackstitchConfigAccessor::set_project_value(
-            "server_url",
-            &server.unwrap_or("".to_string()),
-        );
-    }
-
-    fn add_server(&self, server: String) {
-        if server.is_empty() {
-            return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.push(server);
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
-    }
-
-    fn remove_server(&self, server: String) {
-        if server.is_empty() {
-            return;
-        }
-        let mut servers = self.get_available_servers();
-        servers.retain(|s| s != &server && !s.is_empty());
-        BackstitchConfigAccessor::set_project_value("available_servers", &servers.join(","));
-    }
-
-    fn get_available_servers(&self) -> Vec<String> {
-        let servers = BackstitchConfigAccessor::get_project_value(
-            "available_servers",
-            "alpha.backstitch.dev:8085",
-        );
-        servers
-            .split(",")
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
     }
 }
 
@@ -744,7 +980,7 @@ impl BranchViewModel for BranchWrapper {
 }
 
 impl DiffViewModel for DiffWrapper {
-    fn get_diff(&self) -> &ProjectDiff {
+    fn get_diff(&self) -> &DiffStatus {
         &self.diff
     }
 

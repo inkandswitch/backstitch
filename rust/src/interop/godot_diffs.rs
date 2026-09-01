@@ -9,6 +9,7 @@ use godot::{
     meta::conv::ByValue,
     meta::{GodotConvert, ToArg, ToGodot},
 };
+use regex::Regex;
 
 use crate::helpers::utils::ChangeType;
 use crate::{
@@ -317,11 +318,40 @@ fn get_classdb_default_value(class_name: &str, prop: &str) -> String {
         "".to_string()
     }
 }
+
+fn str_to_var_safe(s: &str) -> Variant {
+    // TODO: This is a temporary fix to avoid errors when Dictionaries and Arrays have embedded resources
+    // Once we move to actual variant parsing, we can remove this
+
+    // handle typed arrays and dictionaries that have a script class as the type (e.g. `Array[Resource("foo")]([...])`)
+    if (s.starts_with("Array[") || s.starts_with("Dictionary[")) && s.contains("Resource(") {
+        let re = Regex::new(r#"(Dictionary|Array)\[[^]]+\]\((.*)\)"#).unwrap();
+        let replaced = re
+            .captures(s)
+            .map(|caps| caps.get(1).map(|m| m.as_str()).unwrap_or(""))
+            .unwrap_or("");
+        return str_to_var_safe(replaced);
+    }
+    let re = Regex::new(r#"((?:Sub|Ext)?Resource\([^)]*\))"#).unwrap();
+    let replaced = &re
+        .replace_all(s, |caps: &regex::Captures| {
+            format!(
+                "\"{}\"",
+                caps.get(0)
+                    .map(|m| m.as_str())
+                    .unwrap_or("")
+                    .replace("\"", "\\\"")
+            )
+        })
+        .to_string();
+    str_to_var(replaced)
+}
+
 impl ToGodot for VariantValue {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
-            VariantValue::Variant(s) => str_to_var(s),
+            VariantValue::Variant(s) => str_to_var_safe(s),
             VariantValue::DefaultValue(type_or_instance, property_name) => {
                 let default_value = match type_or_instance {
                     Some(TypeOrInstance::Type(class_name)) => {
@@ -334,12 +364,13 @@ impl ToGodot for VariantValue {
                 if default_value.is_empty() {
                     "<default_value>".to_string().to_variant()
                 } else {
-                    str_to_var(&default_value)
+                    str_to_var_safe(&default_value)
                 }
             }
             VariantValue::LazyLoadData(original_path, load_path) => {
                 LazyLoadToken::new(load_path.clone(), Some(original_path.clone())).to_variant()
             }
+            VariantValue::Script(path) => format!("<Script: {}>", path).to_variant(),
         }
     }
 }

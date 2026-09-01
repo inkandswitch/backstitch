@@ -2,6 +2,8 @@ set dotenv-load
 set dotenv-filename := "build.env"
 set dotenv-required
 
+export RUST_BACKTRACE := "full"
+
 # Get the default architecture
 default_arch := shell("rustc --version --verbose | grep host | awk '{print $2}'")
 
@@ -308,6 +310,13 @@ _configure-backstitch: _make-plugin-dir
             git_describe = git_describe[:first_index] + "-" + git_describe[first_index + 1 :].replace("-", "+")
 
     print(f"Loaded version from Git repository: {git_describe}")
+    # remove the `v` prefix if it exists and remove any trailing prerelease or build metadata
+    minimum_godot = str(os.getenv("MINIMUM_GODOT")).lstrip("v").split("-")[0].split("+")[0]
+    # check if minimum_godot matches <MAJOR>.<MINOR> or <MAJOR>.<MINOR>.<PATCH>
+    split_minimum_godot = minimum_godot.split(".")
+    if (not (len(split_minimum_godot) >= 2 and len(split_minimum_godot) <= 3)) or (not all(part.isdigit() for part in split_minimum_godot)):
+        print(f"**** Minimum Godot version {minimum_godot} is not a valid version!")
+        exit(1)
 
     with open("build/backstitch/plugin.cfg", "w") as file:
         file.write(f"""[plugin]
@@ -321,22 +330,16 @@ _configure-backstitch: _make-plugin-dir
     with open("build/backstitch/Backstitch.gdextension", "w") as file:
         file.write(f"""[configuration]
     entry_symbol = "gdext_rust_init"
-    compatibility_minimum = {os.getenv("MINIMUM_GODOT")}
+    compatibility_minimum = {minimum_godot}
     reloadable = true
 
     [libraries]
-    linux.debug.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.release.x86_64 =      "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.debug.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.release.arm64 =       "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.debug.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    linux.release.arm32 =       "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    windows.debug.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.release.x86_64 =    "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.debug.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    windows.release.arm64 =     "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    macos.debug =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
-    macos.release =             "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
+    linux.editor.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
+    linux.editor.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
+    linux.editor.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
+    windows.editor.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
+    windows.editor.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
+    macos.editor =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
     """)
 
 # Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures.

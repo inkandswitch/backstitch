@@ -170,6 +170,8 @@ pub enum VariantValue {
     DefaultValue(Option<TypeOrInstance>, String),
     /// Lazy loaded variant with of shape (original path, load path). Converted to a LazyLoadToken at usage time.
     LazyLoadData(String, String),
+    /// A path to a script file.
+    Script(String),
 }
 
 /// Implement the to_string method for this enum
@@ -553,15 +555,12 @@ impl Differ {
 
         // Expensive: Load any ext resources and turn them into Variants
         let old = match &old_value {
-            Some(v) => Some(
-                self.get_prop_value(v, old_scene, true, prop == "script", before, after)
-                    .await,
-            ),
+            Some(v) => Some(self.get_prop_value(v, old_scene, true, before, after).await),
             None => None,
         };
         let new = match &new_value {
             Some(v) => Some(
-                self.get_prop_value(v, new_scene, false, prop == "script", before, after)
+                self.get_prop_value(v, new_scene, false, before, after)
                     .await,
             ),
             None => None,
@@ -711,15 +710,9 @@ impl Differ {
         prop_value: &VariantStrValue,
         scene: Option<&GodotScene>,
         is_old: bool,
-        is_script: bool,
         before: &HistoryRef,
         after: &HistoryRef,
     ) -> VariantValue {
-        // Prevent loading script files during the diff and creating issues for the editor
-        if is_script {
-            return VariantValue::Variant("<Script changed>".to_string());
-        }
-
         let path = match prop_value {
             VariantStrValue::Variant(variant) => {
                 return VariantValue::Variant(variant.clone());
@@ -741,8 +734,14 @@ impl Differ {
                         .map(|ext_resource| &ext_resource.path)
                 });
                 let Some(p) = p else {
-                    return VariantValue::Variant("\"<ExtResource not found>\"".to_string());
+                    return VariantValue::Variant(format!(
+                        "\"<ExtResource {} not found>\"",
+                        ext_resource_id
+                    ));
                 };
+                if p.ends_with(".gd") || p.ends_with(".cs") {
+                    return VariantValue::Script(p.to_owned());
+                }
                 p
             }
             VariantStrValue::DefaultValue(type_or_instance, prop) => {
@@ -769,13 +768,13 @@ impl Differ {
         ext_resource_ids: &mut HashSet<String>,
         sub_resource_ids: &mut HashSet<String>,
     ) {
-        for (ext_id, _) in scene.ext_resources.iter() {
+        for ext_id in scene.ext_resources.keys() {
             ext_resource_ids.insert(ext_id.clone());
         }
-        for (node_id, _) in scene.nodes.iter() {
+        for node_id in scene.nodes.keys() {
             node_ids.insert(node_id.clone());
         }
-        for (sub_id, _) in scene.sub_resources.iter() {
+        for sub_id in scene.sub_resources.keys() {
             sub_resource_ids.insert(sub_id.clone());
         }
     }

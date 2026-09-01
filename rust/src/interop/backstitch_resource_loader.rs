@@ -19,6 +19,7 @@ use crate::helpers::history_path::HistoryRefPath;
 use crate::helpers::history_ref::HistoryRef;
 use crate::interop::fake_importers::FakeImporter;
 use crate::interop::godot_project::GodotProject;
+use crate::project::project_api::ProjectViewModel;
 
 /// This class allows us to load resources directly from backstitch history.
 /// It is registered as a resource format loader with Godot.
@@ -48,8 +49,9 @@ impl BackstitchResourceLoader {
         &self,
         history_ref_path: &HistoryRefPath,
     ) -> Result<FileContent, Error> {
-        let Some(content) = GodotProject::get_singleton()
-            .bind()
+        let Some(content) = GodotProject::get_project_singleton()
+            .read()
+            .unwrap()
             .get_file_at_ref(&history_ref_path.path, &history_ref_path.ref_)
         else {
             return Err(Error::ERR_FILE_NOT_FOUND);
@@ -63,10 +65,14 @@ impl BackstitchResourceLoader {
         history_ref_path: &HistoryRefPath,
     ) -> Result<(FileContent, Option<FileContent>), Error> {
         let import_path = format!("{}.import", history_ref_path.path);
-        let Some(contents) = GodotProject::get_singleton().bind().get_files_at_ref(
-            &history_ref_path.ref_,
-            &HashSet::from([history_ref_path.path.clone(), import_path.clone()]),
-        ) else {
+        let Some(contents) = GodotProject::get_project_singleton()
+            .read()
+            .unwrap()
+            .get_files_at_ref(
+                &history_ref_path.ref_,
+                &HashSet::from([history_ref_path.path.clone(), import_path.clone()]),
+            )
+        else {
             return Err(Error::ERR_FILE_NOT_FOUND);
         };
         let content = contents
@@ -76,10 +82,14 @@ impl BackstitchResourceLoader {
         let import_content = contents.get(&import_path);
         let mut import_content = import_content.map(|i| i.to_owned());
         if import_content.is_none() {
-            let current_ref = GodotProject::get_singleton().bind().get_current_ref();
+            let current_ref = GodotProject::get_project_singleton()
+                .read()
+                .unwrap()
+                .get_current_ref();
             if let Some(current_ref) = current_ref {
-                import_content = GodotProject::get_singleton()
-                    .bind()
+                import_content = GodotProject::get_project_singleton()
+                    .read()
+                    .unwrap()
                     .get_file_at_ref(&import_path, &current_ref);
             }
         }

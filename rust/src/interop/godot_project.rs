@@ -1,28 +1,35 @@
 use crate::fs::file_utils::{FileContent, FileSystemEvent};
-use crate::helpers::history_ref::HistoryRef;
-use crate::interop::godot_accessors::{
-    BackstitchConfigAccessor, BackstitchEditorAccessor, EditorFilesystemAccessor,
-};
+use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
     ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project_api::{BranchViewModel, ProjectViewModel};
-use crate::project::project_base::{GodotProjectSignal, Project};
+use crate::project::project_api::{
+    BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
+    ProjectViewModel, RequestDiffError,
+};
+use crate::project::project_base::GodotProjectSignal;
+use crate::project::{Project, ProjectStartStatus};
 use ::safer_ffi::prelude::*;
 use automerge::ChangeHash;
 use godot::classes::DirAccess;
 use godot::classes::EditorInterface;
+use godot::classes::Os;
 use godot::classes::ProjectSettings;
 use godot::classes::ResourceLoader;
 use godot::classes::editor_plugin::{CustomControlContainer, DockSlot};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
+use godot::global::Error;
 use godot::prelude::*;
 use sedimentree_core::id::SedimentreeId;
 use std::collections::HashSet;
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::sync::{
+    Arc, OnceLock, PoisonError, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard,
+    RwLockWriteGuard as StdRwLockWriteGuard,
+};
 use std::{collections::HashMap, str::FromStr};
 use tracing::instrument;
 
@@ -41,40 +48,41 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
 -> Option<(Callable, Callable)> {
     // get the editor node
     let editor_file_system = EditorInterface::singleton().get_resource_filesystem();
-    let editor_node = if let Some(editor_file_system) = editor_file_system {
+    let editor_node = {
+        let editor_file_system = editor_file_system?;
         // get the parent of the editor file system, that's the editor node
         editor_file_system.get_parent()
-    } else {
-        return None;
     };
     if let Some(editor_node) = editor_node {
         // get the first Panel child of the editor node, that's the gui base
         let children = editor_node.get_children();
         // it should be the first panel
-        if let Some(gui_base) = children.iter_shared().find(|c| c.get_class() == "Panel") {
+        {
+            let gui_base = children.iter_shared().find(|c| c.get_class() == "Panel")?;
             // find the disk_changed dialog child of the gui base
             let children = gui_base.get_children();
-            if let Some(disk_changed_dialog_node) = children.iter_shared().find(|c| {
-                if c.get_class() == "ConfirmationDialog" {
-                    // check that one of the children is a VBoxContainer
-                    let children = c.get_children();
-                    if let Some(vbox_container) = children
-                        .iter_shared()
-                        .find(|c| c.get_class() == "VBoxContainer")
-                    {
-                        // check that one of the children is a Tree
-                        let children = vbox_container.get_children();
-                        if children
+            {
+                let disk_changed_dialog_node = children.iter_shared().find(|c| {
+                    if c.get_class() == "ConfirmationDialog" {
+                        // check that one of the children is a VBoxContainer
+                        let children = c.get_children();
+                        if let Some(vbox_container) = children
                             .iter_shared()
-                            .find(|c| c.get_class() == "Tree")
-                            .is_some()
+                            .find(|c| c.get_class() == "VBoxContainer")
                         {
-                            return true;
+                            // check that one of the children is a Tree
+                            let children = vbox_container.get_children();
+                            if children
+                                .iter_shared()
+                                .find(|c| c.get_class() == "Tree")
+                                .is_some()
+                            {
+                                return true;
+                            }
                         }
                     }
-                }
-                false
-            }) {
+                    false
+                })?;
                 let disk_changed_dialog =
                     match disk_changed_dialog_node.try_cast::<ConfirmationDialog>() {
                         Ok(dialog) => dialog,
@@ -102,11 +110,7 @@ fn steal_editor_node_private_reload_methods_from_dialog_signal_handlers()
                 } else {
                     return None;
                 }
-            } else {
-                return None;
             }
-        } else {
-            return None;
         }
     }
     None
@@ -177,12 +181,15 @@ impl PendingEditorUpdate {
 #[class(base=Node, tool)]
 pub struct GodotProject {
     base: Base<Node>,
-    project: Project,
+    project: Arc<StdRwLock<Project>>,
     pending_editor_update: PendingEditorUpdate,
     reload_project_settings_callable: Option<Callable>,
     deferred_start: i32,
     was_scanning: bool,
 }
+
+// TODO: make sure this doesn't persist across hot-reloads (hot-reloads are currently broken)
+static PROJECT_SINGLETON: OnceLock<Arc<StdRwLock<Project>>> = OnceLock::new();
 
 // new API
 /// This implementation binds as closely as possible to [GodotProjectViewModel].
@@ -192,88 +199,133 @@ impl GodotProject {
     fn state_changed();
 
     #[signal]
-    fn sync_changed();
+    fn sync_status_changed();
 
     #[signal]
-    fn create_failed();
+    fn start_status_changed(start_status: VarDictionary);
+
+    #[signal]
+    fn auth_status_changed(auth_status: GString);
+
+    #[signal]
+    fn server_status_changed();
+
+    fn project(&self) -> StdRwLockReadGuard<'_, Project> {
+        self.project.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn project_mut(&self) -> StdRwLockWriteGuard<'_, Project> {
+        self.project.write().unwrap_or_else(PoisonError::into_inner)
+    }
 
     #[func]
     fn has_user_name(&self) -> bool {
-        self.project.has_user_name()
+        self.project().has_user_name()
     }
 
     #[func]
     fn get_user_name(&self) -> String {
-        self.project.get_user_name()
+        self.project().get_user_name()
     }
 
     #[func]
     fn set_user_name(&self, name: String) {
-        self.project.set_user_name(name);
+        self.project().set_user_name(name);
     }
 
     #[func]
-    fn set_server(&self, server: String) {
+    fn change_server(&self, server: String) {
         let server = if server.is_empty() {
             None
         } else {
             Some(server)
         };
-        self.project.set_server(server)
+        self.project().change_server(server.as_deref())
     }
 
     #[func]
-    fn get_server(&self) -> String {
-        self.project.get_server().unwrap_or("".to_string())
+    fn validate_server(&self, server: String) -> Variant {
+        self.project()
+            .validate_server(&server)
+            .map(|s| s.to_variant())
+            .unwrap_or(Variant::nil())
+    }
+
+    #[func]
+    fn ping_server(&self, server: String, retry: bool) -> Variant {
+        self.project().ping_server(&server, retry).to_variant()
+    }
+
+    #[func]
+    fn authenticate_server(&self, server: String) {
+        self.project().authenticate_server(&server);
+    }
+
+    #[func]
+    fn deauthenticate_server(&self, server: String) {
+        self.project().deauthenticate_server(&server);
+    }
+
+    #[func]
+    fn cancel_authenticate(&self) {
+        self.project().cancel_authenticate();
+    }
+
+    #[func]
+    fn get_saved_server(&self) -> String {
+        self.project().get_saved_server().unwrap_or("".to_string())
     }
 
     #[func]
     fn get_available_servers(&self) -> PackedStringArray {
-        self.project.get_available_servers().to_godot()
+        self.project().get_available_servers().to_godot()
     }
 
     #[func]
     fn add_server(&self, server: String) {
-        self.project.add_server(server)
+        self.project().add_server(&server)
     }
 
     #[func]
     fn remove_server(&self, server: String) {
-        self.project.remove_server(server)
+        self.project().remove_server(&server)
+    }
+
+    #[func]
+    fn webviewer_url(&self) -> String {
+        self.project().webviewer_url().unwrap_or("".to_string())
     }
 
     #[func]
     fn clear_project(&mut self) {
-        self.project.clear_project();
+        self.project_mut().clear_project();
     }
 
     #[func]
     fn has_project(&self) -> bool {
-        self.project.has_project()
+        self.project().has_project()
     }
 
     #[func]
     fn get_project_id(&self) -> String {
-        if let Some(id) = self.project.get_project_id() {
+        if let Some(id) = self.project().get_project_id() {
             return id.to_string();
         }
         "".to_string()
     }
 
     #[func]
-    fn new_project(&mut self) {
-        if let Err(e) = self.project.new_project() {
-            tracing::error!("Error creating {:?}", e);
-            self.base_mut().call_deferred(
-                "emit_signal",
-                &["create_failed".to_variant(), e.to_string().to_variant()],
-            );
-        }
+    fn new_project(&mut self, server: String) {
+        self.project().new_project(if server.is_empty() {
+            None
+        } else {
+            Some(server.as_str())
+        });
     }
 
     #[func]
     fn load_project(&mut self, id: String) {
-        if let Ok(id) = SedimentreeId::from_str(&id)
+        if let Ok(id) = DocumentId::from_str(&id)
             && let Err(e) = self.project.load_project(&id, false)
         {
             tracing::error!("Error regular starting {:?}", e);
@@ -285,29 +337,28 @@ impl GodotProject {
     }
 
     #[func]
-    fn local_changes(&self) -> Variant {
-        let local_changes = self.project.local_changes();
-        local_changes._to_variant()
+    fn local_changes(&self) -> Array<PackedStringArray> {
+        self.project().local_changes().to_godot()
     }
 
     #[func]
-    fn checkin_local_changes(&mut self) {
-        self.project.checkin_local_changes();
+    fn check_in_local_changes(&self) {
+        self.project().check_in_local_changes();
     }
 
     #[func]
-    fn discard_local_changes(&mut self) {
-        self.project.discard_local_changes();
+    fn discard_local_changes(&self) {
+        self.project().discard_local_changes();
     }
 
     #[func]
     fn get_sync_status(&self) -> VarDictionary {
-        self.project.get_sync_status().to_godot()
+        self.project().get_sync_status().to_godot()
     }
 
     #[func]
     fn print_sync_debug(&self) {
-        self.project.print_sync_debug();
+        self.project().print_sync_debug();
     }
 
     fn branch_to_variant(&self, branch: Option<impl BranchViewModel>) -> Variant {
@@ -322,22 +373,22 @@ impl GodotProject {
         let Ok(id) = SedimentreeId::from_str(&id) else {
             return Variant::nil();
         };
-        self.branch_to_variant(self.project.get_branch(&id))
+        self.branch_to_variant(self.project().get_branch(&id))
     }
 
     #[func]
     fn get_main_branch(&self) -> Variant {
-        self.branch_to_variant(self.project.get_main_branch())
+        self.branch_to_variant(self.project().get_main_branch())
     }
 
     #[func]
     fn get_checked_out_branch(&self) -> Variant {
-        self.branch_to_variant(self.project.get_checked_out_branch())
+        self.branch_to_variant(self.project().get_checked_out_branch())
     }
 
     #[func]
     fn dump_current_branch(&self) {
-        self.project.dump_current_branch();
+        self.project().dump_current_branch();
     }
 
     #[func]
@@ -345,74 +396,96 @@ impl GodotProject {
         let Ok(id) = SedimentreeId::from_str(&id) else {
             return false;
         };
-        self.project.is_branch_loaded(&id)
+        self.project().is_branch_loaded(&id)
     }
 
     #[func]
-    fn create_branch(&mut self, name: String) {
-        self.project.create_branch(name);
+    fn create_branch(&self, name: String) {
+        self.project().create_branch(name);
     }
 
     #[func]
     fn checkout_branch(&mut self, id: String) {
-        if let Ok(id) = SedimentreeId::from_str(&id) {
+        if let Ok(id) = DocumentId::from_str(&id) {
             self.project.checkout_branch(&id);
         };
     }
 
     #[func]
     fn can_create_merge_preview_branch(&self) -> bool {
-        self.project.can_create_merge_preview_branch()
+        self.project().can_create_merge_preview_branch()
     }
 
     #[func]
-    fn create_merge_preview_branch(&mut self) {
-        self.project.create_merge_preview_branch();
+    fn create_merge_preview_branch(&self) -> Error {
+        match self.project().create_merge_preview_branch() {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating merge preview branch: {e}");
+                match e {
+                    CreateMergePreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateMergePreviewBranchError::NoChangesToMerge => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
+        }
     }
 
     #[func]
     fn can_create_revert_preview_branch(&self, head: String) -> bool {
         if let Ok(hash) = ChangeHash::from_str(&head) {
-            return self.project.can_create_revert_preview_branch(hash);
+            return self.project().can_create_revert_preview_branch(hash);
         }
         false
     }
 
     #[func]
-    fn create_revert_preview_branch(&mut self, head: String) {
-        if let Ok(hash) = ChangeHash::from_str(&head) {
-            self.project.create_revert_preview_branch(hash);
+    fn create_revert_preview_branch(&self, head: String) -> Error {
+        let Ok(hash) = ChangeHash::from_str(&head) else {
+            godot_error!("Invalid hash: {head}");
+            return Error::ERR_INVALID_PARAMETER;
+        };
+        match self.project().create_revert_preview_branch(hash) {
+            Ok(_) => Error::OK,
+            Err(e) => {
+                godot_error!("Error creating revert preview branch: {e}");
+                match e {
+                    CreateRevertPreviewBranchError::NoCheckedOutBranch => Error::ERR_INVALID_DATA,
+                    CreateRevertPreviewBranchError::NoChangesToRevert => Error::ERR_CANT_CREATE,
+                    _ => Error::ERR_BUG,
+                }
+            }
         }
     }
 
     #[func]
     fn is_revert_preview_branch_active(&self) -> bool {
-        self.project.is_revert_preview_branch_active()
+        self.project().is_revert_preview_branch_active()
     }
 
     #[func]
     fn is_merge_preview_branch_active(&self) -> bool {
-        self.project.is_merge_preview_branch_active()
+        self.project().is_merge_preview_branch_active()
     }
 
     #[func]
     fn is_safe_to_merge(&self) -> bool {
-        self.project.is_safe_to_merge()
+        self.project().is_safe_to_merge()
     }
 
     #[func]
-    fn confirm_preview_branch(&mut self) {
-        self.project.confirm_preview_branch();
+    fn confirm_preview_branch(&self) {
+        self.project().confirm_preview_branch();
     }
 
     #[func]
-    fn discard_preview_branch(&mut self) {
-        self.project.discard_preview_branch();
+    fn discard_preview_branch(&self) {
+        self.project().discard_preview_branch();
     }
 
     #[func]
     fn get_branch_history(&self) -> PackedStringArray {
-        self.project.get_branch_history().to_godot()
+        self.project().get_branch_history().to_godot()
     }
 
     #[func]
@@ -420,41 +493,72 @@ impl GodotProject {
         let Ok(hash) = ChangeHash::from_str(&hash) else {
             return Variant::nil();
         };
-        let Some(change) = self.project.get_change(hash) else {
+        let Some(change) = self
+            .project()
+            .get_change(hash)
+            .map(change_view_model_to_dict)
+        else {
             return Variant::nil();
         };
-        Variant::from(change_view_model_to_dict(change))
+        Variant::from(change)
     }
 
     #[func]
-    fn get_diff(&self, selected_hash: String) -> Variant {
-        let Ok(hash) = ChangeHash::from_str(&selected_hash) else {
+    fn try_get_diff(&self, hash: String) -> Variant {
+        let Ok(hash) = ChangeHash::from_str(&hash) else {
+            godot_error!("Invalid hash: {hash}");
             return Variant::nil();
         };
-        let Some(diff) = ProjectViewModel::get_diff(&self.project, hash) else {
-            return Variant::nil();
-        };
-        Variant::from(diff_view_model_to_dict(&diff))
+        match self.project().try_get_diff(hash) {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Err(e) => {
+                Self::consume_diff_error(e);
+                Variant::nil()
+            }
+        }
     }
 
     #[func]
-    fn get_default_diff(&self) -> Variant {
-        let Some(diff) = self.project.get_default_diff() else {
-            return Variant::nil();
+    fn try_get_default_diff(&self) -> Variant {
+        match self.project().try_get_default_diff() {
+            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Err(e) => {
+                Self::consume_diff_error(e);
+                Variant::nil()
+            }
+        }
+    }
+
+    fn consume_diff_error(e: RequestDiffError) {
+        match e {
+            RequestDiffError::NoDiffAvailable => {}
+            RequestDiffError::NoBranchCheckedOut => {
+                // Don't surface to the user, just log it
+                tracing::error!("Error requesting default diff: {e}");
+            }
+            _ => {
+                godot_error!("Error requesting default diff: {e}");
+            }
         };
-        Variant::from(diff_view_model_to_dict(&diff))
     }
 
     #[func]
     fn get_current_ref_string(&self) -> String {
-        let Some(ref_) = self.project.get_current_ref() else {
+        let Some(ref_) = self.project().get_current_ref() else {
             return "".to_string();
         };
         ref_.to_string()
     }
 
-    #[func]
-    pub fn get_singleton() -> Gd<Self> {
+    pub fn get_project_singleton() -> Arc<StdRwLock<Project>> {
+        PROJECT_SINGLETON
+            .get()
+            .expect("get_project_singleton: Project singleton not found (GodotProject should have been the first thing initialized in the extension??)")
+            .clone()
+    }
+
+    /// Only here for the sake of the plugin; use `get_project_singleton` instead if using from rust code.
+    fn get_godot_singleton() -> Gd<Self> {
         Engine::singleton()
             .get_singleton(&StringName::from("GodotProject"))
             .unwrap()
@@ -463,7 +567,7 @@ impl GodotProject {
 
     #[func]
     pub fn clear_fs_cache(&self) {
-        self.project.clear_fs_cache();
+        self.project().clear_fs_cache();
     }
 
     pub fn safe_to_update_godot(&self) -> bool {
@@ -571,40 +675,31 @@ impl GodotProject {
             reload_project_settings_callable.call(&[]);
         }
     }
-
-    // bit of a hack to clear the diff cache when UI is loaded, to facilitate debugging
-    fn clear_diff_cache(&self) {
-        self.project.clear_diff_cache();
-    }
-
-    pub fn get_current_ref(&self) -> Option<HistoryRef> {
-        self.project.get_current_ref()
-    }
-
-    pub fn get_file_at_ref(&self, path: &str, ref_: &HistoryRef) -> Option<FileContent> {
-        self.project.get_file_at_ref(path, ref_)
-    }
-
-    pub fn get_files_at_ref(
-        &self,
-        ref_: &HistoryRef,
-        filters: &HashSet<String>,
-    ) -> Option<HashMap<String, FileContent>> {
-        self.project.get_files_at_ref(ref_, filters)
-    }
 }
 
 #[godot_api]
 impl INode for GodotProject {
     fn init(_base: Base<Node>) -> Self {
+        let project_singleton = Arc::new(StdRwLock::new(Project::new(
+            ProjectSettings::singleton()
+                .globalize_path("res://")
+                .to_string()
+                .into(),
+            // the user data dir points at "user://", which is project-specific, so take its parent (which should be `app_userdata`)
+            Os::singleton()
+                .get_user_data_dir()
+                .get_base_dir()
+                .to_string()
+                .into(),
+        )));
+        PROJECT_SINGLETON
+            .set(project_singleton.clone())
+            .unwrap_or_else(|_| {
+                panic!("initialize_project_singleton: Project singleton already exists!")
+            });
         GodotProject {
             base: _base,
-            project: Project::new(
-                ProjectSettings::singleton()
-                    .globalize_path("res://")
-                    .to_string()
-                    .into(),
-            ),
+            project: project_singleton,
             pending_editor_update: PendingEditorUpdate::default(),
             reload_project_settings_callable: None,
             deferred_start: -1,
@@ -620,8 +715,7 @@ impl INode for GodotProject {
             // if we rebase and this fails, we're going to have to do something else
             panic!("Failed to steal reload methods from dialog signal handlers");
         }
-        let project_id = BackstitchConfigAccessor::get_project_doc_id();
-        if project_id.is_empty() {
+        if self.project().get_project_doc_id().is_none() {
             tracing::info!("Backstitch config has no project id, not autostarting...");
             return;
         }
@@ -636,8 +730,8 @@ impl INode for GodotProject {
     }
 
     fn exit_tree(&mut self) {
-        if self.project.has_project() {
-            self.project.stop();
+        if self.project().has_project() {
+            self.project_mut().stop();
         }
         // Perform typical plugin operations here.
     }
@@ -654,7 +748,7 @@ impl INode for GodotProject {
             self.deferred_start -= 1;
             if self.deferred_start == 0
                 && let Ok(id) =
-                    SedimentreeId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
+                    DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
                 && let Err(e) = self.project.load_project(&id, true)
             {
                 tracing::error!("Error autostarting {:?}", e);
@@ -665,10 +759,10 @@ impl INode for GodotProject {
             }
             return;
         }
-        if !self.project.has_project() {
-            return;
-        }
-        let (updates, signals) = self.project.process(_delta, self.safe_to_update_godot());
+
+        let (updates, signals) = self
+            .project_mut()
+            .process(_delta, self.safe_to_update_godot());
         if !updates.is_empty() {
             self.pending_editor_update.merge(
                 self.process_godot_updates(
@@ -685,12 +779,28 @@ impl INode for GodotProject {
                     self.base_mut()
                         .call_deferred("emit_signal", &["state_changed".to_variant()]);
                 }
-                GodotProjectSignal::ServerStatusChanged => {
+                GodotProjectSignal::SyncStatusChanged => {
                     self.base_mut()
-                        .call_deferred("emit_signal", &["sync_changed".to_variant()]);
+                        .call_deferred("emit_signal", &["sync_status_changed".to_variant()]);
                 }
                 // No signal needed here, this is just for the pending editor update to know when to do a full scan/script reload
                 GodotProjectSignal::BranchCheckedOut => {}
+                GodotProjectSignal::StartStatusChanged(status) => {
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["start_status_changed".to_variant(), status.to_variant()],
+                    );
+                }
+                GodotProjectSignal::AuthStatusChanged(status) => {
+                    self.base_mut().call_deferred(
+                        "emit_signal",
+                        &["auth_status_changed".to_variant(), status.to_variant()],
+                    );
+                }
+                GodotProjectSignal::ServerStatusChanged => {
+                    self.base_mut()
+                        .call_deferred("emit_signal", &["server_status_changed".to_variant()]);
+                }
             }
         }
     }
@@ -712,9 +822,10 @@ impl GodotProjectPlugin {
     #[func]
     fn on_reload_ui(&mut self) {
         self.ui_needs_update = true;
-        let proj = GodotProject::get_singleton();
-        let b = proj.bind();
-        b.clear_diff_cache();
+        GodotProject::get_project_singleton()
+            .read()
+            .unwrap()
+            .clear_diff_cache();
     }
 
     fn instantiate_control(&self, path: &str) -> Option<Gd<Control>> {
@@ -726,9 +837,9 @@ impl GodotProjectPlugin {
 
     fn add_sidebar(&mut self) {
         self.sidebar =
-            self.instantiate_control("res://addons/backstitch/public/gdscript/sidebar.tscn");
+            self.instantiate_control("res://addons/backstitch/public/scenes/sidebar.tscn");
         self.toolbar =
-            self.instantiate_control("res://addons/backstitch/public/gdscript/toolbar.tscn");
+            self.instantiate_control("res://addons/backstitch/public/scenes/toolbar.tscn");
         if let Some(sidebar) = self.sidebar.clone().as_mut() {
             self.base_mut()
                 .add_control_to_dock(DockSlot::RIGHT_UL, &*sidebar);
@@ -777,7 +888,8 @@ impl GodotProjectPlugin {
     }
 
     fn update_godot_after_source_change(&mut self) -> bool {
-        let mut proj = GodotProject::get_singleton();
+        // TODO: refactor this to use the project singleton instead
+        let mut proj = GodotProject::get_godot_singleton();
         let mut p = proj.bind_mut();
         if !p.pending_editor_update.any_changes() {
             return false;
@@ -820,7 +932,7 @@ impl GodotProjectPlugin {
             for script in scripts_to_reload {
                 if ResourceLoader::singleton()
                     .load_ex(&script)
-                    .cache_mode(CacheMode::IGNORE_DEEP)
+                    .cache_mode(CacheMode::IGNORE_DEEP) // IGNORE_DEEP forces the GDScriptCache to reload from disk and caches it again (you'd think they'd use `REPLACE` for that...)
                     .done()
                     .is_none()
                 {
@@ -840,7 +952,7 @@ impl GodotProjectPlugin {
 
     #[func]
     fn on_scene_saved(&mut self, path: String) {
-        if path == "res://addons/backstitch/public/gdscript/sidebar.tscn" {
+        if path == "res://addons/backstitch/public/scenes/sidebar.tscn" {
             tracing::info!("Scene saved {path}; reloading sidebar");
             self.on_reload_ui();
         }
@@ -866,7 +978,7 @@ impl IEditorPlugin for GodotProjectPlugin {
         // This is at the end because DirAccess::dir_exists_absolute locks a global mutex
         {
             // If we're already the parent of it, don't add it again
-            if let Some(parent) = GodotProject::get_singleton().get_parent()
+            if let Some(parent) = GodotProject::get_godot_singleton().get_parent()
                 && parent == self.to_gd().upcast::<Node>()
             {
                 tracing::error!(
@@ -874,7 +986,8 @@ impl IEditorPlugin for GodotProjectPlugin {
                 );
             } else {
                 self.base_mut().set_process(false);
-                self.base_mut().add_child(&GodotProject::get_singleton());
+                self.base_mut()
+                    .add_child(&GodotProject::get_godot_singleton());
                 self.base_mut().set_process(true);
             }
             self.add_sidebar();
@@ -899,7 +1012,8 @@ impl IEditorPlugin for GodotProjectPlugin {
         tracing::debug!("** GodotProjectPlugin: exit_tree");
         if self.initialized {
             self.remove_sidebar();
-            self.base_mut().remove_child(&GodotProject::get_singleton());
+            self.base_mut()
+                .remove_child(&GodotProject::get_godot_singleton());
         } else {
             tracing::error!("*************** DID NOT INITIALIZE!!!!!!");
         }

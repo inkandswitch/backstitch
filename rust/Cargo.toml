@@ -1,6 +1,6 @@
 [package]
 name = "backstitch_rust"
-version = "0.0.1"
+version.workspace = true
 authors = [
   "Orion Henry <orion.henry@gmail.com>",
   "Jason Kankiewicz <jason.kankiewicz@gmail.com>",
@@ -23,11 +23,11 @@ tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 automerge = { git = "https://github.com/automerge/automerge.git" }
 autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch="dep-hell" }
 futures = "0.3.31"
-godot = {version = "0.5.3", features = ["experimental-threads"]}
+godot = { version = "0.5.4", features = ["experimental-threads"] }
 tokio = { version = "1.49.0", features = ["full"] }
 console-subscriber = { version = "0.5.0", optional = true }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-tree-sitter = "0.25.4"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+tree-sitter = "0.26.11"
 tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
 safer-ffi = "0.1.13"
 serde_json = "1.0.138"
@@ -44,30 +44,25 @@ notify = { version = "8.2.0", features = [
 notify-debouncer-full = { version = "0.7.0", features = [
   "macos_fsevent",
 ] }
-rand = "0.9.2"
+rand = "0.10.2"
 sha2 = "^0.11.0-rc.5"
 
 
 # backstitch_rust_post_build_script = { path = "backstitch_rust_post_build_script" }
 serde = { version = "1.0", features = ["derive"] }
-md5 = "0.8.0"
-glob = "0.3.1"
 ignore = "0.4.22"
-rlimit = "0.10.2"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
 rayon = "1.11.0"
 regex = "1.12.2"
-tokio-tungstenite = "0.27.0"
 async-stream = "0.3.6"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
 sys-locale = "0.3.2"
 blake3 = { version = "1.8.4", features = ["serde"] }
-wincode = { version = "0.5.3", features = ["derive"] }
+wincode = { version = "0.6.0", features = ["derive"] }
 fjall = "3.1.4"
-anyhow = "1.0.102"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
@@ -80,11 +75,21 @@ subduction_websocket = { branch="remote-heads-builder", git = "https://github.co
 subduction_crypto = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
 future_form = "0.3.1"
 nonempty = "0.12.0"
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
+axum = "0.8.9"
+html-escape = "0.2.14"
+reqwest = { version = "0.13.4", features = ["json"] }
+semver = { version = "1.0.28", features = ["serde"] }
+async-trait = "0.1.91"
+secrecy = "0.10.3"
+keyring = { version = "4.1.6", features = ["v1"] }
+toml = "1.1.4"
+tungstenite = "0.30.0"
+tokio-tungstenite = "0.30.0"
 
 [build-dependencies]
 cbindgen = "^0.27"
-cargo-post = "0.1.7"
-static_vcruntime = "2.0"
+static_vcruntime = "3.0"
 
 [dev-dependencies]
 tempfile = "3.0"

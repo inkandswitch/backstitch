@@ -1,4 +1,3 @@
-mod backstitch_config;
 mod backstitch_resource_loader;
 mod diff_inspector_section;
 mod extension;
@@ -7,5 +6,6 @@ pub mod godot_accessors;
 mod godot_diffs;
 pub mod godot_helpers;
 mod godot_project;
+mod lazy_load_editor_property;
 mod lazy_load_token;
 mod text_differ_view;

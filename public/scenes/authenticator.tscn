@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://bvulea8g7uu76"]
+
+[ext_resource type="Script" uid="uid://dpu5nmvgr1lyt" path="res://addons/backstitch/public/scripts/authenticator.gd" id="1_nv22d"]
+
+[node name="Authenticator" type="Control" unique_id=575314082]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_nv22d")
+
+[node name="AuthenticatorDialog" type="ConfirmationDialog" parent="." unique_id=1180998299]
+unique_name_in_owner = true
+oversampling_override = 1.0
+title = "Waiting for browser..."
+position = Vector2i(0, 36)
+size = Vector2i(456, 100)
+ok_button_text = "Re-open URL"
+dialog_text = "Waiting for sign-in to complete in your browser..."

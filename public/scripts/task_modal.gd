@@ -220,8 +220,12 @@ func _end_task(name: String) -> void:
 
 
 func start_task(name: String, description: String = "", steps: int = -1, indeterminate: bool = true, can_cancel: bool = false):
+	if tasks.has(name):
+		return
+
 	if description == "":
 		description = name
+
 	self._add_task(name, description, steps, indeterminate, can_cancel)
 
 func task_step(name: String, state: String, step: int):

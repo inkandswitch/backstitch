@@ -58,7 +58,9 @@ impl FileSystemWatcher {
                 let Ok(events) = events else {
                     return;
                 };
-                notify_tx_clone.send(events).unwrap();
+                let _ = notify_tx_clone
+                    .send(events)
+                    .inspect_err(|e| tracing::error!("Error sending in fs_watcher: {e}"));
             },
         )
         .unwrap();

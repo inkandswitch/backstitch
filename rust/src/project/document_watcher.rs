@@ -290,7 +290,9 @@ impl DocumentWatcherInner {
         let h = handle.clone();
         let meta = tokio::task::spawn_blocking(move || {
             // TODO: correct error handling on hydration failure; currently panics!
-            let branches_metadata: BranchesMetadataDoc = h.with_document(|d| hydrate(d).unwrap());
+            let branches_metadata: BranchesMetadataDoc = h.with_document(|d| {
+                hydrate(d).expect("there was an issue with document hydration!")
+            });
             branches_metadata
         })
         .await
@@ -300,7 +302,7 @@ impl DocumentWatcherInner {
             .await;
         // check if there are new branches that haven't loaded yet
         let mut tracked_branches = self.tracked_branches.lock().await;
-        for (branch_id, _) in meta.branches.iter() {
+        for branch_id in meta.branches.keys() {
             if !tracked_branches.contains_key(branch_id) {
                 tracked_branches.insert(
                     branch_id.clone(),

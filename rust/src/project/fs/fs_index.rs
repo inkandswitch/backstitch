@@ -26,6 +26,8 @@ pub enum IndexError {
     DatabaseError(String),
     #[error("there was an error with the filesystem: {0}")]
     FilesystemError(String),
+    #[error("The file was not found.")]
+    FileNotFound,
 }
 
 impl From<fjall::Error> for IndexError {
@@ -150,7 +152,13 @@ impl FileSystemIndex {
     pub async fn get_hash<P: AsRef<Path>>(&self, path: P) -> Result<blake3::Hash, IndexError> {
         let path_buf = path.as_ref().to_path_buf();
         let path_bytes = path.as_ref().as_os_str().as_encoded_bytes();
-        let metadata = fs::metadata(&path_buf).await?;
+        let metadata = match fs::metadata(&path_buf).await {
+            Ok(data) => data,
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => Err(IndexError::FileNotFound)?,
+                _ => Err(e)?,
+            },
+        };
 
         let db_hash = self.get_hash_from_db(path_bytes, &metadata).await;
         let hash = match db_hash {

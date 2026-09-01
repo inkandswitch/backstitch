@@ -1,6 +1,6 @@
 use automerge::{Automerge, ChangeHash, ROOT, ReadDoc as AutomergeReadDoc};
 use autosurgeon::{Hydrate, HydrateError, Prop, ReadDoc, Reconcile, Reconciler};
-use rand::Rng;
+use rand::RngExt;
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},

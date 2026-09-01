@@ -1,3 +1,4 @@
+use crate::auth::server_manager::{ServerError, ServerManager};
 use crate::diff::differ::{Differ, ProjectDiff};
 use crate::fs::file_utils::FileSystemEvent;
 use crate::helpers::history_ref::HistoryRef;
@@ -5,7 +6,7 @@ use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
-use crate::project::connection::{RemoteConnection, RemoteConnectionError};
+use crate::project::connection::{RemoteConnection, RemoteConnectionError, RemoteConnectionEvent};
 use crate::project::doc_db::repo::Repo;
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
@@ -32,9 +33,10 @@ use subduction_redb_storage::{RedbStorage, RedbStorageError};
 use subduction_websocket::timeout::FuturesTimerTimeout;
 use subduction_websocket::tokio::TimeoutTokio;
 use thiserror::Error;
-use tokio::select;
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio::{pin, select};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 #[cfg(test)]
 mod tests;
@@ -47,8 +49,7 @@ pub struct Driver {
     inner: Arc<DriverInner>,
     repo: Repo,
     token: CancellationToken,
-    // receivers go outside Inner, so we don't have to mutex them
-    file_changes_rx: mpsc::UnboundedReceiver<FileSystemEvent>,
+    file_changes_rx: Mutex<mpsc::UnboundedReceiver<FileSystemEvent>>,
 }
 
 #[derive(Debug)]
@@ -64,14 +65,53 @@ pub struct DriverInner {
     requested_checkout: Arc<Mutex<Option<SedimentreeId>>>,
     fs_index: FileSystemIndex,
 
+    // Really annoying thing...
+    // In the process of committing files into automerge, we may need to "normalize" weird scenes, after hydrating and then reconciling.
+    // Usually, Godot does this automatically when saving, but maybe our saves aren't from Godot
+    //      (i.e. someone hand-authored a scene, adding some nonsense)?
+    // Or maybe the scene is being upgraded?
+    // We of-course need to write the normalized file to disk!
+    // But we can't do that immediately, since we can only write files during safe blocks, which could be in like, an hour.
+    // So we need to save those files, and maybe way later, write them to disk next we get a chance.
+    // This map stores a map of filepath to the UN-normalized hash.
+    // Gotchas:
+    // - During committing, we ignore any pending changes from these normalized files...
+    //      - ... UNLESS the hash-on-disk has changed
+    //        And if the hash on-disk has changed, we need to remove them from pending_normalized_files and re-add if necessary.
+    // - During a safe block, we must always resolve this array and clear it!
+    //      - ... UNLESS the hash-on-disk has changed, in which case we skip that one and still clear
+    //        Oh dear: What if this means a user's change is overwritten?! Well, Commit should've happened first!
+    // - Also, we need to resolve these to the filesystem BEFORE we check anything out, or shit might get weird (maybe)?
+    // - One day, when we fix all our problems and everything is lovely, we'll abstract the backend of Backstitch to a separate library.
+    //   We'll need crazy weird hooks to support this behavior, OR we can consider an alternative for this case.
+    //      Alternative A: We ban files from being committed til we're able to normalize them on disk.
+    //      Alternative B: ???
+    //
+    // The Old Bad Way:
+    // Until adding this, we did a stupid thing: "just commit, and let Backstitch checkout the new ref like any other ref."
+    // This works great, until some files are committed while we're UNSAFE to update the FS. (Because we have an unsaved new scene z.B.)
+    // When we then save that scene, immediately the block is resolved, and we checkout the previous commits... before committing the scene!
+    // Then Backstitch checks out that old ref, goes "this scene you just saved is not consistent with the ref we're checking out", and deletes it.
+    // So commit never gets a chance to checkout that scene. Oops!
+    //
+    // A better way that seems to fix this, but might not:
+    // We'd like to eventually allow syncing even with unsaved files open, by tracking *which* unsaved files are open and syncing the rest of the disk.
+    // That means that we're 99% less likely to ever run into this bug in the first place (from the Old Bad Way).
+    // But sometimes, the editor is scanning/importing, and is unsafe to write the FS. At this point, if a scene is saved at exactly the right time,
+    // the checkout might happen before it's committed, and we get the evil bug again.
+    // So, realistically, even with this solution, we still want to track these explicitly. That way we maintain an invariant of always updating the
+    // checked-out ref EVERY time we commit, so that we NEVER are able to lose data by checking out a new commit when the FS is actually dirty.
+    pending_normalized_files: Arc<Mutex<HashMap<PathBuf, blake3::Hash>>>,
+
     // subtasks
-    connection: Arc<Mutex<Option<RemoteConnection>>>,
+    connection: RemoteConnection,
     branch_db: BranchDb,
     peer_watcher: Arc<PeerWatcher>,
     change_ingester: ChangeIngester,
     document_watcher: Arc<Mutex<Option<DocumentWatcher>>>,
     sync_automerge_to_fs: SyncAutomergeToFileSystem,
     sync_fs_to_automerge: SyncFileSystemToAutomerge,
+    server_manager: ServerManager,
     differ: Differ,
 }
 
@@ -99,12 +139,10 @@ pub enum ProjectLoadError {
     MetadataIdNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error("the requested branch document was not found. Server status: {server_status:?}")]
     BranchDocNotFound {
         server_status: ProjectLoadServerStatus,
     },
-
     #[error(
         "one or more linked binary document ID was not found. Server status: {server_status:?}"
     )]
@@ -113,10 +151,20 @@ pub enum ProjectLoadError {
     },
 
     #[error("branch db error: {0}")]
-    Db(#[from] DbError),
-
+    Db(Box<DbError>),
     #[error("branch wasn't successfully ingested")]
     NotIngested,
+
+    #[error(transparent)]
+    Server(#[from] ServerError),
+    #[error(transparent)]
+    Connection(#[from] RemoteConnectionError),
+}
+
+impl From<DbError> for ProjectLoadError {
+    fn from(value: DbError) -> Self {
+        Self::Db(Box::new(value))
+    }
 }
 
 impl Drop for Driver {
@@ -149,20 +197,41 @@ impl Driver {
         gitignore.build().unwrap()
     }
 
-    /// Start the connection task. URL must be valid, and have a scheme of tcp://, ws://, or wss://.
-    pub async fn start_connection(
-        &mut self,
-        server_url: &Url,
-    ) -> Result<(), RemoteConnectionError> {
-        if self.inner.connection.lock().await.is_some() {
-            return Ok(());
-        }
+    /// Start the connection task. URL must be valid, and have a scheme of http(s)://
+    /// Authenticates first. If a complex user-authentication is required, may hang.
+    pub async fn start_connection(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
         // Start the connection
-        tracing::info!("Starting server connection with url {:?}", server_url);
-        let connection = RemoteConnection::new(self.repo.clone(), server_url.clone()).await?;
-        let mut conn = self.inner.connection.lock().await;
-        *conn = Some(connection);
+        tracing::info!("Starting server connection with url {}", server_url);
+        let res = self.try_handshake_auth(server_url).await;
+
+        tracing::debug!("Starting connection...");
+        // Even on failure of handshake, we want to start the connection, so it can retry periodically
+        let _ = self.inner.connection.connect(server_url).await?;
+        res
+    }
+
+    /// Restarts the currently active connection, if it exists.
+    /// Does not cause an authentication.
+    pub async fn retry_connection(&self, server_url: &Url) {
+        if self.inner.connection.has_connection().await {
+            match self.inner.connection.connect(server_url).await {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Error retrying connection: {e}"),
+            }
+        }
+    }
+
+    async fn try_handshake_auth(&self, server_url: &Url) -> Result<(), ProjectLoadError> {
+        tracing::debug!("Handshaking with server...");
+        let server_info = self.inner.server_manager.handshake(server_url).await?;
+        tracing::debug!("Authenticating user...");
+        let _ = self.inner.server_manager.authenticate(&server_info).await?;
         Ok(())
+    }
+
+    /// Clears an active connection, if it exists. Returns after graceful shutdown.
+    pub async fn clear_connection(&self) {
+        self.inner.connection.disconnect().await;
     }
 
     async fn get_metadata_handle(
@@ -181,16 +250,17 @@ impl Driver {
         }
 
         // If our connection isn't even initialized, we just give up.
-        let connection = self.inner.connection.lock().await;
-        let Some(connection) = connection.as_ref() else {
+        if !self.inner.connection.has_connection().await {
             return Err(ProjectLoadError::MetadataIdNotFound {
                 server_status: ProjectLoadServerStatus::Disconnected,
             });
-        };
+        }
 
         // Next, we make sure we're connected to the server
         // If the hang gets annoying when starting, we could set this to 1 to reduce it to a minimum.
-        if !Self::ensure_server_connection(connection, 3).await {
+        // TODO: This is kind of not needed maybe? now that connection.connect() waits til a first attempt?
+        // maybe? idk. idk. sigh.
+        if !Self::ensure_server_connection(&self.inner.connection, 1).await {
             tracing::error!(
                 "Couldn't find the metadata doc handle locally, and the server couldn't connect!"
             );
@@ -209,7 +279,7 @@ impl Driver {
         })
     }
 
-    async fn create_document_watcher(&mut self, metadata_handle: &DocHandle, poll_time: u64) {
+    async fn create_document_watcher(&self, metadata_handle: &DocHandle, poll_time: u64) {
         let mut doc_watcher = self.inner.document_watcher.lock().await;
 
         // If there's an existing doc watcher, this'll drop it and cancel.
@@ -226,7 +296,7 @@ impl Driver {
 
     /// Load the project. If we've run [start_connection], ensures we have a server connection before failing.
     pub async fn load_project(
-        &mut self,
+        &self,
         metadata_id: &SedimentreeId,
         branch_id: Option<&SedimentreeId>,
     ) -> Result<(), ProjectLoadError> {
@@ -238,7 +308,7 @@ impl Driver {
         drop(doc_watcher);
         self.get_branch_db().clear_branch_states().await;
 
-        let server_status = if self.inner.connection.lock().await.is_some() {
+        let server_status = if self.inner.connection.has_connection().await {
             ProjectLoadServerStatus::Connected
         } else {
             ProjectLoadServerStatus::Disconnected
@@ -246,7 +316,7 @@ impl Driver {
 
         // The document watcher will auto-ingest the provided metadata handle.
         if server_status == ProjectLoadServerStatus::Connected {
-            self.create_document_watcher(&metadata_handle, 30000).await;
+            self.create_document_watcher(&metadata_handle, 15000).await;
         } else {
             // Poll time 0 means zero polling -- good for local documents.
             self.create_document_watcher(&metadata_handle, 0).await;
@@ -319,7 +389,7 @@ impl Driver {
         }
     }
 
-    pub async fn create_project(&mut self) -> Result<(), ProjectLoadError> {
+    pub async fn create_project(&self) -> Result<(), ProjectLoadError> {
         let metadata_handle = self.inner.branch_db.create_metadata_doc().await?;
         self.create_document_watcher(&metadata_handle, 30000).await;
         // Since this is a new project (i.e. we earlier made a metadata doc), check in the files.
@@ -374,7 +444,7 @@ impl Driver {
         tracing::debug!("Canonical file fetch complete.");
 
         Ok(
-            FileSystemTraversal::get_file_changes(canonical_files, current_files)
+            FileSystemTraversal::get_file_changes(&canonical_files, &current_files)
                 .into_iter()
                 .collect(),
         )
@@ -387,14 +457,14 @@ impl Driver {
         tracing::debug!("Getting ref for local changes commit...");
         let ref_ = self.get_latest_ref_on_branch_or_main(branch).await?;
         tracing::debug!("Committing local changes...");
-        self.inner.sync_fs_to_automerge.commit(&ref_, true).await;
+        self.inner.commit(&ref_, true).await;
         Ok(())
     }
 
     /// Begin the sync task. This will automatically check out the latest relevant ref, check in stuff from the FS,
     /// and constantly try to check out the next correct ref. Make sure any local changes are resolved, since this
     /// will reset all files to canonical.
-    pub async fn start_sync(&mut self, branch: Option<&SedimentreeId>) {
+    pub async fn start_sync(&self, branch: Option<&SedimentreeId>) {
         // TODO: protect this so it can't be started twice
         // Spawn off the sync task
         let inner_clone = self.inner.clone();
@@ -412,6 +482,7 @@ impl Driver {
     /// If we couldn't start the driver, [None] is returned.
     pub async fn new(
         main_thread_block: MainThreadBlock,
+        server_manager: ServerManager,
         project_path: PathBuf,
         username: String,
         storage_directory: PathBuf,
@@ -439,7 +510,7 @@ impl Driver {
         let git_ignore: Gitignore = Self::build_gitignore(&project_path);
         let branch_db = BranchDb::new(repo.clone(), project_path, git_ignore);
         branch_db
-            .set_username(if username.trim() == "" {
+            .set_default_username(if username.trim() == "" {
                 None
             } else {
                 Some(username.trim().to_string())
@@ -462,8 +533,38 @@ impl Driver {
         let (ref_tx, _) = watch::channel(None);
         let token = CancellationToken::new();
 
+        let connection = RemoteConnection::new(repo.clone(), server_manager.clone());
+
+        // This is pretty awkward. Spawn a subtask to listen to server events, and set the branch db's connected username.
+        // This way, for authenticated servers, we can always commit using the username if we're connected.
+        // TODO: In the future, we should refactor the username system to go based on the stored session for a connected
+        // server instead. That way, during checkin, the user isn't committing with an unset/anonymous name.
+        // Also, we probably want to use the `sub` claim instead and mark the commit as authorized.
+        {
+            let connection_events = connection.events();
+            let token = token.clone();
+            let branch_db = branch_db.clone();
+            spawn_named("username setter", async move {
+                pin!(connection_events);
+                loop {
+                    select! {
+                        _ = token.cancelled() => break,
+                        Some(event) = connection_events.next() => {
+                            match event {
+                                RemoteConnectionEvent::Connected { username } => {
+                                    branch_db.set_authenticated_username(username).await;
+                                }
+                                _ => {
+                                    branch_db.set_authenticated_username(None).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         Ok(Driver {
-            file_changes_rx,
             inner: Arc::new(DriverInner {
                 main_thread_block,
                 file_changes_tx,
@@ -471,23 +572,26 @@ impl Driver {
                 safe_to_update_editor: AtomicBool::new(false),
                 token: token.clone(),
                 requested_checkout: Default::default(),
-                connection: Default::default(),
+                fs_index,
+                pending_normalized_files: Default::default(),
+                connection,
                 branch_db,
                 peer_watcher,
                 change_ingester,
                 document_watcher: Default::default(),
                 sync_automerge_to_fs,
                 sync_fs_to_automerge,
+                server_manager,
                 differ,
-                fs_index,
             }),
             repo,
             token,
+            file_changes_rx: Mutex::new(file_changes_rx),
         })
     }
 
     pub async fn set_username(&self, username: Option<String>) {
-        self.inner.branch_db.set_username(username).await;
+        self.inner.branch_db.set_default_username(username).await;
     }
 
     /// If we're connected to the server, returns true.
@@ -496,18 +600,21 @@ impl Driver {
     async fn ensure_server_connection(connection: &RemoteConnection, retries: u32) -> bool {
         // We must subscribe to the events stream BEFORE checking the status.
         // This is so that between two lines of code, the status doesn't change before we've inited our stream.
-        let mut events = connection.events();
-        if connection.is_connected() {
+        let events = connection.events();
+        pin!(events);
+        if connection.is_connected().await {
             return true;
         }
+        let mut attempt = 0;
         loop {
             let Some(event) = events.next().await else {
                 continue;
             };
             match event {
-                samod::DialerEvent::Connected { peer_info: _ } => return true,
-                samod::DialerEvent::Reconnecting { attempt } => {
+                RemoteConnectionEvent::Connected { .. } => return true,
+                RemoteConnectionEvent::Failed => {
                     if attempt < retries {
+                        attempt += 1;
                         continue;
                     }
                     return false;
@@ -577,10 +684,14 @@ impl Driver {
     }
 
     pub async fn create_merge_preview_branch(
+        
         &self,
+       
         source: &SedimentreeId,
+       
         target: &SedimentreeId,
-    ) {
+    ,
+    ) -> Result<(), DbError> {
         match self
             .inner
             .branch_db
@@ -589,14 +700,18 @@ impl Driver {
         {
             Ok(id) => {
                 self.request_checkout(&id).await;
+                Ok(())
             }
-            Err(e) => tracing::error!(
-                "Could not create merge preview branch from {source} to {target}: {e}"
-            ),
+            Err(e) => {
+                tracing::error!(
+                    "Could not create merge preview branch from {source} to {target}: {e}"
+                );
+                Err(e)
+            }
         }
     }
 
-    pub async fn create_revert_preview_branch(&self, ref_: &HistoryRef) {
+    pub async fn create_revert_preview_branch(&self, ref_: &HistoryRef) -> Result<(), DbError> {
         match self
             .get_branch_db()
             .create_revert_preview_branch(ref_.branch(), ref_)
@@ -604,8 +719,12 @@ impl Driver {
         {
             Ok(id) => {
                 self.request_checkout(&id).await;
+                Ok(())
             }
-            Err(e) => tracing::error!("Could not create revert preview branch: {e}"),
+            Err(e) => {
+                tracing::error!("Could not create revert preview branch: {e}");
+                Err(e)
+            }
         }
     }
 
@@ -652,7 +771,6 @@ impl Driver {
             .get_diff(before, after)
             .await
             .unwrap_or(ProjectDiff::default())
-        // ProjectDiff::default()
     }
 
     pub async fn get_metadata_doc(&self) -> Result<SedimentreeId, ProjectLoadError> {
@@ -691,16 +809,17 @@ impl Driver {
         self.inner.fs_index.clone()
     }
 
-    // awkward
-    pub fn get_filesystem_changes(&mut self) -> Vec<FileSystemEvent> {
+    // awkward; turn this into a stream and DON'T provide the full file content!!
+    pub fn get_filesystem_changes(&self) -> Vec<FileSystemEvent> {
+        let mut file_changes_rx = self.file_changes_rx.blocking_lock();
         let mut fs_changes = Vec::new();
-        while let Ok(msg) = self.file_changes_rx.try_recv() {
+        while let Ok(msg) = file_changes_rx.try_recv() {
             fs_changes.push(msg);
         }
         fs_changes
     }
 
-    // also awkward
+    // also awkward; return these as streams
     pub fn get_changes_rx(&self) -> watch::Receiver<Vec<CommitInfo>> {
         self.inner.change_ingester.get_changes_rx()
     }
@@ -732,6 +851,7 @@ impl DriverInner {
     #[tracing::instrument(skip_all, level = "trace")]
     async fn sync(&self) {
         tracing::trace!("Syncing...");
+
         let old_checked_out_ref = self
             .branch_db
             .get_checked_out_ref_mut()
@@ -739,6 +859,12 @@ impl DriverInner {
             .await
             .clone();
 
+        // We gotta commit our disk stuff before checking out anything. This ensures we always get our disk changes in!
+        if let Some(ref_) = &old_checked_out_ref {
+            self.commit(ref_, false).await;
+        }
+
+        // Now, checkout the stuff.
         self.sync_correct_ref().await;
 
         let new_checked_out_ref = self
@@ -748,30 +874,7 @@ impl DriverInner {
             .await
             .clone();
 
-        // If we've changed branches, send the new checked out ref.
-        if let Some(ref_) = &new_checked_out_ref {
-            tracing::trace!("CHECKED OUT REF: {}", ref_.branch());
-            tracing::trace!("Attempting to sync FS to automerge...");
-            // Apply any watched FS updates to Automerge.
-            // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
-            // We need to grab the most current heads in case we haven't marked them as officially checked-out yet. (I think?)
-            match self.branch_db.get_latest_ref_on_branch(ref_.branch()).await {
-                Ok(current_shadow_ref) => {
-                    let committed_changes = self
-                        .sync_fs_to_automerge
-                        .commit(&current_shadow_ref, false)
-                        .await;
-                    if !committed_changes.is_empty() {
-                        self.change_ingester.request_ingestion();
-                    }
-                }
-                // this may be overly verbose
-                Err(e) => tracing::error!("Couldn't get latest ref on branch {e}"),
-            }
-        } else {
-            tracing::trace!("NO CHECKED OUT REF");
-        }
-
+        // Did our branch change? If so, we gotta send a message.
         if new_checked_out_ref.as_ref().map(|r| r.branch())
             != old_checked_out_ref.as_ref().map(|r| r.branch())
         {
@@ -781,6 +884,100 @@ impl DriverInner {
             self.ref_tx.send(new_checked_out_ref).unwrap();
         }
         tracing::trace!("Done with sync.");
+    }
+
+    async fn commit(&self, ref_: &HistoryRef, force: bool) {
+        // Apply any watched FS updates to Automerge.
+        // It doesn't matter if we're safe to update Godot, so this can go outside of the guard.
+
+        let c = self.branch_db.get_checked_out_ref_mut();
+        let mut checked_out_ref = c.write().await;
+        tracing::trace!("CHECKED OUT REF: {ref_:?}");
+        tracing::trace!("Attempting to sync FS to automerge...");
+        let mut normalized_files = self.pending_normalized_files.lock().await;
+
+        // Skip any pending normalized files with matching hashes...
+        // .. this means we already committed them and we're waiting to update them from automerge.
+        let committed_changes = self
+            .sync_fs_to_automerge
+            .commit(ref_, force, &normalized_files)
+            .await;
+
+        if let Some((new_ref, committed_changes)) = committed_changes {
+            for (path, status) in committed_changes {
+                normalized_files.remove(&path);
+                // normalizing can ONLY update, so ignore remove/add
+                let Some(hash_after) = status.hash_after_commit else {
+                    continue;
+                };
+                let Some(hash_before) = status.hash_before_commit else {
+                    continue;
+                };
+                if hash_after == hash_before {
+                    continue;
+                }
+                // This is the rare case of normalization: track these so we can write the automerge content to FS later
+                tracing::debug!("Queueing normalization of file {path:?}");
+                normalized_files.insert(path, hash_before);
+            }
+
+            *checked_out_ref = Some(new_ref);
+            self.change_ingester.request_ingestion();
+        }
+    }
+
+    async fn resolve_pending_normalized_files(&self, ref_: &HistoryRef) {
+        let mut pending_norms = self.pending_normalized_files.lock().await;
+        let contents = match self
+            .branch_db
+            .get_files_at_ref(
+                ref_,
+                &pending_norms
+                    .keys()
+                    .map(|p| self.branch_db.localize_path(p))
+                    .collect(),
+            )
+            .await
+        {
+            Ok(contents) => contents,
+            Err(e) => {
+                tracing::error!(
+                    "Couldn't get file content at ref; canceling pending resolution for {ref_:?}. Reason: {e}",
+                );
+                return;
+            }
+        };
+
+        // this isn't common enough to do in parallel
+        for (path, hash) in &*pending_norms {
+            tracing::debug!("Normalizing {path:?}...");
+            let current_hash = match self.fs_index.get_hash(path).await {
+                Ok(hash) => hash,
+                Err(e) => match e {
+                    // this is normal-ish; don't log an error;
+                    IndexError::FileNotFound => continue,
+                    _ => {
+                        tracing::error!("Couldn't get hash for pending normalized file: {e}");
+                        continue;
+                    }
+                },
+            };
+
+            // If the hash isn't the same, the file has changed on-disk underneath us! Don't overwrite it!
+            if hash != &current_hash {
+                continue;
+            }
+
+            let Some(content) = contents.get(&self.branch_db.localize_path(path)) else {
+                continue;
+            };
+
+            tracing::debug!("Updating file {path:?}...");
+            self.sync_automerge_to_fs
+                .handle_file_update(path, content)
+                .await;
+        }
+        pending_norms.clear();
     }
 
     async fn sync_correct_ref(&self) {
@@ -800,30 +997,34 @@ impl DriverInner {
             .await
             .clone();
 
-        let Some(proposed_changes) = self
+        let proposed_changes = self
             .sync_automerge_to_fs
             .checkout_ref(checked_out_ref.as_ref(), &goal_ref)
-            .await
-        else {
-            return;
-        };
+            .await;
 
         // Consider instead using a Tokio join set here...
-        let futures = proposed_changes
-            .into_iter()
-            .map(async |(path, (change_type, content))| {
-                match change_type {
-                    ChangeType::Created | ChangeType::Modified => {
-                        self.sync_automerge_to_fs
-                            .handle_file_update(&path, content.as_ref().unwrap())
-                            .await?
-                    }
-                    ChangeType::Deleted => {
-                        self.sync_automerge_to_fs.handle_file_delete(&path).await?
-                    }
-                };
-                Some((path, change_type, content))
-            });
+        let checkout_futures = proposed_changes.map(|changes| {
+            changes
+                .into_iter()
+                .map(async |(path, (change_type, content))| {
+                    match change_type {
+                        ChangeType::Created | ChangeType::Modified => {
+                            self.sync_automerge_to_fs
+                                .handle_file_update(&path, content.as_ref().unwrap())
+                                .await?
+                        }
+                        ChangeType::Deleted => {
+                            self.sync_automerge_to_fs.handle_file_delete(&path).await?
+                        }
+                    };
+                    Some((path, change_type, content))
+                })
+        });
+
+        // Exit early if we don't need to block
+        if checkout_futures.is_none() && self.pending_normalized_files.lock().await.is_empty() {
+            return;
+        }
 
         // Ensure we block the main thread inside of Rust while checking out a ref.
         // Very important to not allow Godot to explode while we're writing files!
@@ -852,22 +1053,31 @@ impl DriverInner {
             if !self.safe_to_update_editor.load(Ordering::Relaxed) {
                 return;
             }
-            let results: Vec<FileSystemEvent> = join_all(futures)
-                .await
-                .into_iter()
-                .flatten()
-                .map(|(path, change_type, content)| match change_type {
-                    ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
-                    ChangeType::Deleted => FileSystemEvent::Deleted(path),
-                    ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
-                })
-                .collect();
 
-            tracing::info!("Wrote {:?} files!", results.len());
+            // First, we always do the annoying thing, updating the filesystem for *those* files...
+            if let Some(ref_) = checked_out_ref {
+                self.resolve_pending_normalized_files(&ref_).await;
+            }
 
-            *now_checked_out_ref = Some(goal_ref);
-            for change in results {
-                self.file_changes_tx.send(change).unwrap();
+            // ... Then run the actual normal checkout.
+            if let Some(checkout_futures) = checkout_futures {
+                let results: Vec<FileSystemEvent> = join_all(checkout_futures)
+                    .await
+                    .into_iter()
+                    .flatten()
+                    .map(|(path, change_type, content)| match change_type {
+                        ChangeType::Created => FileSystemEvent::Created(path, content.unwrap()),
+                        ChangeType::Deleted => FileSystemEvent::Deleted(path),
+                        ChangeType::Modified => FileSystemEvent::Modified(path, content.unwrap()),
+                    })
+                    .collect();
+
+                tracing::info!("Wrote {:?} files!", results.len());
+
+                *now_checked_out_ref = Some(goal_ref);
+                for change in results {
+                    self.file_changes_tx.send(change).unwrap();
+                }
             }
         }
     }

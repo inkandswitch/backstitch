@@ -1,10 +1,4 @@
 use std::collections::{HashMap, HashSet};
-
-use godot::{
-    classes::ResourceLoader,
-    global,
-    obj::{EngineEnum, Singleton},
-};
 use tracing::instrument;
 
 use crate::{
@@ -30,6 +24,17 @@ pub enum Diff {
     BinaryResource(BinaryResourceDiff),
     /// A text file diff.
     Text(TextDiff),
+}
+
+impl Diff {
+    pub fn get_diff_file_path(&self) -> &str {
+        match self {
+            Diff::Scene(scene_diff) => &scene_diff.path,
+            Diff::TextResourceDiff(text_resource_diff) => &text_resource_diff.path,
+            Diff::BinaryResource(binary_resource_diff) => &binary_resource_diff.path,
+            Diff::Text(text_diff) => &text_diff.path,
+        }
+    }
 }
 
 /// A diff for an entire project.
@@ -61,10 +66,7 @@ impl Differ {
         let history_ref_path = HistoryRefPath::make_path_string(ref_, path)
             .map_err(|_| "Invalid history ref path".to_string())?;
 
-        match ResourceLoader::singleton().load_threaded_request(&history_ref_path) {
-            global::Error::OK => Ok(history_ref_path),
-            e => Err(format!("load_threaded_request failed ({})", e.as_str())),
-        }
+        Ok(history_ref_path)
     }
 
     /// Computes the diff between the two sets of heads.
@@ -277,6 +279,7 @@ impl Differ {
                 }
             }
         }
+        diffs.sort_by(|a, b| a.get_diff_file_path().cmp(b.get_diff_file_path()));
         Some(ProjectDiff { file_diffs: diffs })
     }
 }

@@ -164,12 +164,13 @@ impl Drop for Driver {
 }
 
 impl Driver {
-    const DEFAULT_IGNORE_GLOBS: [&str; 7] = [
+    const DEFAULT_IGNORE_GLOBS: &'static [&str] = &[
         "**/.DS_Store",
         "**/thumbs.db",
         "**/desktop.ini",
         "**/backstitch.cfg",
         "**/addons/backstitch*",
+        "**/addons/debug_draw_3d/*",
         "**/target/*",
         "**/.*",
     ];

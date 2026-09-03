@@ -173,7 +173,7 @@ impl Repo {
         Ok(this)
     }
 
-    pub async fn find(&mut self, id: &SedimentreeId, timeout: Duration) -> Result<(), RepoError> {
+    pub async fn find(&self, id: &SedimentreeId, timeout: Duration) -> Result<(), RepoError> {
         let blobs = self
             .subduction()
             .fetch_blobs(

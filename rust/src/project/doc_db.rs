@@ -23,7 +23,7 @@ impl DocumentDb {
         }
     }
 
-    pub async fn insert_blobs(&mut self, id: SedimentreeId, mut blobs: Vec<Blob>) {
+    pub async fn insert_blobs(&self, id: SedimentreeId, mut blobs: Vec<Blob>) {
         let mut docs = self.docs.lock().await;
         let entry = docs.entry(id);
         let doc = entry.or_default();

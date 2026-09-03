@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use url::Url;
 
 use crate::{
@@ -251,7 +251,7 @@ impl ProjectViewModel for Project {
         self.driver.blocking_read().is_some()
     }
 
-    fn get_project_id(&self) -> Option<DocumentId> {
+    fn get_project_id(&self) -> Option<SedimentreeId> {
         self.with_driver_blocking("Get project ID", |driver| async move {
             driver
                 .as_ref()?
@@ -279,7 +279,7 @@ impl ProjectViewModel for Project {
         self.start(ProjectCreateMode::New, server_url)
     }
 
-    fn load_project(&self, id: &DocumentId, server_url: Option<&str>, autostart: bool) {
+    fn load_project(&self, id: &SedimentreeId, server_url: Option<&str>, autostart: bool) {
         if self.has_project() {
             return;
         }
@@ -369,42 +369,44 @@ impl ProjectViewModel for Project {
         let Some(branch) = self.get_checked_out_branch_state() else {
             return SyncStatus::Unknown;
         };
-        let Some(status) = info.docs.get(&branch.id) else {
-            return SyncStatus::Unknown;
-        };
-        let is_connected = info.last_received.is_some();
+        // TODO (subd): Finish this
+        return SyncStatus::Unknown;
+        // let Some(status) = info.docs.get(&branch.id) else {
+        //     return SyncStatus::Unknown;
+        // };
+        // let is_connected = info.last_received.is_some();
 
-        tracing::trace!(
-            "last_acked_heads: {:?}, current heads: {:?}",
-            status.last_acked_heads,
-            ref_.heads()
-        );
+        // tracing::trace!(
+        //     "last_acked_heads: {:?}, current heads: {:?}",
+        //     status.last_acked_heads,
+        //     ref_.heads()
+        // );
 
-        if status
-            .last_acked_heads
-            .as_ref()
-            .is_some_and(|s| s == ref_.heads())
-        {
-            if is_connected {
-                return SyncStatus::UpToDate;
-            }
-            return SyncStatus::Disconnected(0);
-        }
+        // if status
+        //     .last_acked_heads
+        //     .as_ref()
+        //     .is_some_and(|s| s == ref_.heads())
+        // {
+        //     if is_connected {
+        //         return SyncStatus::UpToDate;
+        //     }
+        //     return SyncStatus::Disconnected(0);
+        // }
 
-        if is_connected {
-            return SyncStatus::Syncing;
-        }
+        // if is_connected {
+        //     return SyncStatus::Syncing;
+        // }
 
-        let unsynced_count = self.changes.iter().filter(|(_hash, c)| !c.synced).count();
+        // let unsynced_count = self.changes.iter().filter(|(_hash, c)| !c.synced).count();
 
-        SyncStatus::Disconnected(unsynced_count)
+        // SyncStatus::Disconnected(unsynced_count)
     }
 
     fn print_sync_debug(&self) {
         if !self.has_project() {
             return;
         }
-        let info = self.with_driver_blocking("Print sync debug", |driver| async move {
+        let info = self.with_driver_blocking("Print sync debug", async move |driver| {
             driver.as_ref()?.get_connection_info().await
         });
         let Some(info) = info else {
@@ -418,22 +420,23 @@ impl ProjectViewModel for Project {
         tracing::debug!("last received: {:?}", info.last_received);
         tracing::debug!("last sent: {:?}", info.last_sent);
 
-        if let Some(branch) = self.get_checked_out_branch_state()
-            && let Some(status) = info.docs.get(&branch.id)
-        {
-            tracing::debug!("\t{}:", branch.name);
-            tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
-            tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
-            tracing::debug!("\tlast sent: {:?}", status.last_sent);
-            tracing::debug!("\tlast sent: {:?}", status.last_received);
-        }
+        // TODO (subd): Implement
+        // if let Some(branch) = self.get_checked_out_branch_state()
+        //     && let Some(status) = info.docs.get(&branch.id)
+        // {
+        //     tracing::debug!("\t{}:", branch.name);
+        //     tracing::debug!("\tacked heads: {:?}", status.last_acked_heads);
+        //     tracing::debug!("\tsent heads: {:?}", status.last_sent_heads);
+        //     tracing::debug!("\tlast sent: {:?}", status.last_sent);
+        //     tracing::debug!("\tlast sent: {:?}", status.last_received);
+        // }
         tracing::debug!("=====================================");
     }
-    fn get_branch(&self, id: &DocumentId) -> Option<impl BranchViewModel + use<>> {
+    fn get_branch(&self, id: &SedimentreeId) -> Option<impl BranchViewModel + use<>> {
         let id = id.clone();
 
         let (state, mut children) =
-            self.with_driver_blocking("Get branch", |driver| async move {
+            self.with_driver_blocking("Get branch", async move |driver| {
                 tracing::trace!("Getting branch state...");
                 let branch_db = driver.as_ref()?.get_branch_db();
                 let state = branch_db
@@ -490,23 +493,23 @@ impl ProjectViewModel for Project {
         let Some(branch_state) = self.get_checked_out_branch_state() else {
             return;
         };
-        self.with_driver_blocking("Create branch", |driver| async move {
+        self.with_driver_blocking("Create branch", async move |driver| {
             driver.as_ref()?.fork_branch(name, &branch_state.id).await;
             Some(())
         });
     }
 
-    fn checkout_branch(&self, branch: &DocumentId) {
+    fn checkout_branch(&self, branch: &SedimentreeId) {
         let branch = branch.clone();
-        self.with_driver_blocking("Checkout branch", |driver| async move {
+        self.with_driver_blocking("Checkout branch", async move |driver| {
             driver.as_ref()?.request_checkout(&branch).await;
             Some(())
         });
     }
 
-    fn is_branch_loaded(&self, branch: &DocumentId) -> bool {
+    fn is_branch_loaded(&self, branch: &SedimentreeId) -> bool {
         let branch = branch.clone();
-        self.with_driver_blocking("Is branch loaded", |driver| async move {
+        self.with_driver_blocking("Is branch loaded", async move |driver| {
             let Some(dr) = driver.as_ref() else {
                 return false;
             };
@@ -518,7 +521,7 @@ impl ProjectViewModel for Project {
         let Some(ref_) = self.get_current_ref() else {
             return;
         };
-        self.with_driver_blocking("Dump current branch", |driver| async move {
+        self.with_driver_blocking("Dump current branch", async move |driver| {
             let Some(dr) = driver.as_ref() else {
                 return;
             };
@@ -546,7 +549,7 @@ impl ProjectViewModel for Project {
 
         let source = checked_out_branch.id;
         let target = fork_info.branch().clone();
-        self.with_driver_blocking("Create merge preview branch", |driver| async move {
+        self.with_driver_blocking("Create merge preview branch", async move |driver| {
             driver
                 .as_ref()
                 .ok_or_else(|| CreateMergePreviewBranchError::NoDriver)?
@@ -625,7 +628,7 @@ impl ProjectViewModel for Project {
         let forked_from = fork_info.branch().clone();
         let merge_into = merge_info.branch().clone();
         let Some((source_branch, latest_dest_heads)) =
-            self.with_driver_blocking("Is safe to merge", |driver| async move {
+            self.with_driver_blocking("Is safe to merge", async move |driver| {
                 let branch_db = driver.as_ref()?.get_branch_db();
                 let source_branch = branch_db
                     .get_branch_state(&forked_from)
@@ -657,14 +660,14 @@ impl ProjectViewModel for Project {
         };
 
         if branch_state.reverted_to.is_some() {
-            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
+            self.with_driver_blocking("Confirm merge preview branch", async move |driver| {
                 driver.as_ref()?.confirm_revert_preview_branch().await;
                 Some(())
             });
         } else if let Some(merge_info) = branch_state.merge_into {
             let source = branch_state.id.clone();
             let target = merge_info.branch().clone();
-            self.with_driver_blocking("Confirm merge preview branch", |driver| async move {
+            self.with_driver_blocking("Confirm merge preview branch", async move |driver| {
                 driver.as_ref()?.merge_branch(&source, &target).await;
                 Some(())
             });
@@ -748,7 +751,7 @@ impl ProjectViewModel for Project {
         };
         let doc_id = branch_state.id.clone();
 
-        let heads_after = self.with_driver_blocking("Get default diff", |driver| async move {
+        let heads_after = self.with_driver_blocking("Get default diff", async move |driver| {
             Ok(driver
                 .as_ref()
                 .ok_or(RequestDiffError::NoDriver)?

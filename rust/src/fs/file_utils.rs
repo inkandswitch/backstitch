@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str;
 
 use crate::parser::godot_parser::{GodotScene, parse_scene, recognize_scene};
@@ -40,7 +40,7 @@ impl FileContent {
 
     // Write file content to disk
     async fn write_file_content(
-        path: &PathBuf,
+        path: &Path,
         content: &FileContent,
     ) -> std::io::Result<blake3::Hash> {
         // Write the content based on its type
@@ -70,7 +70,7 @@ impl FileContent {
         Ok(hash)
     }
 
-    pub async fn write(&self, path: &PathBuf) -> std::io::Result<blake3::Hash> {
+    pub async fn write(&self, path: &Path) -> std::io::Result<blake3::Hash> {
         FileContent::write_file_content(path, self).await
     }
 

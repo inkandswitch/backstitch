@@ -324,16 +324,31 @@ impl GodotProject {
     }
 
     #[func]
-    fn load_project(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id)
-            && let Err(e) = self.project.load_project(&id, false)
-        {
-            tracing::error!("Error regular starting {:?}", e);
-            self.base_mut().call_deferred(
-                "emit_signal",
-                &["create_failed".to_variant(), e.to_string().to_variant()],
-            );
-        }
+    fn load_project(&mut self, id: String, server: String) {
+        let id = match SedimentreeId::from_str(&id) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Error regular starting {:?}", e);
+                self.base_mut().call_deferred(
+                    "emit_signal",
+                    &[
+                        "start_status_changed".to_variant(),
+                        ProjectStartStatus::Failed(e.to_string()).to_variant(),
+                    ],
+                );
+                return;
+            }
+        };
+
+        self.project().load_project(
+            &id,
+            if server.is_empty() {
+                None
+            } else {
+                Some(server.as_str())
+            },
+            false,
+        );
     }
 
     #[func]
@@ -405,9 +420,9 @@ impl GodotProject {
     }
 
     #[func]
-    fn checkout_branch(&mut self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id) {
-            self.project.checkout_branch(&id);
+    fn checkout_branch(&self, id: String) {
+        if let Ok(id) = SedimentreeId::from_str(&id) {
+            self.project().checkout_branch(&id);
         };
     }
 
@@ -747,14 +762,12 @@ impl INode for GodotProject {
         if self.deferred_start > 0 {
             self.deferred_start -= 1;
             if self.deferred_start == 0
-                && let Ok(id) =
-                    DocumentId::from_str(&BackstitchConfigAccessor::get_project_doc_id())
-                && let Err(e) = self.project.load_project(&id, true)
+                && let Some(id) = self.project().get_project_doc_id()
             {
-                tracing::error!("Error autostarting {:?}", e);
-                self.base_mut().call_deferred(
-                    "emit_signal",
-                    &["create_failed".to_variant(), e.to_string().to_variant()],
+                self.project().load_project(
+                    &id,
+                    self.project().get_saved_server().as_deref(),
+                    true,
                 );
             }
             return;

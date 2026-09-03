@@ -4,11 +4,13 @@ use std::{
     ops::DerefMut,
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
-use automerge::Automerge;
+use automerge::{Automerge, ChangeHash};
 use future_form::Sendable;
-use rand::RngCore;
+use futures::Stream;
+use rand::Rng;
 use sedimentree_core::{
     blob::{Blob, BlobMeta},
     depth::CountLeadingZeroBytes,
@@ -24,12 +26,13 @@ use subduction_core::{
     remote_heads::RemoteHeadsObserver,
     storage::memory::MemoryStorage,
     subduction::{Subduction, builder::SubductionBuilder, error::WriteError},
+    timeout::call::CallTimeout,
 };
 use subduction_crypto::signer::memory::MemorySigner;
 use subduction_redb_storage::{RedbStorage, RedbStorageError};
 use subduction_websocket::tokio::{TimeoutTokio, TokioSpawn, client::TokioWebSocketClient};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::{helpers::spawn_utils::spawn_named, project::doc_db::DocumentDb};
@@ -53,12 +56,16 @@ type Subd = Subduction<
     TokioSpawn,
 >;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Repo {
     subduction: Arc<Subd>,
     doc_db: DocumentDb,
-    // TODO (Subduction): implement
+    // todo (subd): implement
     token: CancellationToken,
+}
+
+pub struct DocumentChanged {
+    pub new_heads: Vec<ChangeHash>,
 }
 
 #[derive(Error, Debug)]
@@ -71,6 +78,11 @@ pub enum RepoError {
     Write(
         #[from] WriteError<Sendable, RedbStorage, TokioWebSocketClient<MemorySigner>, SyncMessage>,
     ),
+    #[error("the repo has been stopped")]
+    Stopped,
+    // TODO (subd): Forward the error
+    #[error("there was an IO error")]
+    Io,
 }
 
 struct HeadsObserver {
@@ -111,6 +123,10 @@ impl Repo {
         self.subduction.clone()
     }
 
+    pub fn stop(&self) {
+        self.token.cancel();
+    }
+
     pub fn new(storage_directory: PathBuf) -> Result<Self, RepoError> {
         let doc_db = DocumentDb::new();
         let sub: Arc<std::sync::Mutex<Option<Arc<Subd>>>> = Default::default();
@@ -121,7 +137,7 @@ impl Repo {
         let storage = RedbStorage::new(storage_directory)?;
         let (subduction, sync_handler, listener, connection_manager) = SubductionBuilder::default()
             .storage(storage, Arc::new(OpenPolicy))
-            .spawner(subduction_websocket::tokio::TokioSpawn)
+            .spawner(TokioSpawn)
             .signer(MemorySigner::from_bytes(&[0; 32]))
             .timer(TimeoutTokio)
             .heads_observer(heads_observer)
@@ -131,25 +147,63 @@ impl Repo {
         *guard = Some(subduction.clone());
         drop(guard);
 
+        let token = CancellationToken::new();
+        let tok = token.clone();
         spawn_named("connection manager", async move {
-            let _ = connection_manager.await;
+            select! {
+                _ = tok.cancelled() => {}
+                _ = connection_manager => {}
+            }
         });
 
+        let tok = token.clone();
         spawn_named("listener", async move {
-            let _ = listener.await;
+            select! {
+                _ = tok.cancelled() => {}
+                _ = listener => {}
+            }
         });
 
         let this = Self {
             subduction,
             doc_db,
-            token: Default::default(),
+            token,
         };
 
         Ok(this)
     }
 
+    pub async fn find(&mut self, id: &SedimentreeId, timeout: Duration) -> Result<(), RepoError> {
+        let blobs = self
+            .subduction()
+            .fetch_blobs(
+                id.clone(),
+                CallTimeout::TimeoutMillis(timeout.as_millis() as u64),
+            )
+            .await;
+
+        let blobs = match blobs {
+            Ok(v) => v,
+            Err(e) => return Err(RepoError::Io),
+        };
+
+        let blobs = blobs.ok_or(RepoError::NoSuchDocument(id.clone()))?;
+
+        self.doc_db.insert_blobs(id.clone(), blobs.into());
+
+        Ok(())
+    }
+
+    // TODO (subd): implement
+    pub async fn changes(
+        &self,
+        id: &SedimentreeId,
+    ) -> Result<impl Stream<Item = DocumentChanged> + 'static, RepoError> {
+        Ok(futures::stream::pending())
+    }
+
     pub async fn create(&self, initial: &Automerge) -> Result<SedimentreeId, RepoError> {
-        // TODO: this is horrible; don't drive sync here
+        // TODO: this is horrible; don't drive sync here (use store_sedimentree?)
         let mut doc_db = self.doc_db.clone();
         let mut id = [0u8; 32];
         rand::rng().fill_bytes(id.as_mut_slice());
@@ -159,12 +213,10 @@ impl Repo {
             .add_sedimentree(
                 id,
                 Sedimentree::default(),
-                Vec::new(),
+                vec![Blob::new(initial.save())],
                 subduction_core::timeout::call::CallTimeout::TimeoutMillis(5000),
             )
             .await?;
-
-        doc_db.insert_blobs(id, Vec::new());
 
         Ok(id)
     }
@@ -183,6 +235,7 @@ impl Repo {
                 boundary.insert(CommitId::new(bound.0));
             }
 
+            // TODO: Don't drive sync here; use store_fragment and sync elsewhere
             self.subduction().add_fragment(
                 *id,
                 CommitId::new(frag.head.0),

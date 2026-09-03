@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
-use samod::SedimentreeId;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -28,18 +28,18 @@ impl BranchDb {
         let source_ref = self.get_latest_ref_on_branch(source).await?;
         let target_ref = self.get_latest_ref_on_branch(target).await?;
 
-        let handle = self.repo.create(Automerge::new()).await.unwrap();
+        let handle = self.repo.create(&Automerge::new()).await.unwrap();
         let handle_clone = handle.clone();
 
         self.with_shadow_document(source, async |d| {
-            handle_clone.with_document(|preview_doc| {
+            self.repo.with_document(&handle_clone, async |preview_doc| {
                 let _ = preview_doc.merge(d);
             });
         })
         .await?;
 
         self.with_shadow_document(target, async |d| {
-            handle_clone.with_document(|preview_doc| {
+            self.repo.with_document(&handle_clone, async |preview_doc| {
                 let _ = preview_doc.merge(d);
             });
         })
@@ -48,14 +48,14 @@ impl BranchDb {
         let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", target_name, source_name),
-            id: handle.document_id().clone(),
+            id: handle.clone(),
             forked_from: Some(source_ref),
             merge_into: Some(target_ref),
             created_by: username.clone(),
             reverted_to: None,
         })
         .await?;
-        Ok(handle.document_id().clone())
+        Ok(handle)
     }
 
     pub async fn merge_branch(
@@ -135,11 +135,11 @@ impl BranchDb {
     ) -> Result<SedimentreeId, DbError> {
         let current_ref = self.get_latest_ref_on_branch(branch).await?;
 
-        let handle = self.repo.create(Automerge::new()).await?;
+        let handle = self.repo.create(&Automerge::new()).await?;
         let handle_clone = handle.clone();
 
         self.with_shadow_document(branch, async |d| {
-            handle_clone.with_document(|preview_doc| {
+            self.repo.with_document(&handle_clone, async |preview_doc| {
                 let _ = preview_doc.merge(d);
             });
         })
@@ -148,7 +148,7 @@ impl BranchDb {
         let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", ref_.short_heads(), current_ref.short_heads()),
-            id: handle.document_id().clone(),
+            id: handle.clone(),
             forked_from: Some(current_ref.clone()),
             merge_into: None,
             created_by: username.clone(),
@@ -191,13 +191,13 @@ impl BranchDb {
 
         self.commit_fs_changes(
             changed_files,
-            &HistoryRef::new(handle.document_id().clone(), current_ref.heads().clone()),
+            &HistoryRef::new(handle.clone(), current_ref.heads().clone()),
             Some(ref_),
             false,
         )
         .await;
 
-        Ok(handle.document_id().clone())
+        Ok(handle)
     }
 
     pub async fn confirm_revert_preview_branch(

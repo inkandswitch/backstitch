@@ -12,8 +12,8 @@ pub mod autosurgeon_doc_id {
         let inner = String::hydrate(doc, obj, prop)?;
         SedimentreeId::from_str(&inner).map_err(|e| {
             HydrateError::unexpected(
-                "a valid DocumentID",
-                format!("a DocumentID which failed to parse due to {}", e),
+                "a valid SedimentreeId",
+                format!("a SedimentreeId which failed to parse due to {}", e),
             )
         })
     }
@@ -73,8 +73,8 @@ pub mod autosurgeon_branch_map {
                 Ok((
                     SedimentreeId::from_str(k).map_err(|e| {
                         HydrateError::unexpected(
-                            "a valid DocumentID",
-                            format!("a DocumentID which failed to parse due to {}", e),
+                            "a valid SedimentreeId",
+                            format!("a SedimentreeId which failed to parse due to {}", e),
                         )
                     })?,
                     v.clone(),

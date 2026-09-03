@@ -1,7 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use automerge::ChangeHash;
-use samod::ConnectionInfo;
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -18,7 +17,7 @@ use crate::{
     },
     project::{
         config::Config,
-        connection::RemoteConnectionError,
+        connection::{ConnectionInfo, RemoteConnectionError},
         driver::{Driver, DriverCreateError, ProjectLoadError},
         main_thread_block::MainThreadBlock,
         project_api::RequestDiffError,
@@ -72,13 +71,13 @@ pub enum ProjectStartError {
     #[error(
         "we couldn't find a document of the given ID on your computer or on the provided server"
     )]
-    DocumentIdNotFound,
+    SedimentreeIdNotFound,
     #[error(
         "we couldn't find the referenced main branch on your computer or on the provided server"
     )]
     MainBranchNotFound,
     #[error("the document ID is invalid!")]
-    DocumentIdInvalid,
+    SedimentreeIdInvalid,
 }
 
 impl From<ProjectLoadError> for ProjectStartError {

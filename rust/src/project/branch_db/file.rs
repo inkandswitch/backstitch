@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, ValueRef};
 use autosurgeon::Doc;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use samod::SedimentreeId;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -241,16 +241,9 @@ impl BranchDb {
     }
 
     async fn get_linked_file(&self, doc_id: &SedimentreeId) -> Option<FileContent> {
-        let handle = self
-            .binary_states
-            .lock()
-            .await
-            .get(doc_id)
-            .cloned()
-            .flatten()?;
-
-        tokio::task::spawn_blocking(move || {
-            handle.with_document(|d| match d.get(ROOT, "content") {
+        // todo (subd): Do we need to check if it's added? We were doing that before
+        self.repo
+            .with_document(doc_id, async |d| match d.get(ROOT, "content") {
                 Ok(Some((value, _))) if value.is_bytes() => {
                     Some(FileContent::Binary(value.into_bytes().unwrap()))
                 }
@@ -259,9 +252,10 @@ impl BranchDb {
                 }
                 _ => None,
             })
-        })
-        .await
-        .unwrap()
+            .await
+            .inspect_err(|e| tracing::error!("Error while getting linked file {e}"))
+            .ok()
+            .flatten()
     }
 
     #[tracing::instrument(skip_all, level = "trace")]

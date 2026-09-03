@@ -28,7 +28,7 @@ impl BranchDb {
         let mut checked_out_ref = r.write().await;
 
         // Create new main branch doc
-        let main_handle = self.repo.create().await?;
+        let main_handle = self.repo.create(&Automerge::new()).await?;
         let main_handle_clone = main_handle.clone();
         let username_clone = username.clone();
 
@@ -75,10 +75,10 @@ impl BranchDb {
         )]);
 
         // create new branches metadata doc
-        let metadata_handle = self.repo.create().await.unwrap();
+        let metadata_handle = self.repo.create(&Automerge::new()).await?;
         let metadata_handle_clone = metadata_handle.clone();
-        tokio::task::spawn_blocking(move || {
-            self.repo.with_document(|d| {
+        self.repo
+            .with_document(&metadata_handle, async |d| {
                 let mut tx = d.transaction();
                 let _ = reconcile(
                     &mut tx,
@@ -98,9 +98,8 @@ impl BranchDb {
                         is_setup: Some(true),
                     },
                 );
-            });
-        })
-        .await?;
+            })
+            .await?;
         Ok(metadata_handle_clone)
     }
 
@@ -112,8 +111,8 @@ impl BranchDb {
         };
 
         let username = self.resolve_username().await;
-        tokio::task::spawn_blocking(move || {
-            meta_handle.with_document(|d| -> Result<_, DbError> {
+        self.repo
+            .with_document(&meta_handle, async |d| -> Result<_, DbError> {
                 let mut branches_metadata: BranchesMetadataDoc = hydrate(d)?;
                 let mut tx = d.transaction();
                 branches_metadata.branches.insert(branch.id.clone(), branch);
@@ -131,8 +130,7 @@ impl BranchDb {
                 );
                 Ok(())
             })
-        })
-        .await??;
+            .await??;
         Ok(())
     }
 
@@ -143,8 +141,8 @@ impl BranchDb {
         };
         let branch_clone = branch.clone();
         let username = self.resolve_username().await;
-        tokio::task::spawn_blocking(move || {
-            meta_handle.with_document(|d| {
+        self.repo
+            .with_document(&meta_handle, async |d| {
                 let mut tx = d.transaction();
                 let mut branches_metadata: BranchesMetadataDoc = hydrate(&tx).unwrap();
                 branches_metadata.branches.remove(&branch_clone);
@@ -160,9 +158,8 @@ impl BranchDb {
                         is_setup: Some(true),
                     },
                 );
-            });
-        })
-        .await?;
+            })
+            .await?;
         Ok(())
     }
 
@@ -173,9 +170,9 @@ impl BranchDb {
         self.remove_branch_from_meta(branch.clone()).await
     }
 
-    async fn clone_branch(&self, branch: &SedimentreeId) -> Result<DocHandle, DbError> {
+    async fn clone_branch(&self, branch: &SedimentreeId) -> Result<SedimentreeId, DbError> {
         Ok(self
-            .with_shadow_document(branch, async |d| self.repo.create(d.clone()).await)
+            .with_shadow_document(branch, async |d| self.repo.create(&d.clone()).await)
             .await??)
     }
 
@@ -195,17 +192,16 @@ impl BranchDb {
         // We wait for document_watcher to ingest the metadata handle and start tracking the new branch.
         let new_handle = self.clone_branch(source).await?;
         let username = self.resolve_username().await;
-        let id = new_handle.document_id();
 
         self.add_branch_to_meta(Branch {
             name: name.clone(),
-            id: id.clone(),
+            id: new_handle.clone(),
             forked_from: Some(latest_ref),
             merge_into: None,
             created_by: username,
             reverted_to: None,
         })
         .await?;
-        Ok(id.clone())
+        Ok(new_handle)
     }
 }

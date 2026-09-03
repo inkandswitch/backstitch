@@ -4,13 +4,12 @@ use crate::{
     helpers::{
         branch::BranchesMetadataDoc, doc_utils::SimpleDocReader, spawn_utils::spawn_named,
         utils::parse_automerge_url,
-    },
-    project::branch_db::BranchDb,
+    }, project::{branch_db::BranchDb, doc_db::repo::{Repo, RepoError}},
 };
-use automerge::{ROOT, ReadDoc};
+use automerge::{Automerge, ROOT, ReadDoc};
 use autosurgeon::hydrate;
 use futures::{FutureExt, StreamExt};
-use samod::{DocHandle, SedimentreeId, Repo};
+use sedimentree_core::id::SedimentreeId;
 use tokio::{
     select,
     sync::{Mutex, Semaphore, watch},
@@ -60,7 +59,7 @@ impl DocumentWatcher {
     pub async fn new(
         repo: Repo,
         branch_db: BranchDb,
-        metadata_handle: DocHandle,
+        metadata_handle: SedimentreeId,
         poll_time: u64,
     ) -> Self {
         let inner = Arc::new(DocumentWatcherInner {
@@ -90,7 +89,10 @@ impl DocumentWatcher {
     /// Subscribe to a one-shot document ingestion. If the document has already ingested, immediately resolves.
     /// Doesn't look for binary docs -- those could still be broken (they're *allowed* to be... it's just bad.)
     /// Branches aren't allowed to be broken at all.
-    pub async fn wait_for_branch_ingest(&self, branch: &SedimentreeId) -> Result<(), IngestWaitError> {
+    pub async fn wait_for_branch_ingest(
+        &self,
+        branch: &SedimentreeId,
+    ) -> Result<(), IngestWaitError> {
         let mut rx: watch::Receiver<BranchIngestState> = {
             let branches = self.inner.tracked_branches.lock().await;
             let tx = branches.get(branch).ok_or(IngestWaitError::NotTracked)?;
@@ -117,7 +119,7 @@ impl DocumentWatcherInner {
         id: &SedimentreeId,
         timeout: u64,
         find_limit: Arc<Semaphore>,
-    ) -> Option<DocHandle> {
+    ) -> Option<SedimentreeId> {
         // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
         // Permissive announce policies on the server fix it because the server is allowed to check with peers before
         // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
@@ -172,7 +174,13 @@ impl DocumentWatcherInner {
         tx.send_replace(BranchIngestState::Ingested);
         drop(branches);
 
-        let mut stream = handle.changes();
+        let mut stream = match self.repo.changes(&handle).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::error!("Error getting changes stream: {e}");
+                return;
+            },
+        };
         loop {
             select! {
                 _ = stream.next() => {
@@ -188,8 +196,14 @@ impl DocumentWatcherInner {
     }
 
     // The metadata document is the root document containing IDs of all branch docs.
-    async fn track_metadata_document(&self, handle: DocHandle) {
-        let mut stream = handle.changes();
+    async fn track_metadata_document(&self, handle: SedimentreeId) {
+        let mut stream = match self.repo.changes(&handle).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::error!("Error getting changes stream: {e}");
+                return;
+            },
+        };
         loop {
             select! {
                 _ = stream.next() => {
@@ -222,7 +236,7 @@ impl DocumentWatcherInner {
                 _ = token.cancelled() => {}
                 handle = Self::poll_document(&repo, &doc_id, poll_time, semaphore) => {
                     // this may trigger a reconciliation for a shadow doc
-                    branch_db.ingest_binary_doc(doc_id, handle).await
+                    branch_db.ingest_binary_doc(doc_id, true).await
                         .inspect_err(|e| tracing::error!("Error during track_binary_document {e}")).ok();
                 }
             }
@@ -230,15 +244,15 @@ impl DocumentWatcherInner {
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    async fn ingest_branch_document(&self, handle: DocHandle) {
+    async fn ingest_branch_document(&self, handle: SedimentreeId) {
         let h = handle.clone();
-        let (heads, linked_docs) = tokio::task::spawn_blocking(move || {
+        let (heads, linked_docs) = 
             // Collect all linked doc IDs from this branch
-            h.with_document(|d| {
+            match self.repo.with_document(&h, async |d| {
                 let files = match d.get_obj_id(ROOT, "files") {
                     Some(files) => files,
                     None => {
-                        tracing::warn!("Failed to load files for branch doc {:?}", h.document_id());
+                        tracing::warn!("Failed to load files for branch doc {:?}", h);
                         return (d.get_heads(), HashMap::new());
                     }
                 };
@@ -266,10 +280,11 @@ impl DocumentWatcherInner {
                     .collect::<HashMap<String, SedimentreeId>>();
 
                 (d.get_heads(), linked_docs)
-            })
-        })
-        .await
-        .unwrap();
+            }).await {
+                Ok(r) => r,
+                Err(e) => {tracing::error!("Error during ingest_branch_document: {e}");
+            return;},
+            };
 
         for doc in linked_docs.values() {
             // spawn off a task to track the binary document
@@ -284,19 +299,15 @@ impl DocumentWatcherInner {
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    async fn ingest_metadata_document(&self, handle: DocHandle) {
+    async fn ingest_metadata_document(&self, handle: SedimentreeId) -> Result<(), RepoError> {
         // TODO: Stop tracking removed branches
         // Find added branches, and begin tracking them
         let h = handle.clone();
-        let meta = tokio::task::spawn_blocking(move || {
-            // TODO: correct error handling on hydration failure; currently panics!
-            let branches_metadata: BranchesMetadataDoc = h.with_document(|d| {
-                hydrate(d).expect("there was an issue with document hydration!")
-            });
-            branches_metadata
-        })
-        .await
-        .unwrap();
+        // TODO: correct error handling on hydration failure; currently panics!
+        let meta: BranchesMetadataDoc = self.repo.with_document(&h, async |d| {
+            hydrate(d).expect("there was an issue with document hydration!")
+        }).await?;
+
         self.branch_db
             .set_metadata_state(handle, meta.clone())
             .await;
@@ -315,5 +326,6 @@ impl DocumentWatcherInner {
                 });
             }
         }
+        Ok(())
     }
 }

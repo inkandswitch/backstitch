@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use automerge::{Automerge, ObjId, ObjType, ROOT, ReadDoc, transaction::Transaction};
 use autosurgeon::Doc;
-use samod::DocHandle;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -17,7 +17,7 @@ use crate::{
 enum Entry {
     Binary {
         path: String,
-        handle: DocHandle,
+        handle: SedimentreeId,
         hash: blake3::Hash,
     },
     Text {
@@ -51,11 +51,7 @@ impl BranchDb {
                     };
 
                     let file_entry = tx.put_object(&files, &path, ObjType::Map).unwrap();
-                    let _ = tx.put(
-                        &file_entry,
-                        "url",
-                        format!("automerge:{}", handle.document_id()),
-                    );
+                    let _ = tx.put(&file_entry, "url", format!("automerge:{}", handle));
                     let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
 
                     changes.push(ChangedFile { path, change_type });
@@ -301,7 +297,7 @@ impl BranchDb {
 
     pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> SedimentreeId {
         tracing::info!("Creating new binary doc...");
-        let handle = self.repo.create().await.unwrap();
+        let handle = self.repo.create(&Automerge::new()).await.unwrap();
 
         let username = self.resolve_username().await;
 

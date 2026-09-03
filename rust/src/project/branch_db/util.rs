@@ -80,7 +80,7 @@ impl BranchDb {
     }
 
     /// Check if a path should be ignored based on the provided glob patterns
-    pub fn should_ignore(&self, path: &PathBuf, is_dir: bool) -> bool {
+    pub fn should_ignore(&self, path: &Path, is_dir: bool) -> bool {
         // TODO: We should check if it's a symlink or not. This is a syscall, so don't do it here!!!!
         // if path.is_symlink() {
         //     return true;
@@ -195,7 +195,7 @@ impl BranchDb {
         };
         let handle = state.lock().await.canonical_doc.clone();
         self.repo
-            .with_document(&handle, |d| {
+            .with_document(&handle, async |d| {
                 d.get_changes_meta(&[])
                     .iter()
                     // this may be slow? we could consider putting it in a struct with only the info we need like CommitInfo.

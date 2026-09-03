@@ -6,8 +6,10 @@ use crate::helpers::spawn_utils::spawn_named;
 use crate::helpers::utils::{ChangeType, CommitInfo};
 use crate::project::branch_db::{BranchDb, CanonicalBranchStatus, DbError};
 use crate::project::change_ingester::ChangeIngester;
-use crate::project::connection::{RemoteConnection, RemoteConnectionError, RemoteConnectionEvent};
-use crate::project::doc_db::repo::Repo;
+use crate::project::connection::{
+    ConnectionInfo, RemoteConnection, RemoteConnectionError, RemoteConnectionEvent,
+};
+use crate::project::doc_db::repo::{Repo, RepoError};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
 use crate::project::fs::fs_traversal::FileSystemTraversal;
@@ -20,6 +22,7 @@ use futures::future::join_all;
 use futures::stream::Aborted;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use sedimentree_core::id::SedimentreeId;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -130,6 +133,8 @@ pub enum DriverCreateError {
     Storage(#[from] RedbStorageError),
     #[error("a cancelation token was used: {0}")]
     Aborted(#[from] Aborted),
+    #[error(transparent)]
+    Repo(#[from] RepoError),
 }
 
 /// This requires a fairly complex error type, because the overall success is dependent on whether we connect the server or not.
@@ -170,8 +175,7 @@ impl From<DbError> for ProjectLoadError {
 impl Drop for Driver {
     fn drop(&mut self) {
         self.token.cancel();
-        // just use the default executor for this one I think?
-        futures::executor::block_on(self.repo.stop());
+        self.repo.stop();
     }
 }
 
@@ -237,7 +241,7 @@ impl Driver {
     async fn get_metadata_handle(
         &self,
         metadata_id: &SedimentreeId,
-    ) -> Result<DocHandle, ProjectLoadError> {
+    ) -> Result<SedimentreeId, ProjectLoadError> {
         // Before we continue, we must acquire a handle to the metadata document.
         // There are three cases to handle:
         //  a: The document exists on the local repository.
@@ -279,7 +283,7 @@ impl Driver {
         })
     }
 
-    async fn create_document_watcher(&self, metadata_handle: &DocHandle, poll_time: u64) {
+    async fn create_document_watcher(&self, metadata_handle: &SedimentreeId, poll_time: u64) {
         let mut doc_watcher = self.inner.document_watcher.lock().await;
 
         // If there's an existing doc watcher, this'll drop it and cancel.
@@ -487,23 +491,7 @@ impl Driver {
         username: String,
         storage_directory: PathBuf,
     ) -> Result<Self, DriverCreateError> {
-        let storage = RedbStorage::new(storage_directory)?;
-        let (subduction, sync_handler, listener, connection_manager) = SubductionBuilder::default()
-            .storage(storage, Arc::new(OpenPolicy))
-            .spawner(subduction_websocket::tokio::TokioSpawn)
-            .signer(MemorySigner::from_bytes(&[0; 32]))
-            .timer(TimeoutTokio)
-            .build();
-
-        tokio::spawn(async move {
-            let _ = connection_manager.await;
-        });
-
-        tokio::spawn(async move {
-            let _ = listener.await;
-        });
-
-        let repo = Repo { subduction };
+        let repo = Repo::new(storage_directory.clone())?;
 
         let fs_index = FileSystemIndex::new(storage_directory.join("index.bin")).await?;
 
@@ -684,13 +672,9 @@ impl Driver {
     }
 
     pub async fn create_merge_preview_branch(
-        
         &self,
-       
         source: &SedimentreeId,
-       
         target: &SedimentreeId,
-    ,
     ) -> Result<(), DbError> {
         match self
             .inner
@@ -779,7 +763,7 @@ impl Driver {
             .branch_db
             .get_metadata_state()
             .await
-            .map(|(handle, _)| handle.document_id().clone())?)
+            .map(|(handle, _)| handle.clone())?)
     }
 
     pub async fn get_main_branch(&self) -> Result<SedimentreeId, ProjectLoadError> {
@@ -974,7 +958,7 @@ impl DriverInner {
 
             tracing::debug!("Updating file {path:?}...");
             self.sync_automerge_to_fs
-                .handle_file_update(path, content)
+                .handle_file_update(&path, content)
                 .await;
         }
         pending_norms.clear();

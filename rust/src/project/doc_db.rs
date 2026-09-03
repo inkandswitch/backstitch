@@ -11,7 +11,7 @@ use crate::project::doc_db::repo::RepoError;
 
 pub mod repo;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct DocumentDb {
     docs: Arc<Mutex<HashMap<SedimentreeId, Automerge>>>,
 }

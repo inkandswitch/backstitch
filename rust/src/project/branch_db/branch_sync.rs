@@ -161,6 +161,8 @@ impl BranchDb {
         states.contains_key(id)
     }
 
+    // todo (subd): When was found false??
+
     pub async fn ingest_binary_doc(&self, id: SedimentreeId, found: bool) -> Result<(), DbError> {
         tracing::debug!("Ingesting binary doc {id}...");
         let mut binary_states = self.binary_states.lock().await;
@@ -260,69 +262,67 @@ impl BranchDb {
         sync_state: Arc<Mutex<BranchSyncState>>,
     ) -> Result<(), DbError> {
         let doc_change_tx = self.branch_change_tx.clone();
-        tokio::task::spawn_blocking(move || -> Result<_, DbError> {
-            // this is quite weird, but we want to be holding the state mutex this entire method.
-            let mut state = sync_state.blocking_lock();
+        // this is quite weird, but we want to be holding the state mutex this entire method.
+        let mut state = sync_state.blocking_lock();
 
-            if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
-                tracing::debug!("Could not reconcile because we're still waiting on binary docs.");
+        if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
+            tracing::debug!("Could not reconcile because we're still waiting on binary docs.");
+            return Ok(());
+        }
+
+        // did we track any new changes coming into the canonical?
+        if Self::are_heads_equivalent(&state.last_reconciled, &state.last_tracked) {
+            // is canonical still synced up with the shadow doc?
+            if let Some(shadow_doc) = &state.shadow_doc
+                && Self::are_heads_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
+            {
+                // if both of those were true, we don't actually need to reconcile.
+                tracing::debug!("Could not reconcile because we're already up-to-date.");
                 return Ok(());
             }
+        }
 
-            // did we track any new changes coming into the canonical?
-            if Self::are_heads_equivalent(&state.last_reconciled, &state.last_tracked) {
-                // is canonical still synced up with the shadow doc?
-                if let Some(shadow_doc) = &state.shadow_doc
-                    && Self::are_heads_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
-                {
-                    // if both of those were true, we don't actually need to reconcile.
-                    tracing::debug!("Could not reconcile because we're already up-to-date.");
-                    return Ok(());
-                }
-            }
+        tracing::debug!("Reconcile starting...");
 
-            tracing::debug!("Reconcile starting...");
+        // let tracked_heads = state.last_tracked.clone();
+        let handle = state.canonical_doc.clone();
 
-            // let tracked_heads = state.last_tracked.clone();
-            let handle = state.canonical_doc.clone();
+        let (mut state, new_heads) = self
+            .repo
+            .with_document(&handle, async move |d| -> Result<_, AutomergeError> {
+                // First, create a fork from our heads if we don't have one
+                let shadow_doc = state
+                    .shadow_doc
+                    // TODO (Lilith): Once Alex fixes fork_at, use the other line instead
+                    // .get_or_insert_with(|| d.fork_at(&tracked_heads).unwrap());
+                    .get_or_insert_with(|| d.fork());
 
-            let (mut state, new_heads) =
-                self.repo
-                    .with_document(&handle, move |d| -> Result<_, AutomergeError> {
-                        // First, create a fork from our heads if we don't have one
-                        let shadow_doc = state
-                            .shadow_doc
-                            // TODO (Lilith): Once Alex fixes fork_at, use the other line instead
-                            // .get_or_insert_with(|| d.fork_at(&tracked_heads).unwrap());
-                            .get_or_insert_with(|| d.fork());
+                // First, fork at tracked heads.
+                // This is important so that if new heads have appeared with unsynced binary docs since
+                // we tried to reconcile, we don't include them.
 
-                        // First, fork at tracked heads.
-                        // This is important so that if new heads have appeared with unsynced binary docs since
-                        // we tried to reconcile, we don't include them.
+                // // TODO (Lilith): Once Alex fixes fork_at, use this code instead of merging directly...
+                // let mut fork = d.fork_at(&tracked_heads).unwrap();
 
-                        // // TODO (Lilith): Once Alex fixes fork_at, use this code instead of merging directly...
-                        // let mut fork = d.fork_at(&tracked_heads).unwrap();
+                // // Next, sync our fork with the shadow doc.
+                // let _ = fork.merge(shadow_doc).unwrap();
+                // let _ = shadow_doc.merge(&mut fork).unwrap();
 
-                        // // Next, sync our fork with the shadow doc.
-                        // let _ = fork.merge(shadow_doc).unwrap();
-                        // let _ = shadow_doc.merge(&mut fork).unwrap();
+                let _ = shadow_doc.merge(d)?;
 
-                        let _ = shadow_doc.merge(d)?;
-
-                        // Last, sync our canonical doc with the shadow doc.
-                        // We need to ignore the outputted heads, because we may already have unsynced changes in the canonical doc!
-                        // document_watcher will pick up on any meaningful changes here, and will handle ingestion for us.
-                        let _ = d.merge(shadow_doc)?;
-                        Ok((state, d.get_heads()))
-                    })?;
-            // TODO (Lilith): Figure out a way to ignore canonical heads (use shadow heads?)
-            state.last_reconciled = new_heads.clone();
-            state.last_tracked = new_heads;
-            tracing::debug!("Reconcile completed.");
-            let _ = state.shadow_doc_init_tx.send_replace(true);
-            let _ = doc_change_tx.send(());
-            Ok(())
-        })
-        .await?
+                // Last, sync our canonical doc with the shadow doc.
+                // We need to ignore the outputted heads, because we may already have unsynced changes in the canonical doc!
+                // document_watcher will pick up on any meaningful changes here, and will handle ingestion for us.
+                let _ = d.merge(shadow_doc)?;
+                Ok((state, d.get_heads()))
+            })
+            .await??;
+        // TODO (Lilith): Figure out a way to ignore canonical heads (use shadow heads?)
+        state.last_reconciled = new_heads.clone();
+        state.last_tracked = new_heads;
+        tracing::debug!("Reconcile completed.");
+        let _ = state.shadow_doc_init_tx.send_replace(true);
+        let _ = doc_change_tx.send(());
+        Ok(())
     }
 }

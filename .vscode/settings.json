@@ -12,6 +12,7 @@
         "editor.formatOnSaveMode": "file",
         "editor.formatOnSave": true,
     },
+    "rust-analyzer.check.allTargets": false,
     "black-formatter.args": [
         "-l 120"
     ],

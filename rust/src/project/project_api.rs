@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use automerge::ChangeHash;
-use samod::SedimentreeId;
+use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 
 use crate::{
@@ -102,14 +102,14 @@ pub trait ProjectViewModel {
     fn clear_project(&mut self);
     /// Whether we have initialized with a project yet.
     fn has_project(&self) -> bool;
-    /// Get the current project [DocumentId], if it exists. Otherwise, return [None]
-    fn get_project_id(&self) -> Option<DocumentId>;
+    /// Get the current project [SedimentreeId], if it exists. Otherwise, return [None]
+    fn get_project_id(&self) -> Option<SedimentreeId>;
     /// Starts the creation of a new project, in the background.
     fn new_project(&self, server_url: Option<&str>);
-    /// Starts the load of a project, in the background, given a [DocumentId].
+    /// Starts the load of a project, in the background, given a [SedimentreeId].
     /// If `autostart` is true, this is treated as automatically restarting a loaded project.
     /// Otherwise, it behaves as if the user is loading into a project.
-    fn load_project(&self, id: &DocumentId, server_url: Option<&str>, autostart: bool);
+    fn load_project(&self, id: &SedimentreeId, server_url: Option<&str>, autostart: bool);
 
     /// Get the current unresolved local changes from the project.
     /// We'll need to ask the user if they want to check these in.
@@ -134,7 +134,7 @@ pub trait ProjectViewModel {
     /// Create a new branch, forked off the current branch with the given name.
     fn create_branch(&self, branch_name: String);
     /// Check out a branch by ID.
-    fn checkout_branch(&self, branch: &DocumentId);
+    fn checkout_branch(&self, branch: &SedimentreeId);
     /// Returns true if the branch is loaded (i.e. has all of its binary docs synced).
     fn is_branch_loaded(&self, branch: &SedimentreeId) -> bool;
     /// Dumps a binary representation of the current branch to ./.backstitch/.

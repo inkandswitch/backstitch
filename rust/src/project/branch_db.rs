@@ -15,7 +15,10 @@ use tokio::{
 
 use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
-    project::{branch_db::branch_sync::BranchSyncState, doc_db::repo::Repo},
+    project::{
+        branch_db::branch_sync::BranchSyncState,
+        doc_db::repo::{Repo, RepoError},
+    },
 };
 
 mod branch;
@@ -56,8 +59,6 @@ pub enum DbError {
     #[error("there was an issue with threading: {0}")]
     Thread(#[from] JoinError),
     #[error(transparent)]
-    RepoStopped(#[from] samod::Stopped),
-    #[error(transparent)]
     Automerge(#[from] AutomergeError),
     #[error(transparent)]
     Hydrate(#[from] HydrateError),
@@ -67,6 +68,8 @@ pub enum DbError {
     InvalidRef(Box<HistoryRef>),
     #[error("there were no provided file filters")]
     NoFilters,
+    #[error(transparent)]
+    Repo(#[from] RepoError),
 }
 
 /// [BranchDb] is the primary data source for project data.

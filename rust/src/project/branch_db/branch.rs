@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use automerge::{Automerge, ROOT, transaction::Transactable};
+use automerge::{
+    Automerge, ROOT,
+    transaction::{CommitOptions, Transactable},
+};
 use autosurgeon::{hydrate, reconcile};
 use sedimentree_core::id::SedimentreeId;
 
@@ -11,7 +14,7 @@ use crate::{
     },
     project::{
         branch_db::{BranchDb, DbError, HistoryRef},
-        doc_db::repo::RepoError,
+        repo::RepoError,
     },
 };
 
@@ -74,8 +77,13 @@ impl BranchDb {
             },
         )]);
 
+        let mut create = Automerge::new();
+        create.empty_commit(CommitOptions {
+            message: Some("test".to_string()),
+            time: None,
+        });
         // create new branches metadata doc
-        let metadata_handle = self.repo.create(&Automerge::new()).await?;
+        let metadata_handle = self.repo.create(&create).await?;
         let metadata_handle_clone = metadata_handle.clone();
         self.repo
             .with_document(&metadata_handle, async |d| {

@@ -9,7 +9,6 @@ use crate::project::change_ingester::ChangeIngester;
 use crate::project::connection::{
     ConnectionInfo, RemoteConnection, RemoteConnectionError, RemoteConnectionEvent,
 };
-use crate::project::doc_db::repo::{Repo, RepoError};
 use crate::project::document_watcher::{DocumentWatcher, IngestWaitError};
 use crate::project::fs::fs_index::{FileSystemIndex, IndexError};
 use crate::project::fs::fs_traversal::FileSystemTraversal;
@@ -17,6 +16,7 @@ use crate::project::fs::sync_automerge_to_fs::SyncAutomergeToFileSystem;
 use crate::project::fs::sync_fs_to_automerge::SyncFileSystemToAutomerge;
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::peer_watcher::PeerWatcher;
+use crate::project::repo::{Repo, RepoError};
 use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::Aborted;
@@ -27,14 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use subduction_core::handler::sync::SyncHandler;
-use subduction_core::policy::open::OpenPolicy;
-use subduction_core::subduction::Subduction;
-use subduction_core::subduction::builder::SubductionBuilder;
-use subduction_crypto::signer::memory::MemorySigner;
-use subduction_redb_storage::{RedbStorage, RedbStorageError};
-use subduction_websocket::timeout::FuturesTimerTimeout;
-use subduction_websocket::tokio::TimeoutTokio;
+use subduction_redb_storage::RedbStorageError;
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio::{pin, select};
@@ -164,6 +157,8 @@ pub enum ProjectLoadError {
     Server(#[from] ServerError),
     #[error(transparent)]
     Connection(#[from] RemoteConnectionError),
+    #[error(transparent)]
+    Repo(#[from] RepoError),
 }
 
 impl From<DbError> for ProjectLoadError {
@@ -249,8 +244,18 @@ impl Driver {
         //  c: The document doesn't exist at all.
 
         // First, we check the local repository. Or, if we're already connected, this also checks the remote.
-        if let Some(metadata_handle) = self.repo.find(metadata_id.clone()).await? {
-            return Ok(metadata_handle);
+        // TODO (subd): Simplify this logic -- be explicit about remote/local finding and durations
+        match self
+            .repo
+            .find(metadata_id, Duration::from_millis(100))
+            .await
+        {
+            Ok(_) => return Ok(metadata_id.clone()),
+            Err(e) => match e {
+                // It's OK, we didn't find it
+                RepoError::NoSuchDocument(sedimentree_id) => {}
+                _ => Err(e)?,
+            },
         }
 
         // If our connection isn't even initialized, we just give up.
@@ -274,13 +279,21 @@ impl Driver {
         }
 
         // Now that we know we're connected, try the find again.
-        if let Some(metadata_handle) = self.repo.find(metadata_id.clone()).await? {
-            return Ok(metadata_handle);
-        }
 
-        Err(ProjectLoadError::MetadataIdNotFound {
-            server_status: ProjectLoadServerStatus::Connected,
-        })
+        match self
+            .repo
+            .find(metadata_id, Duration::from_millis(100))
+            .await
+        {
+            Ok(_) => Ok(metadata_id.clone()),
+            Err(e) => match e {
+                // It's OK, we didn't find it
+                RepoError::NoSuchDocument(_) => Err(ProjectLoadError::MetadataIdNotFound {
+                    server_status: ProjectLoadServerStatus::Connected,
+                }),
+                _ => Err(e)?,
+            },
+        }
     }
 
     async fn create_document_watcher(&self, metadata_handle: &SedimentreeId, poll_time: u64) {

@@ -4,7 +4,7 @@ use crate::{
     helpers::{
         branch::BranchesMetadataDoc, doc_utils::SimpleDocReader, spawn_utils::spawn_named,
         utils::parse_automerge_url,
-    }, project::{branch_db::BranchDb, doc_db::repo::{Repo, RepoError}},
+    }, project::{branch_db::BranchDb, repo::{Repo, RepoError}},
 };
 use automerge::{Automerge, ROOT, ReadDoc};
 use autosurgeon::hydrate;
@@ -74,9 +74,12 @@ impl DocumentWatcher {
         let inner_clone = inner.clone();
 
         // do the initial ingest
-        inner_clone
+        match inner_clone
             .ingest_metadata_document(metadata_handle.clone())
-            .await;
+            .await {
+                Ok(()) => {},
+                Err(e) => tracing::error!("could not initially ingest metadata doc! {e}"),
+            }
 
         // track changes for future ingests
         spawn_named("Metadata tracker", async move {
@@ -120,29 +123,22 @@ impl DocumentWatcherInner {
         timeout: u64,
         find_limit: Arc<Semaphore>,
     ) -> Option<SedimentreeId> {
-        // This find can fail, if the server doesn't have the document yet, and it's set to a nonpermissive announce policy.
-        // Permissive announce policies on the server fix it because the server is allowed to check with peers before
-        // find return false. But with NeverAnnounce, servers can't check with peers to see if they have a document.
-        // So, we need to call find() over and over until it is available on the server... then we can ingest.
-        // Alex wants to add a search API: https://github.com/alexjg/samod/pull/95
-        // Once that search API is complete, we can instead timeout like usual instead of spamming find().
-        let mut time = 0u64;
-        let duration = 500u64;
-        loop {
-            tracing::trace!("Polling for document {id}, for {timeout}ms");
-            let acquired = find_limit.acquire().await.unwrap();
-            let handle = repo.find(id.clone()).await.unwrap();
-            drop(acquired);
-            if let Some(handle) = handle {
-                tracing::debug!("Found document {id}");
-                break Some(handle);
-            }
-            tracing::debug!("Didn't find document {id}");
-            time += duration;
-            if time > timeout {
-                break None;
-            }
-            let _ = tokio::time::sleep(Duration::from_millis(duration)).await;
+        // TODO (subd): Do we still need the find_limit semaphore? 
+
+        match repo.find(id, Duration::from_millis(timeout)).await {
+            Ok(()) => return Some(id.clone()),
+            Err(e) => {
+                match e {
+                    RepoError::NoSuchDocument(_) => {
+                        tracing::debug!("Didn't find document {id}");
+                        return None;
+                    },
+                    _ => {
+                        tracing::error!("Repo error finding document {id}: {e}");
+                        return None;
+                    }
+                }
+            },
         }
     }
 
@@ -209,7 +205,10 @@ impl DocumentWatcherInner {
                 _ = stream.next() => {
                     // collapse the rest of the stream, in case multiple futures are ready
                     while stream.next().now_or_never().flatten().is_some() {}
-                    self.ingest_metadata_document(handle.clone()).await;
+                    match self.ingest_metadata_document(handle.clone()).await {
+                        Ok(()) => {},
+                        Err(e) => tracing::error!("could not ingest the metadata document! {e}"),
+                    }
                 },
                 _ = self.token.cancelled() => {
                     break;

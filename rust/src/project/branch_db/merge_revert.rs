@@ -32,16 +32,24 @@ impl BranchDb {
         let handle_clone = handle.clone();
 
         self.with_shadow_document(source, async |d| {
-            self.repo.with_document(&handle_clone, async |preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 
         self.with_shadow_document(target, async |d| {
-            self.repo.with_document(&handle_clone, async |preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 
@@ -139,9 +147,13 @@ impl BranchDb {
         let handle_clone = handle.clone();
 
         self.with_shadow_document(branch, async |d| {
-            self.repo.with_document(&handle_clone, async |preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 

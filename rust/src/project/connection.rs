@@ -26,7 +26,7 @@ use url::Url;
 use crate::{
     auth::server_manager::{ServerError, ServerManager},
     helpers::spawn_utils::spawn_named,
-    project::doc_db::repo::Repo,
+    project::repo::Repo,
 };
 
 /// Connects a repo to the remote server's sync endpoint. Shuts down when dropped.
@@ -284,7 +284,8 @@ impl RemoteConnectionInner {
         }
 
         // TODO: add auth'd username here
-        self.events_tx
+        let _ = self
+            .events_tx
             .send(RemoteConnectionEvent::Connected { username: None });
 
         select! {

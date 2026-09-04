@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     helpers::spawn_utils::spawn_named,
-    project::{connection::ConnectionInfo, doc_db::repo::Repo},
+    project::{connection::ConnectionInfo, repo::Repo},
 };
 
 #[derive(Debug)]

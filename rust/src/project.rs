@@ -35,11 +35,11 @@ pub mod project_starter;
 // pub for use in differ; consider restructuring
 pub mod branch_db;
 mod change_ingester;
-pub mod doc_db;
 mod driver;
 mod main_thread_block;
 mod peer_watcher;
 pub mod project_base;
+pub mod repo;
 
 #[derive(Debug, Clone)]
 pub enum ProjectStartStatus {

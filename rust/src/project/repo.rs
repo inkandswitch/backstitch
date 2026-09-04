@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use automerge::{Automerge, ChangeHash};
+use automerge::{Automerge, AutomergeError, ChangeHash};
 use future_form::Sendable;
 use futures::Stream;
 use rand::Rng;
@@ -16,7 +16,7 @@ use sedimentree_core::{
     depth::CountLeadingZeroBytes,
     fragment::Fragment,
     id::SedimentreeId,
-    loose_commit::id::CommitId,
+    loose_commit::{LooseCommit, id::CommitId},
     sedimentree::Sedimentree,
 };
 use subduction_core::{
@@ -35,7 +35,13 @@ use thiserror::Error;
 use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 
-use crate::{helpers::spawn_utils::spawn_named, project::doc_db::DocumentDb};
+use crate::{
+    helpers::spawn_utils::spawn_named,
+    project::repo::{
+        automerge_subduction_ingest::ingest_automerge,
+        doc_db::{DocumentDb, DocumentDbError},
+    },
+};
 
 type Subd = Subduction<
     'static,
@@ -56,6 +62,9 @@ type Subd = Subduction<
     TokioSpawn,
 >;
 
+mod automerge_subduction_ingest;
+mod doc_db;
+
 #[derive(Debug, Clone)]
 pub struct Repo {
     subduction: Arc<Subd>,
@@ -75,6 +84,8 @@ pub enum RepoError {
     #[error(transparent)]
     Storage(#[from] RedbStorageError),
     #[error(transparent)]
+    Automerge(#[from] AutomergeError),
+    #[error(transparent)]
     Write(
         #[from] WriteError<Sendable, RedbStorage, TokioWebSocketClient<MemorySigner>, SyncMessage>,
     ),
@@ -83,6 +94,17 @@ pub enum RepoError {
     // TODO (subd): Forward the error
     #[error("there was an IO error")]
     Io,
+}
+
+impl From<DocumentDbError> for RepoError {
+    fn from(value: DocumentDbError) -> Self {
+        match value {
+            DocumentDbError::Automerge(automerge_error) => RepoError::Automerge(automerge_error),
+            DocumentDbError::NoSuchDocument(sedimentree_id) => {
+                RepoError::NoSuchDocument(sedimentree_id)
+            }
+        }
+    }
 }
 
 struct HeadsObserver {
@@ -102,7 +124,7 @@ impl RemoteHeadsObserver for HeadsObserver {
             return;
         }
         let sub = subd.clone().unwrap().clone();
-        let mut doc_db = self.doc_db.clone();
+        let doc_db = self.doc_db.clone();
         tokio::task::spawn_blocking(async move || {
             let blobs = match sub.get_blobs(id).await {
                 Ok(Some(blobs)) => blobs.into(),
@@ -113,7 +135,10 @@ impl RemoteHeadsObserver for HeadsObserver {
                 }
             };
 
-            doc_db.insert_blobs(id, blobs);
+            match doc_db.insert_blobs(id, blobs).await {
+                Ok(()) => {}
+                Err(e) => tracing::error!("Error while inserting blobs of {id}: {e}"),
+            };
         });
     }
 }
@@ -173,7 +198,19 @@ impl Repo {
         Ok(this)
     }
 
+    fn ensure_running(&self) -> Result<(), RepoError> {
+        if self.token.is_cancelled() {
+            return Err(RepoError::Stopped);
+        };
+        Ok(())
+    }
+
     pub async fn find(&self, id: &SedimentreeId, timeout: Duration) -> Result<(), RepoError> {
+        self.ensure_running()?;
+        if self.doc_db.has(id).await {
+            return Ok(());
+        }
+
         let blobs = self
             .subduction()
             .fetch_blobs(
@@ -189,7 +226,7 @@ impl Repo {
 
         let blobs = blobs.ok_or(RepoError::NoSuchDocument(id.clone()))?;
 
-        self.doc_db.insert_blobs(id.clone(), blobs.into());
+        self.doc_db.insert_blobs(id.clone(), blobs.into()).await?;
 
         Ok(())
     }
@@ -199,24 +236,46 @@ impl Repo {
         &self,
         id: &SedimentreeId,
     ) -> Result<impl Stream<Item = DocumentChanged> + 'static, RepoError> {
+        self.ensure_running()?;
         Ok(futures::stream::pending())
     }
 
+    fn change_hash_to_commit_id(change_hash: &ChangeHash) -> CommitId {
+        CommitId::new(change_hash.as_ref().try_into().unwrap())
+    }
+
     pub async fn create(&self, initial: &Automerge) -> Result<SedimentreeId, RepoError> {
-        // TODO: this is horrible; don't drive sync here (use store_sedimentree?)
-        let mut doc_db = self.doc_db.clone();
+        self.ensure_running()?;
+        let doc_db = self.doc_db.clone();
         let mut id = [0u8; 32];
         rand::rng().fill_bytes(id.as_mut_slice());
         let id = SedimentreeId::from_bytes(id);
+
+        let result = ingest_automerge(initial, id);
+
+        // maybe do something with this peer result?
+        // TODO (subd): this is horrible; don't drive sync here (use store_sedimentree? or wait to put inside subduction?)
         let res = self
             .subduction()
             .add_sedimentree(
                 id,
-                Sedimentree::default(),
-                vec![Blob::new(initial.save())],
+                result.sedimentree,
+                result.blobs,
                 subduction_core::timeout::call::CallTimeout::TimeoutMillis(5000),
             )
             .await?;
+
+        tracing::debug!("IDs: {:?}", self.subduction().sedimentree_ids().await);
+
+        match self.subduction().get_blobs(id).await? {
+            Some(blobs) => {
+                doc_db.insert_blobs(id, blobs.into()).await?;
+            }
+            None => {
+                tracing::error!("no blobs returned for inserted ID {id}");
+                return Err(RepoError::NoSuchDocument(id));
+            }
+        }
 
         Ok(id)
     }
@@ -225,6 +284,7 @@ impl Repo {
     where
         F: AsyncFnOnce(&mut Automerge) -> R,
     {
+        self.ensure_running()?;
         let result = self.doc_db.with_document(id, f).await?;
         // TODO: actually check if document changed
         let frags = self.doc_db.get_fragments(id).await?;
@@ -236,17 +296,19 @@ impl Repo {
             }
 
             // TODO: Don't drive sync here; use store_fragment and sync elsewhere
-            self.subduction().add_fragment(
-                *id,
-                CommitId::new(frag.head.0),
-                boundary,
-                frag.checkpoints
-                    .into_iter()
-                    .map(|c| CommitId::new(c.0))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                Blob::new(blob),
-            );
+            self.subduction()
+                .add_fragment(
+                    *id,
+                    CommitId::new(frag.head.0),
+                    boundary,
+                    frag.checkpoints
+                        .into_iter()
+                        .map(|c| CommitId::new(c.0))
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    Blob::new(blob),
+                )
+                .await?;
         }
 
         Ok(result)

@@ -17,7 +17,7 @@ use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
     project::{
         branch_db::branch_sync::BranchSyncState,
-        doc_db::repo::{Repo, RepoError},
+        repo::{Repo, RepoError},
     },
 };
 

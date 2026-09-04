@@ -77,13 +77,10 @@ impl BranchDb {
             },
         )]);
 
-        let mut create = Automerge::new();
-        create.empty_commit(CommitOptions {
-            message: Some("test".to_string()),
-            time: None,
-        });
         // create new branches metadata doc
-        let metadata_handle = self.repo.create(&create).await?;
+        tracing::info!("creating !!! ! ! !");
+        let metadata_handle = self.repo.create(&Automerge::new()).await?;
+        tracing::info!("created...");
         let metadata_handle_clone = metadata_handle.clone();
         self.repo
             .with_document(&metadata_handle, async |d| {

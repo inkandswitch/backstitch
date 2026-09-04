@@ -3,11 +3,11 @@ use std::{
     collections::{BTreeSet, HashMap},
     ops::DerefMut,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
-use automerge::{Automerge, AutomergeError, ChangeHash};
+use automerge::{Automerge, AutomergeError, ChangeHash, transaction::CommitOptions};
 use future_form::Sendable;
 use futures::Stream;
 use rand::Rng;
@@ -64,6 +64,19 @@ type Subd = Subduction<
 
 mod automerge_subduction_ingest;
 mod doc_db;
+
+static EMPTY_AUTOMERGE: OnceLock<Automerge> = OnceLock::new();
+
+fn empty_automerge() -> &'static Automerge {
+    EMPTY_AUTOMERGE.get_or_init(|| {
+        let mut doc = Automerge::new();
+        doc.empty_commit(CommitOptions {
+            message: Some("Initial commit".to_string()),
+            time: None,
+        });
+        doc
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct Repo {
@@ -240,11 +253,13 @@ impl Repo {
         Ok(futures::stream::pending())
     }
 
-    fn change_hash_to_commit_id(change_hash: &ChangeHash) -> CommitId {
-        CommitId::new(change_hash.as_ref().try_into().unwrap())
-    }
-
     pub async fn create(&self, initial: &Automerge) -> Result<SedimentreeId, RepoError> {
+        let initial = if initial.is_empty() {
+            empty_automerge()
+        } else {
+            initial
+        };
+
         self.ensure_running()?;
         let doc_db = self.doc_db.clone();
         let mut id = [0u8; 32];
@@ -252,6 +267,11 @@ impl Repo {
         let id = SedimentreeId::from_bytes(id);
 
         let result = ingest_automerge(initial, id);
+
+        // should never happen, but just in case (until add_sedimentree takes a NonEmpty)
+        if result.blobs.is_empty() {
+            panic!("Can't insert an empty automerge document!");
+        }
 
         // maybe do something with this peer result?
         // TODO (subd): this is horrible; don't drive sync here (use store_sedimentree? or wait to put inside subduction?)
@@ -264,8 +284,6 @@ impl Repo {
                 subduction_core::timeout::call::CallTimeout::TimeoutMillis(5000),
             )
             .await?;
-
-        tracing::debug!("IDs: {:?}", self.subduction().sedimentree_ids().await);
 
         match self.subduction().get_blobs(id).await? {
             Some(blobs) => {

@@ -263,7 +263,7 @@ impl BranchDb {
     ) -> Result<(), DbError> {
         let doc_change_tx = self.branch_change_tx.clone();
         // this is quite weird, but we want to be holding the state mutex this entire method.
-        let mut state = sync_state.blocking_lock();
+        let mut state = sync_state.lock().await;
 
         if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
             tracing::debug!("Could not reconcile because we're still waiting on binary docs.");

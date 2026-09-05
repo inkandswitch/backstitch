@@ -10,7 +10,7 @@ use std::{
 use automerge::{Automerge, AutomergeError, ChangeHash, transaction::CommitOptions};
 use future_form::Sendable;
 use futures::Stream;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use sedimentree_core::{
     blob::{Blob, BlobMeta},
     depth::CountLeadingZeroBytes,
@@ -55,11 +55,15 @@ type Subd = Subduction<
         OpenPolicy,
         CountLeadingZeroBytes,
         TokioSpawn,
+        256,
+        HeadsObserver,
     >,
     OpenPolicy,
     MemorySigner,
     TimeoutTokio,
     TokioSpawn,
+    CountLeadingZeroBytes,
+    256,
 >;
 
 mod automerge_subduction_ingest;
@@ -120,7 +124,7 @@ impl From<DocumentDbError> for RepoError {
     }
 }
 
-struct HeadsObserver {
+pub struct HeadsObserver {
     subduction: Arc<std::sync::Mutex<Option<Arc<Subd>>>>,
     doc_db: DocumentDb,
 }
@@ -163,6 +167,7 @@ impl Repo {
 
     pub fn stop(&self) {
         self.token.cancel();
+        self.subduction.shutdown();
     }
 
     pub fn new(storage_directory: PathBuf) -> Result<Self, RepoError> {
@@ -172,14 +177,17 @@ impl Repo {
             subduction: sub.clone(),
             doc_db: doc_db.clone(),
         };
+
         let storage = RedbStorage::new(storage_directory)?;
-        let (subduction, sync_handler, listener, connection_manager) = SubductionBuilder::default()
-            .storage(storage, Arc::new(OpenPolicy))
-            .spawner(TokioSpawn)
-            .signer(MemorySigner::from_bytes(&[0; 32]))
-            .timer(TimeoutTokio)
-            .heads_observer(heads_observer)
-            .build();
+        let (subduction, sync_handler, listener, connection_manager) =
+            SubductionBuilder::<_, _, _, _, _, _, 256>::default()
+                .storage(storage, Arc::new(OpenPolicy))
+                .spawner(TokioSpawn)
+                // TODO (keyhive): Don't generate a key; use a stable one.
+                .signer(MemorySigner::generate())
+                .timer(TimeoutTokio)
+                .heads_observer(heads_observer)
+                .build();
 
         let mut guard = sub.lock().expect("ajajajaja");
         *guard = Some(subduction.clone());

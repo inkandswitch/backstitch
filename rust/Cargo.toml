@@ -36,12 +36,8 @@ indexmap = "2.13.0"
 uuid = { version = "1.5.0", features = ["v4"] }
 pretty_assertions = "1.4.1"
 similar = { version = "2.4.0", features = ["unicode"] }
-notify = { version = "8.2.0", features = [
-  "macos_fsevent",
-] }
-notify-debouncer-full = { version = "0.7.0", features = [
-  "macos_fsevent",
-] }
+notify = { version = "8.2.0", features = ["macos_fsevent"] }
+notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
 rand = "0.10.2"
 sha2 = "^0.11.0-rc.5"
 serde = { version = "1.0", features = ["derive"] }
@@ -64,11 +60,14 @@ tracing-panic = "0.1.2"
 url = "2.5.8"
 
 # automergy stuff
-subduction_core = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
-sedimentree_core = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git", features=["serde"] }
-subduction_redb_storage = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
-subduction_websocket = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git", features=["tokio_base", "tokio_client"] }
-subduction_crypto = { branch="remote-heads-builder", git = "https://github.com/inkandswitch/subduction.git" }
+subduction_core = "0.18.0"
+sedimentree_core = { version = "0.14.0", features = ["serde"] }
+subduction_redb_storage = "0.2.0"
+subduction_websocket = { version = "0.12.0", features = [
+  "tokio_base",
+  "tokio_client",
+] }
+subduction_crypto = "0.9.0"
 automerge = "0.11.0"
 autosurgeon = "0.13.0"
 

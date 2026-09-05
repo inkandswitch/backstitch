@@ -4,7 +4,10 @@ use axum::http::Uri;
 use futures::{Stream, StreamExt};
 use subduction_core::{
     connection::ConnectionDisallowed,
-    handshake::{self, audience::Audience},
+    handshake::{
+        self,
+        audience::{Audience, DiscoveryId},
+    },
     peer::id::PeerId,
     subduction::error::AddConnectionError,
 };
@@ -270,7 +273,7 @@ impl RemoteConnectionInner {
         let (client_ws, listener_fut, sender_fut, keepalive_task) = TokioWebSocketClient::new(
             Uri::from_str(&url.to_string()).expect("URL to URI conversion broken..."),
             subd.signer().clone(),
-            Audience::known(PeerId::new([0u8; 32])),
+            Audience::Discover(DiscoveryId::new("backstitch_sync_server".as_bytes())),
         )
         .await?;
 

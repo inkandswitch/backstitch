@@ -58,7 +58,7 @@ impl Project {
                     start_status_tx.send_replace(ProjectStartStatus::Done);
                 }
                 Err(e) => {
-                    tracing::error!("error starting project: {e}");
+                    tracing::error!("error starting project: {e:?}");
                     start_status_tx.send_replace(ProjectStartStatus::Failed(e.to_string()));
                 }
             }

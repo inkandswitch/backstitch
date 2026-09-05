@@ -3976,8 +3976,9 @@ dependencies = [
 
 [[package]]
 name = "sedimentree_core"
-version = "0.13.0"
-source = "git+https://github.com/inkandswitch/subduction.git?branch=remote-heads-builder#9e69a6ecf713ca5a853cf6f4c598f9b52c188219"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aee4f8a1f68b621525e320842723e0a3962958c1d2573cf1827c132d0b406cd"
 dependencies = [
  "async-lock",
  "bijoux",
@@ -4404,8 +4405,9 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "subduction_core"
-version = "0.17.0"
-source = "git+https://github.com/inkandswitch/subduction.git?branch=remote-heads-builder#9e69a6ecf713ca5a853cf6f4c598f9b52c188219"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8aeec2a9374a6e058fb0b395e67b25c86477c2f5a7efd06a7ad8cd3e66af43f6"
 dependencies = [
  "async-channel",
  "async-lock",
@@ -4425,8 +4427,9 @@ dependencies = [
 
 [[package]]
 name = "subduction_crypto"
-version = "0.8.0"
-source = "git+https://github.com/inkandswitch/subduction.git?branch=remote-heads-builder#9e69a6ecf713ca5a853cf6f4c598f9b52c188219"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b79c314ac030a329239d2ed1a52d53aff22bba9481ebbc190baeca72b1b8348f"
 dependencies = [
  "ed25519-dalek",
  "future_form",
@@ -4439,8 +4442,9 @@ dependencies = [
 
 [[package]]
 name = "subduction_redb_storage"
-version = "0.1.0"
-source = "git+https://github.com/inkandswitch/subduction.git?branch=remote-heads-builder#9e69a6ecf713ca5a853cf6f4c598f9b52c188219"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9176320c06697dd447fb27533bacd035d4a9b31a8057a75b8e0e4cc7f2d2fb18"
 dependencies = [
  "future_form",
  "futures",
@@ -4455,8 +4459,9 @@ dependencies = [
 
 [[package]]
 name = "subduction_websocket"
-version = "0.11.0"
-source = "git+https://github.com/inkandswitch/subduction.git?branch=remote-heads-builder#9e69a6ecf713ca5a853cf6f4c598f9b52c188219"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28fbff113c24f437df6687d91559ee6007bd5110707c0fd3b5e9ba6327238b83"
 dependencies = [
  "async-channel",
  "async-lock",

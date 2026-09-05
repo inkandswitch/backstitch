@@ -1,6 +1,5 @@
+use sedimentree_core::id::SedimentreeId;
 use std::{path::PathBuf, sync::Arc};
-
-use samod::DocumentId;
 use tokio::sync::{Mutex, oneshot, watch};
 use url::Url;
 
@@ -59,7 +58,7 @@ impl Project {
                     start_status_tx.send_replace(ProjectStartStatus::Done);
                 }
                 Err(e) => {
-                    tracing::error!("error starting project: {e}");
+                    tracing::error!("error starting project: {e:?}");
                     start_status_tx.send_replace(ProjectStartStatus::Failed(e.to_string()));
                 }
             }
@@ -106,7 +105,7 @@ impl Project {
                 config
                     .project_doc_id()
                     .await
-                    .ok_or(ProjectStartError::DocumentIdInvalid)?,
+                    .ok_or(ProjectStartError::SedimentreeIdInvalid)?,
             )
         };
 
@@ -220,8 +219,8 @@ impl Project {
     async fn try_and_retry_load(
         driver: &mut Driver,
         server_url: Option<&Url>,
-        metadata_id: &DocumentId,
-        branch_id: Option<&DocumentId>,
+        metadata_id: &SedimentreeId,
+        branch_id: Option<&SedimentreeId>,
     ) -> Result<LoadSuccess, ProjectStartError> {
         // I am going to become the joker because of this method, but I think it's all necessary/as simple as possible. Maybe I'm wrong...
         // Either way, here's the logic:
@@ -252,7 +251,7 @@ impl Project {
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => match server_url {
                         Some(_) => e,
                         // If no server URL was provided, there's no coming back from this.
-                        None => return Err(ProjectStartError::DocumentIdNotFound),
+                        None => return Err(ProjectStartError::SedimentreeIdNotFound),
                     },
                     ProjectLoadError::BranchDocNotFound { server_status: _ } => e,
                     ProjectLoadError::BinaryDocNotFound { server_status: _ } => e,
@@ -281,7 +280,7 @@ impl Project {
                             tracing::error!(
                                 "This shouldn't happen!! The metadata doc disappeared!!!!!"
                             );
-                            return Err(ProjectStartError::DocumentIdNotFound);
+                            return Err(ProjectStartError::SedimentreeIdNotFound);
                         }
                         // The project is broken!!!! We can't find the main
                         ProjectLoadError::BranchDocNotFound { server_status: _ } => {
@@ -323,7 +322,7 @@ impl Project {
             Err(e) => {
                 match e {
                     ProjectLoadError::MetadataIdNotFound { server_status: _ } => {
-                        return Err(ProjectStartError::DocumentIdNotFound);
+                        return Err(ProjectStartError::SedimentreeIdNotFound);
                     }
                     ProjectLoadError::BranchDocNotFound { server_status: _ } => {}
                     ProjectLoadError::BinaryDocNotFound { server_status: _ } => {
@@ -358,7 +357,7 @@ impl Project {
                         tracing::error!(
                             "What?!?!? The metadata doc went bad when trying to load the main branch!!"
                         );
-                        Err(ProjectStartError::DocumentIdNotFound)
+                        Err(ProjectStartError::SedimentreeIdNotFound)
                     }
                     ProjectLoadError::BranchDocNotFound { server_status: _ } => {
                         tracing::error!(

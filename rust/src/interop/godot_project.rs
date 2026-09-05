@@ -22,7 +22,7 @@ use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
 use godot::global::Error;
 use godot::prelude::*;
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::collections::HashSet;
 use std::ops::DerefMut;
 use std::path::PathBuf;
@@ -325,7 +325,7 @@ impl GodotProject {
 
     #[func]
     fn load_project(&mut self, id: String, server: String) {
-        let id = match DocumentId::from_str(&id) {
+        let id = match SedimentreeId::from_str(&id) {
             Ok(id) => id,
             Err(e) => {
                 tracing::error!("Error regular starting {:?}", e);
@@ -385,7 +385,7 @@ impl GodotProject {
 
     #[func]
     fn get_branch(&self, id: String) -> Variant {
-        let Ok(id) = DocumentId::from_str(&id) else {
+        let Ok(id) = SedimentreeId::from_str(&id) else {
             return Variant::nil();
         };
         self.branch_to_variant(self.project().get_branch(&id))
@@ -408,7 +408,7 @@ impl GodotProject {
 
     #[func]
     fn is_branch_loaded(&self, id: String) -> bool {
-        let Ok(id) = DocumentId::from_str(&id) else {
+        let Ok(id) = SedimentreeId::from_str(&id) else {
             return false;
         };
         self.project().is_branch_loaded(&id)
@@ -421,7 +421,7 @@ impl GodotProject {
 
     #[func]
     fn checkout_branch(&self, id: String) {
-        if let Ok(id) = DocumentId::from_str(&id) {
+        if let Ok(id) = SedimentreeId::from_str(&id) {
             self.project().checkout_branch(&id);
         };
     }

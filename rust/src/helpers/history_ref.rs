@@ -1,6 +1,6 @@
 use automerge::ChangeHash;
 use autosurgeon::{Hydrate, Reconcile};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
@@ -10,7 +10,7 @@ use std::{fmt::Display, str::FromStr};
 pub struct HistoryRef {
     /// The branch the ref is on.
     #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_doc_id")]
-    branch: DocumentId,
+    branch: SedimentreeId,
     /// The Automerge heads for the history location
     #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_heads")]
     heads: Vec<ChangeHash>,
@@ -18,11 +18,11 @@ pub struct HistoryRef {
 
 impl HistoryRef {
     pub const BACKSTITCH_SCHEME_PREFIX: &'static str = "backstitch-";
-    // these should be safe to use as path seperators; DocumentId is base58-encoded (only a-z, A-Z, 0-9), and ChangeHash is hex-encoded
+    // these should be safe to use as path seperators; SedimentreeId is base58-encoded (only a-z, A-Z, 0-9), and ChangeHash is hex-encoded
     pub const BRANCH_DIVIDER: char = '+';
     pub const CHANGE_HASH_DIVIDER: char = '.';
 
-    pub fn new(branch: DocumentId, heads: Vec<ChangeHash>) -> Self {
+    pub fn new(branch: SedimentreeId, heads: Vec<ChangeHash>) -> Self {
         // An invariant of HistoryRef is that the heads are always sorted.
         // This ensures that whenever we compare across documents, heads can be relied upon to be ordered.
         let mut heads = heads;
@@ -34,7 +34,7 @@ impl HistoryRef {
         &self.heads
     }
 
-    pub fn branch(&self) -> &DocumentId {
+    pub fn branch(&self) -> &SedimentreeId {
         &self.branch
     }
 
@@ -101,8 +101,8 @@ impl FromStr for HistoryRef {
             .split_once(HistoryRef::BRANCH_DIVIDER)
             .ok_or("Invalid history ref string")?;
 
-        let branch =
-            DocumentId::from_str(doc_id).map_err(|_| "Invalid DocumentId in history ref string")?;
+        let branch = SedimentreeId::from_str(doc_id)
+            .map_err(|_| "Invalid SedimentreeId in history ref string")?;
 
         let heads = if heads_part.is_empty() {
             Vec::new()

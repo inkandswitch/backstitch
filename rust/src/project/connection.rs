@@ -1,7 +1,23 @@
-use std::{sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
+use axum::http::Uri;
 use futures::{Stream, StreamExt};
-use samod::{BackoffConfig, DialerEvent, DialerHandle, Repo, Stopped};
+use subduction_core::{
+    connection::ConnectionDisallowed,
+    handshake::{
+        self,
+        audience::{Audience, DiscoveryId},
+    },
+    peer::id::PeerId,
+    subduction::error::AddConnectionError,
+    timeout::call::CallTimeout,
+};
+use subduction_crypto::signer::memory::MemorySigner;
+use subduction_websocket::{
+    error::DisconnectionError,
+    tokio::client::{ClientConnectError, TokioWebSocketClient},
+    websocket::{KeepAlive, KeepAliveOutcome, KeepAliveTask},
+};
 use thiserror::Error;
 use tokio::{
     pin, select,
@@ -14,15 +30,22 @@ use url::Url;
 use crate::{
     auth::server_manager::{ServerError, ServerManager},
     helpers::spawn_utils::spawn_named,
-    project::connection::dialer::AuthenticatedTungsteniteDialer,
+    project::repo::Repo,
 };
-
-mod dialer;
 
 /// Connects a repo to the remote server's sync endpoint. Shuts down when dropped.
 #[derive(Debug)]
 pub struct RemoteConnection {
     inner: RemoteConnectionInner,
+}
+
+// TODO (subd): How to get this from subduction? :(
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    /// Last time we received a message from this peer
+    pub last_received: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last time we sent a message to this peer
+    pub last_sent: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Drop for RemoteConnection {
@@ -41,15 +64,15 @@ pub struct RemoteConnectionInner {
     connection_lock: Arc<Mutex<()>>,
     // ensure no connections can be started simultaneously
     connection_start_lock: Arc<Mutex<()>>,
-    // simply provide data protection over ConnectionInfo
-    connection_info: Arc<Mutex<Option<ConnectionInfo>>>,
+    // simply provide data protection over RemoteConnectionInfo
+    connection_info: Arc<Mutex<Option<RemoteConnectionInfo>>>,
     events_tx: broadcast::Sender<RemoteConnectionEvent>,
 }
 
 #[derive(Debug)]
-struct ConnectionInfo {
+struct RemoteConnectionInfo {
     token: CancellationToken,
-    handle: Option<DialerHandle>,
+    is_connected: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -65,12 +88,18 @@ pub enum RemoteConnectionEvent {
 #[derive(Error, Debug)]
 pub enum RemoteConnectionError {
     #[error(transparent)]
-    RepoStopped(#[from] Stopped),
-    #[error(transparent)]
     Server(#[from] ServerError),
     #[error("the server is not authenticated, so we can't connect.")]
     NotAuthenticated,
+    #[error(transparent)]
+    Disconnect(#[from] DisconnectionError),
+    #[error(transparent)]
+    Connect(#[from] ClientConnectError),
+    #[error(transparent)]
+    AddConnection(#[from] AddConnectionError<!>),
 }
+
+// todo (subd): Add is_connected, reconnection stuff etc
 
 impl RemoteConnection {
     /// Initialize the [RemoteConnection] module
@@ -111,9 +140,9 @@ impl RemoteConnection {
         let tok = CancellationToken::new();
         {
             let mut info = self.inner.connection_info.lock().await;
-            *info = Some(ConnectionInfo {
+            *info = Some(RemoteConnectionInfo {
                 token: tok.clone(),
-                handle: None,
+                is_connected: false,
             });
         }
 
@@ -168,8 +197,7 @@ impl RemoteConnection {
     /// Returns true if we're connected via WebSockets and ready to sync.
     pub async fn is_connected(&self) -> bool {
         let conn = self.inner.connection_info.lock().await;
-        conn.as_ref()
-            .is_some_and(|c| c.handle.as_ref().is_some_and(|h| h.is_connected()))
+        conn.as_ref().is_some_and(|c| c.is_connected)
     }
 
     /// Returns whether we have a started connection at all, even if it's still connecting.
@@ -182,7 +210,7 @@ impl RemoteConnection {
 
 impl RemoteConnectionInner {
     /// Constantly retries to connect to the server and auth.
-    // TODO (Subduction): This actually gets WAY simpler once we don't have to use dialers omg
+    // todo (subd): This actually gets WAY simpler once we don't have to use dialers omg
     async fn loop_connection(&self, url: &Url, token: CancellationToken) {
         // We hold this for the entirety of the connection loop.
         // Therefore, we ensure NO two connections can exist simultaneously.
@@ -193,9 +221,10 @@ impl RemoteConnectionInner {
             // If all goes well, this will hang forever
             match self.handle_connection(url, token.clone()).await {
                 Ok(_) => {}
-                Err(e) => tracing::error!("Error connceting: {e:?}"),
+                Err(e) => tracing::error!("Error connecting: {e:?}"),
             }
 
+            // If we intentionally shut down, send a special event.
             if self.shutdown.is_cancelled() || token.is_cancelled() {
                 let _ = self.events_tx.send(RemoteConnectionEvent::Cancelled);
                 break;
@@ -239,79 +268,73 @@ impl RemoteConnectionInner {
             _ => panic!("Could not initialize server connection; the URL {url} has an invalid scheme (must be http:// or https://)")
         }).unwrap();
 
-        // Dial
         tracing::debug!("Starting connection...");
-        let dialer = Arc::new(AuthenticatedTungsteniteDialer::new(url.clone()));
-        dialer.set_bearer_token(user_info.bearer_token()).await;
-        let handle = self.repo.dial(BackoffConfig::default(), dialer.clone())?;
+        let subd = self.repo.subduction();
+        // todo (subd): bearer token; reintroduce auth failure pain case and try_reauthenticate
+        let (client_ws, listener_fut, sender_fut, keepalive_task) = TokioWebSocketClient::new(
+            Uri::from_str(&url.to_string()).expect("URL to URI conversion broken..."),
+            subd.signer().clone(),
+            Audience::Discover(DiscoveryId::new("backstitch_sync_server".as_bytes())),
+        )
+        .await?;
 
-        // set the handle now that we've created it
+        subd.add_connection(client_ws.clone()).await?;
+
         {
             let mut info = self.connection_info.lock().await;
             if let Some(info) = info.as_mut() {
-                info.handle = Some(handle.clone());
-            } else {
-                // if this is null, someone's trying to cancel us, so close things
-                handle.close();
-                return Ok(());
+                info.is_connected = true;
             }
         }
 
-        let mut handle_events = handle.events();
+        // TODO: add auth'd username here
+        let _ = self
+            .events_tx
+            .send(RemoteConnectionEvent::Connected { username: None });
 
-        loop {
+        let shutdown = self.shutdown.clone();
+        let t = tokio::task::spawn(async move {
             select! {
-                _ = token.cancelled() => {
-                    tracing::debug!("Closing handle...");
-                    handle.close();
-                    break;
-                }
-                _ = self.shutdown.cancelled() => {
-                    tracing::debug!("Closing handle...");
-                    handle.close();
-                    token.cancel();
-                    break;
-                }
-                _ = dialer.auth_failed() => {
-                    tracing::warn!("Authentication failed!");
-                    // We can try and reauthenticate our bearer token, only if it's expired.
-                    match self.server_manager.try_reauthenticate(&server_info).await {
-                        Some(info) => {
-                            tracing::info!("Retrying auth with new token...");
-                            dialer.set_bearer_token(info.bearer_token()).await;
-                        },
-                        None => {
-                            tracing::debug!("Closing handle...");
-                            handle.close();
-                            break;
-                        }
+                _ = shutdown.cancelled() => {}
+                _ = token.cancelled() => {}
+                res = listener_fut => {
+                    match res {
+                        Ok(()) => tracing::debug!("Listener exiting successfully..."),
+                        Err(e) => tracing::error!("Listener exiting with error: {e}"),
                     }
                 }
-                event = handle_events.next() => {
-                    tracing::debug!("Dialer event: {event:?}");
-                    if let Some(e) = event {
-                        match e {
-                            DialerEvent::Connected { .. } => {
-                                let _ = self.events_tx.send(RemoteConnectionEvent::Connected { username: user_info.username() });
-                            },
-                            // send the event -- samod's dialer will keep trying
-                            DialerEvent::Disconnected { .. } => {
-                                let _ = self.events_tx.send(RemoteConnectionEvent::Failed);
-                            },
-                            // we don't care about logging these for now
-                            DialerEvent::Reconnecting { .. } => continue,
-                            // we break out, and the outer loop handles sending Failed.
-                            DialerEvent::MaxRetriesReached => {
-                                tracing::debug!("Closing handle...");
-                                handle.close();
-                                break;
-                            },
-                        }
+                res = sender_fut => {
+                    match res {
+                        Ok(()) => tracing::debug!("Sender exiting successfully..."),
+                        Err(e) => tracing::error!("Sender exiting with error: {e}"),
+                    }
+                }
+                res = keepalive_task => {
+                    match res {
+                        KeepAliveOutcome::ConnectionClosed => tracing::debug!("Keepalive: connection closed"),
+                        KeepAliveOutcome::Timeout { missed } => tracing::error!("Keepalive: timeout ({missed} missed)"),
+                        KeepAliveOutcome::StaleNoPong { unanswered } => tracing::error!("Keepalive: no pong ({unanswered} unanswered)"),
                     }
                 }
             }
+        });
+
+        tracing::debug!("full syncing...");
+        let _ = subd
+            .full_sync_with_all_peers(CallTimeout::TimeoutMillis(10000))
+            .await;
+        tracing::debug!("done full syncing");
+
+        t.await;
+
+        {
+            let mut info = self.connection_info.lock().await;
+            if let Some(info) = info.as_mut() {
+                info.is_connected = false;
+            }
         }
 
+        subd.disconnect(&client_ws).await?;
         Ok(())
     }
 }

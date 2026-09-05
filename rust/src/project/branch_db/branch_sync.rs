@@ -5,7 +5,7 @@ use std::{
 
 use automerge::{Automerge, AutomergeError, ChangeHash};
 use futures::{Stream, StreamExt};
-use samod::{DocHandle, DocumentId};
+use sedimentree_core::id::SedimentreeId;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -18,13 +18,13 @@ use crate::{
 pub(super) struct BranchSyncState {
     pub shadow_doc: Option<Automerge>,
     shadow_doc_init_tx: watch::Sender<bool>,
-    pub canonical_doc: DocHandle,
+    pub canonical_doc: SedimentreeId,
     /// The most up-to-date heads we've seen on the canonical doc
     pub last_tracked: Vec<ChangeHash>,
     /// The last heads on the canonical doc that we reconciled from
     pub last_reconciled: Vec<ChangeHash>,
     /// The binary docs on the canonical doc
-    pub canonical_binary_docs: HashMap<DocumentId, BinaryDocStatus>,
+    pub canonical_binary_docs: HashMap<SedimentreeId, BinaryDocStatus>,
     // TODO (Lilith): Figure out a way to reconcile fully synced heads prior to the most recent unsynced heads, if needed.
 }
 
@@ -36,7 +36,7 @@ pub enum BinaryDocStatus {
 }
 
 impl BranchSyncState {
-    pub fn new(handle: DocHandle) -> Self {
+    pub fn new(handle: SedimentreeId) -> Self {
         Self {
             shadow_doc: None,
             shadow_doc_init_tx: watch::Sender::new(false),
@@ -64,7 +64,9 @@ impl BranchDb {
         BroadcastStream::new(s).filter_map(async |f| f.ok())
     }
 
-    pub async fn get_metadata_state(&self) -> Result<(DocHandle, BranchesMetadataDoc), DbError> {
+    pub async fn get_metadata_state(
+        &self,
+    ) -> Result<(SedimentreeId, BranchesMetadataDoc), DbError> {
         // This is a needlessly expensive operation; we should consider allowing reference introspection via external lockers.
         // And/or improve clone perf by reducing string usage in BranchesMetadataDoc.
         self.metadata_state
@@ -74,12 +76,12 @@ impl BranchDb {
             .ok_or(DbError::NoMetadataState)
     }
 
-    pub async fn set_metadata_state(&self, handle: DocHandle, state: BranchesMetadataDoc) {
+    pub async fn set_metadata_state(&self, handle: SedimentreeId, state: BranchesMetadataDoc) {
         let mut st = self.metadata_state.lock().await;
         *st = Some((handle, state));
     }
 
-    pub async fn is_branch_loaded(&self, id: &DocumentId) -> bool {
+    pub async fn is_branch_loaded(&self, id: &SedimentreeId) -> bool {
         let states = self.branch_sync_states.lock().await;
         // branch isn't loaded if we haven't tracked its sync state yet!
         let Some(state) = states.get(id) else {
@@ -102,7 +104,7 @@ impl BranchDb {
         binary_states.clear();
     }
 
-    pub async fn canonical_branch_status(&self, id: &DocumentId) -> CanonicalBranchStatus {
+    pub async fn canonical_branch_status(&self, id: &SedimentreeId) -> CanonicalBranchStatus {
         let states = self.branch_sync_states.lock().await;
         // branch isn't loaded if we haven't tracked its sync state yet!
         let Some(state) = states.get(id) else {
@@ -129,7 +131,10 @@ impl BranchDb {
         CanonicalBranchStatus::Healthy
     }
 
-    pub async fn wait_for_shadow_doc(&self, branch: &DocumentId) -> Result<(), ShadowDocWaitError> {
+    pub async fn wait_for_shadow_doc(
+        &self,
+        branch: &SedimentreeId,
+    ) -> Result<(), ShadowDocWaitError> {
         let mut rx = {
             let states = self.branch_sync_states.lock().await;
             let state = states
@@ -151,26 +156,24 @@ impl BranchDb {
     /// Returns true if a binary doc is fully loaded onto the BranchDb.
     /// This will return true even if the binary doc failed to load... That's so we don't hang forever waiting for nonexistent docs.
     /// But that introduces problems, like server disconnections causing a file checkout! We need to figure out expected failure behavior.
-    pub async fn has_binary_doc(&self, id: &DocumentId) -> bool {
+    pub async fn has_binary_doc(&self, id: &SedimentreeId) -> bool {
         let states = self.binary_states.lock().await;
         states.contains_key(id)
     }
 
-    pub async fn ingest_binary_doc(
-        &self,
-        id: DocumentId,
-        handle: Option<DocHandle>,
-    ) -> Result<(), DbError> {
+    // todo (subd): When was found false??
+
+    pub async fn ingest_binary_doc(&self, id: SedimentreeId, found: bool) -> Result<(), DbError> {
         tracing::debug!("Ingesting binary doc {id}...");
         let mut binary_states = self.binary_states.lock().await;
-        if handle.is_none() {
+        if !found {
             // If this happens it could trigger a delete... but that's going to have to be OK.
             tracing::error!(
                 "Could not fetch binary document {:?}! Notifying waiters anyways.",
                 id
             );
         }
-        binary_states.insert(id.clone(), handle.clone());
+        binary_states.insert(id.clone(), found);
 
         // check to see if any docs are waiting on this binary doc. If so, remove it from the thing.
         let states = self.branch_sync_states.lock().await;
@@ -182,9 +185,9 @@ impl BranchDb {
                 tracing::debug!(
                     "Ingested binary doc {id} for branch {branch_id}; attempting reconcile"
                 );
-                *status = match handle {
-                    Some(_) => BinaryDocStatus::Ok,
-                    None => BinaryDocStatus::Failed,
+                *status = match found {
+                    true => BinaryDocStatus::Ok,
+                    false => BinaryDocStatus::Failed,
                 };
                 drop(state);
                 self.try_reconcile_branch(state_arc.clone()).await?;
@@ -195,9 +198,9 @@ impl BranchDb {
 
     pub async fn update_branch_sync_state(
         &self,
-        handle: DocHandle,
+        handle: SedimentreeId,
         heads: Vec<ChangeHash>,
-        linked_docs: HashSet<DocumentId>,
+        linked_docs: HashSet<SedimentreeId>,
     ) -> Result<(), DbError> {
         tracing::debug!("Updating branch sync state...");
         // acquire a lock to our tracked binary states.
@@ -207,7 +210,7 @@ impl BranchDb {
         // add a sync state if it doesn't exist
         let mut states = self.branch_sync_states.lock().await;
         let state_arc = states
-            .entry(handle.document_id().clone())
+            .entry(handle.clone())
             .or_insert(Arc::new(Mutex::new(BranchSyncState::new(handle))));
         let mut state = state_arc.lock().await;
 
@@ -215,8 +218,8 @@ impl BranchDb {
         state.canonical_binary_docs = linked_docs
             .into_iter()
             .map(|id| match binary_states.get(&id) {
-                Some(Some(_)) => (id, BinaryDocStatus::Ok),
-                Some(None) => (id, BinaryDocStatus::Failed),
+                Some(true) => (id, BinaryDocStatus::Ok),
+                Some(false) => (id, BinaryDocStatus::Failed),
                 None => (id, BinaryDocStatus::Pending),
             })
             .collect();
@@ -247,7 +250,7 @@ impl BranchDb {
     }
 
     fn resolved_all_canonical_binary_docs(
-        binary_docs: &HashMap<DocumentId, BinaryDocStatus>,
+        binary_docs: &HashMap<SedimentreeId, BinaryDocStatus>,
     ) -> bool {
         binary_docs
             .iter()
@@ -259,68 +262,67 @@ impl BranchDb {
         sync_state: Arc<Mutex<BranchSyncState>>,
     ) -> Result<(), DbError> {
         let doc_change_tx = self.branch_change_tx.clone();
-        tokio::task::spawn_blocking(move || -> Result<_, DbError> {
-            // this is quite weird, but we want to be holding the state mutex this entire method.
-            let mut state = sync_state.blocking_lock();
+        // this is quite weird, but we want to be holding the state mutex this entire method.
+        let mut state = sync_state.lock().await;
 
-            if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
-                tracing::debug!("Could not reconcile because we're still waiting on binary docs.");
+        if !Self::resolved_all_canonical_binary_docs(&state.canonical_binary_docs) {
+            tracing::debug!("Could not reconcile because we're still waiting on binary docs.");
+            return Ok(());
+        }
+
+        // did we track any new changes coming into the canonical?
+        if Self::are_heads_equivalent(&state.last_reconciled, &state.last_tracked) {
+            // is canonical still synced up with the shadow doc?
+            if let Some(shadow_doc) = &state.shadow_doc
+                && Self::are_heads_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
+            {
+                // if both of those were true, we don't actually need to reconcile.
+                tracing::debug!("Could not reconcile because we're already up-to-date.");
                 return Ok(());
             }
+        }
 
-            // did we track any new changes coming into the canonical?
-            if Self::are_heads_equivalent(&state.last_reconciled, &state.last_tracked) {
-                // is canonical still synced up with the shadow doc?
-                if let Some(shadow_doc) = &state.shadow_doc
-                    && Self::are_heads_equivalent(&state.last_reconciled, &shadow_doc.get_heads())
-                {
-                    // if both of those were true, we don't actually need to reconcile.
-                    tracing::debug!("Could not reconcile because we're already up-to-date.");
-                    return Ok(());
-                }
-            }
+        tracing::debug!("Reconcile starting...");
 
-            tracing::debug!("Reconcile starting...");
+        // let tracked_heads = state.last_tracked.clone();
+        let handle = state.canonical_doc.clone();
 
-            // let tracked_heads = state.last_tracked.clone();
-            let handle = state.canonical_doc.clone();
+        let (mut state, new_heads) = self
+            .repo
+            .with_document(&handle, async move |d| -> Result<_, AutomergeError> {
+                // First, create a fork from our heads if we don't have one
+                let shadow_doc = state
+                    .shadow_doc
+                    // TODO (Lilith): Once Alex fixes fork_at, use the other line instead
+                    // .get_or_insert_with(|| d.fork_at(&tracked_heads).unwrap());
+                    .get_or_insert_with(|| d.fork());
 
-            let (mut state, new_heads) =
-                handle.with_document(move |d| -> Result<_, AutomergeError> {
-                    // First, create a fork from our heads if we don't have one
-                    let shadow_doc = state
-                        .shadow_doc
-                        // TODO (Lilith): Once Alex fixes fork_at, use the other line instead
-                        // .get_or_insert_with(|| d.fork_at(&tracked_heads).unwrap());
-                        .get_or_insert_with(|| d.fork());
+                // First, fork at tracked heads.
+                // This is important so that if new heads have appeared with unsynced binary docs since
+                // we tried to reconcile, we don't include them.
 
-                    // First, fork at tracked heads.
-                    // This is important so that if new heads have appeared with unsynced binary docs since
-                    // we tried to reconcile, we don't include them.
+                // // TODO (Lilith): Once Alex fixes fork_at, use this code instead of merging directly...
+                // let mut fork = d.fork_at(&tracked_heads).unwrap();
 
-                    // // TODO (Lilith): Once Alex fixes fork_at, use this code instead of merging directly...
-                    // let mut fork = d.fork_at(&tracked_heads).unwrap();
+                // // Next, sync our fork with the shadow doc.
+                // let _ = fork.merge(shadow_doc).unwrap();
+                // let _ = shadow_doc.merge(&mut fork).unwrap();
 
-                    // // Next, sync our fork with the shadow doc.
-                    // let _ = fork.merge(shadow_doc).unwrap();
-                    // let _ = shadow_doc.merge(&mut fork).unwrap();
+                let _ = shadow_doc.merge(d)?;
 
-                    let _ = shadow_doc.merge(d)?;
-
-                    // Last, sync our canonical doc with the shadow doc.
-                    // We need to ignore the outputted heads, because we may already have unsynced changes in the canonical doc!
-                    // document_watcher will pick up on any meaningful changes here, and will handle ingestion for us.
-                    let _ = d.merge(shadow_doc)?;
-                    Ok((state, d.get_heads()))
-                })?;
-            // TODO (Lilith): Figure out a way to ignore canonical heads (use shadow heads?)
-            state.last_reconciled = new_heads.clone();
-            state.last_tracked = new_heads;
-            tracing::debug!("Reconcile completed.");
-            let _ = state.shadow_doc_init_tx.send_replace(true);
-            let _ = doc_change_tx.send(());
-            Ok(())
-        })
-        .await?
+                // Last, sync our canonical doc with the shadow doc.
+                // We need to ignore the outputted heads, because we may already have unsynced changes in the canonical doc!
+                // document_watcher will pick up on any meaningful changes here, and will handle ingestion for us.
+                let _ = d.merge(shadow_doc)?;
+                Ok((state, d.get_heads()))
+            })
+            .await??;
+        // TODO (Lilith): Figure out a way to ignore canonical heads (use shadow heads?)
+        state.last_reconciled = new_heads.clone();
+        state.last_tracked = new_heads;
+        tracing::debug!("Reconcile completed.");
+        let _ = state.shadow_doc_init_tx.send_replace(true);
+        let _ = doc_change_tx.send(());
+        Ok(())
     }
 }

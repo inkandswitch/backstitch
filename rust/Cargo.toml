@@ -20,8 +20,6 @@ default = []
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
 [dependencies]
-automerge = "0.9.0"
-autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch = "upgrade-automerge" }
 futures = "0.3.31"
 godot = { version = "0.5.4", features = ["experimental-threads"] }
 tokio = { version = "1.49.0", features = ["full"] }
@@ -31,21 +29,22 @@ tree-sitter = "0.26.11"
 tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
 safer-ffi = "0.1.13"
 serde_json = "1.0.138"
-uuid = "1.5.0"
-similar = { version = "3.1.1", features = ["unicode"] }
+base64 = "0.22"
+lexical = { version = "7.0.5", features = ["format"] }
+num-traits = "0.2.19"
+indexmap = "2.13.0"
+uuid = { version = "1.5.0", features = ["v4"] }
+pretty_assertions = "1.4.1"
+similar = { version = "2.4.0", features = ["unicode"] }
 notify = { version = "8.2.0", features = ["macos_fsevent"] }
 notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
 rand = "0.10.2"
+sha2 = "^0.11.0-rc.5"
 serde = { version = "1.0", features = ["derive"] }
 ignore = "0.4.22"
 tracing = "0.1.40"
 tracing-appender = "0.2.2"
 chrono = { version = "0.4", features = ["unstable-locales"] }
-samod = { git = "https://github.com/LilithSilver/samod.git", branch = "update-tungstenite-v10", features = [
-  "tokio",
-  "threadpool",
-  "tungstenite",
-] }
 rayon = "1.11.0"
 regex = "1.12.2"
 async-stream = "0.3.6"
@@ -58,10 +57,24 @@ fjall = "3.1.4"
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 tracing-panic = "0.1.2"
-indexmap = "2.14"
-openidconnect = { version = "4.0.1", features = ["reqwest"] }
 url = "2.5.8"
-open = "5.4.0"
+
+# automergy stuff
+subduction_core = "0.18.0"
+sedimentree_core = { version = "0.14.0", features = ["serde"] }
+subduction_redb_storage = "0.2.0"
+subduction_websocket = { version = "0.12.0", features = [
+  "tokio_base",
+  "tokio_client",
+] }
+subduction_crypto = "0.9.0"
+automerge = "0.11.0"
+autosurgeon = "0.13.0"
+
+
+future_form = "0.3.1"
+nonempty = "0.12.0"
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
 axum = "0.8.9"
 html-escape = "0.2.14"
 reqwest = { version = "0.13.4", features = ["json"] }
@@ -79,3 +92,6 @@ static_vcruntime = "3.0"
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[patch.crates-io]
+automerge = { git = "https://github.com/automerge/automerge.git" }

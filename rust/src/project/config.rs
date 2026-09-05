@@ -1,5 +1,5 @@
 use indexmap::IndexSet;
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::{path::Path, str::FromStr};
 use url::Url;
 
@@ -30,13 +30,13 @@ impl Config {
         }
     }
 
-    pub async fn project_doc_id(&self) -> Option<DocumentId> {
-        DocumentId::from_str(&Self::get_string(&self.project, "project_doc_id").await?)
+    pub async fn project_doc_id(&self) -> Option<SedimentreeId> {
+        SedimentreeId::from_str(&Self::get_string(&self.project, "project_doc_id").await?)
             .inspect_err(|e| tracing::error!("Couldn't get project_doc_id: {e}"))
             .ok()
     }
 
-    pub async fn set_project_doc_id(&self, value: Option<&DocumentId>) {
+    pub async fn set_project_doc_id(&self, value: Option<&SedimentreeId>) {
         Self::set_string(
             &self.project,
             "project_doc_id",
@@ -104,13 +104,15 @@ impl Config {
         .await
     }
 
-    pub async fn checked_out_branch_doc_id(&self) -> Option<DocumentId> {
-        DocumentId::from_str(&Self::get_string(&self.project, "checked_out_branch_doc_id").await?)
-            .inspect_err(|e| tracing::error!("Couldn't get project_doc_id: {e}"))
-            .ok()
+    pub async fn checked_out_branch_doc_id(&self) -> Option<SedimentreeId> {
+        SedimentreeId::from_str(
+            &Self::get_string(&self.project, "checked_out_branch_doc_id").await?,
+        )
+        .inspect_err(|e| tracing::error!("Couldn't get project_doc_id: {e}"))
+        .ok()
     }
 
-    pub async fn set_checked_out_branch_doc_id(&self, value: Option<&DocumentId>) {
+    pub async fn set_checked_out_branch_doc_id(&self, value: Option<&SedimentreeId>) {
         Self::set_string(
             &self.project,
             "checked_out_branch_doc_id",

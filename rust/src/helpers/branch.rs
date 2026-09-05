@@ -1,5 +1,5 @@
 use autosurgeon::{Hydrate, Reconcile};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::collections::HashMap;
 
 use crate::helpers::history_ref::HistoryRef;
@@ -25,18 +25,18 @@ pub struct GodotProjectDoc {
 #[derive(Debug, Clone, Reconcile, Hydrate, PartialEq)]
 pub struct BranchesMetadataDoc {
     #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_doc_id")]
-    pub main_doc_id: DocumentId,
+    pub main_doc_id: SedimentreeId,
     #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_branch_map")]
-    pub branches: HashMap<DocumentId, Branch>,
+    pub branches: HashMap<SedimentreeId, Branch>,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, PartialEq)]
 pub struct Branch {
     /// The name of the branch.
     pub name: String,
-    /// The [DocumentId] of the branch.
+    /// The [SedimentreeId] of the branch.
     #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_doc_id")]
-    pub id: DocumentId,
+    pub id: SedimentreeId,
     /// The [HistoryRef] that we forked this branch off of.
     /// Guaranteed to exist on every branch that isn't the main branch.
     pub forked_from: Option<HistoryRef>,

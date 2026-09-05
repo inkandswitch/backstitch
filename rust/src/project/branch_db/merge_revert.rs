@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use automerge::{Automerge, ROOT, transaction::Transactable};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -18,9 +18,9 @@ impl BranchDb {
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn create_merge_preview_branch(
         &self,
-        source: &DocumentId,
-        target: &DocumentId,
-    ) -> Result<DocumentId, DbError> {
+        source: &SedimentreeId,
+        target: &SedimentreeId,
+    ) -> Result<SedimentreeId, DbError> {
         // Not getting the branch state so we don't gotta clone, honestly that was probably simpler though
         let source_name = self.get_branch_name(source).await?;
         let target_name = self.get_branch_name(target).await?;
@@ -28,40 +28,48 @@ impl BranchDb {
         let source_ref = self.get_latest_ref_on_branch(source).await?;
         let target_ref = self.get_latest_ref_on_branch(target).await?;
 
-        let handle = self.repo.create(Automerge::new()).await.unwrap();
+        let handle = self.repo.create(&Automerge::new()).await.unwrap();
         let handle_clone = handle.clone();
 
         self.with_shadow_document(source, async |d| {
-            handle_clone.with_document(|preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 
         self.with_shadow_document(target, async |d| {
-            handle_clone.with_document(|preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 
         let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", target_name, source_name),
-            id: handle.document_id().clone(),
+            id: handle.clone(),
             forked_from: Some(source_ref),
             merge_into: Some(target_ref),
             created_by: username.clone(),
             reverted_to: None,
         })
         .await?;
-        Ok(handle.document_id().clone())
+        Ok(handle)
     }
 
     pub async fn merge_branch(
         &self,
-        source: &DocumentId,
-        target: &DocumentId,
+        source: &SedimentreeId,
+        target: &SedimentreeId,
     ) -> Result<(), DbError> {
         let source_state = self.get_branch_state(source).await?;
 
@@ -130,25 +138,29 @@ impl BranchDb {
 
     pub async fn create_revert_preview_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
         ref_: &HistoryRef,
-    ) -> Result<DocumentId, DbError> {
+    ) -> Result<SedimentreeId, DbError> {
         let current_ref = self.get_latest_ref_on_branch(branch).await?;
 
-        let handle = self.repo.create(Automerge::new()).await?;
+        let handle = self.repo.create(&Automerge::new()).await?;
         let handle_clone = handle.clone();
 
         self.with_shadow_document(branch, async |d| {
-            handle_clone.with_document(|preview_doc| {
-                let _ = preview_doc.merge(d);
-            });
+            let _ = self
+                .repo
+                .with_document(&handle_clone, async |preview_doc| {
+                    let _ = preview_doc.merge(d);
+                })
+                .await
+                .inspect_err(|e| tracing::error!("error merging doc: {e}"));
         })
         .await?;
 
         let username = self.resolve_username().await;
         self.add_branch_to_meta(Branch {
             name: format!("{} <- {}", ref_.short_heads(), current_ref.short_heads()),
-            id: handle.document_id().clone(),
+            id: handle.clone(),
             forked_from: Some(current_ref.clone()),
             merge_into: None,
             created_by: username.clone(),
@@ -191,18 +203,18 @@ impl BranchDb {
 
         self.commit_fs_changes(
             changed_files,
-            &HistoryRef::new(handle.document_id().clone(), current_ref.heads().clone()),
+            &HistoryRef::new(handle.clone(), current_ref.heads().clone()),
             Some(ref_),
             false,
         )
         .await;
 
-        Ok(handle.document_id().clone())
+        Ok(handle)
     }
 
     pub async fn confirm_revert_preview_branch(
         &self,
-        preview_branch: &DocumentId,
+        preview_branch: &SedimentreeId,
     ) -> Result<(), DbError> {
         let preview_state = self.get_branch_state(preview_branch).await?;
 

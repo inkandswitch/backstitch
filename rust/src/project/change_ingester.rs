@@ -175,12 +175,14 @@ impl ChangeIngesterInner {
 
         // This is the last heads the server has seen. Refers to the canonical
         // document, NOT the shadow document.
-        let last_acked_heads = self
-            .peer_watcher
-            .get_server_info()
-            .as_ref()
-            .and_then(|info| info.docs.get(checked_out.branch()))
-            .and_then(|state| state.last_acked_heads.clone());
+        // TODO (subd): Implement
+        // let last_acked_heads = self
+        //     .peer_watcher
+        //     .get_server_info()
+        //     .as_ref()
+        //     .and_then(|info| info.docs.get(checked_out.branch()))
+        //     .and_then(|state| state.last_acked_heads.clone());
+        let last_acked_heads = None;
 
         // When we have pending commits, there are several things we need to check.
         // - Unsynced and shadow-only: The commit is present in the shadow doc but not the canonical doc.
@@ -247,7 +249,7 @@ impl ChangeIngesterInner {
         for (i, change) in changes.iter().enumerate() {
             if last_acked_heads
                 .as_ref()
-                .is_some_and(|f| f.contains(&change.hash))
+                .is_some_and(|f: &Vec<ChangeHash>| f.contains(&change.hash))
             {
                 synced_until_index = i as i32;
             }

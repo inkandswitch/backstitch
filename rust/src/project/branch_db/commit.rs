@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use automerge::{Automerge, ObjId, ObjType, ROOT, ReadDoc, transaction::Transaction};
 use autosurgeon::Doc;
-use samod::DocHandle;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     fs::file_utils::FileContent,
@@ -17,7 +17,7 @@ use crate::{
 enum Entry {
     Binary {
         path: String,
-        handle: DocHandle,
+        handle: SedimentreeId,
         hash: blake3::Hash,
     },
     Text {
@@ -51,11 +51,7 @@ impl BranchDb {
                     };
 
                     let file_entry = tx.put_object(&files, &path, ObjType::Map).unwrap();
-                    let _ = tx.put(
-                        &file_entry,
-                        "url",
-                        format!("automerge:{}", handle.document_id()),
-                    );
+                    let _ = tx.put(&file_entry, "url", format!("automerge:{}", handle));
                     let _ = tx.put(&file_entry, "hash", hash.as_bytes().to_vec());
 
                     changes.push(ChangedFile { path, change_type });
@@ -299,32 +295,37 @@ impl BranchDb {
         None
     }
 
-    pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> DocHandle {
+    pub async fn create_new_binary_doc(&self, content: Vec<u8>) -> SedimentreeId {
         tracing::info!("Creating new binary doc...");
-        let handle = self.repo.create(Automerge::new()).await.unwrap();
+        let handle = self.repo.create(&Automerge::new()).await.unwrap();
 
         let username = self.resolve_username().await;
 
         // we're allowed to transact in the background: nobody needs this to exist yet.
-        let h = handle.clone();
-        tokio::task::spawn_blocking(move || {
-            h.with_document(|d| {
-                let mut tx = d.transaction();
-                let _ = tx.put(ROOT, "content", content);
-                commit_with_metadata(
-                    tx,
-                    &CommitMetadata {
-                        username,
-                        branch_id: None,
-                        merge_metadata: None,
-                        reverted_to: None,
-                        changed_files: None,
-                        is_setup: Some(false),
-                    },
-                );
-            });
+        let repo_clone = self.repo.clone();
+        tokio::task::spawn(async move {
+            let res = repo_clone
+                .with_document(&handle, async |d: &mut Automerge| {
+                    let mut tx = d.transaction();
+                    let _ = tx.put(ROOT, "content", content);
+                    commit_with_metadata(
+                        tx,
+                        &CommitMetadata {
+                            username,
+                            branch_id: None,
+                            merge_metadata: None,
+                            reverted_to: None,
+                            changed_files: None,
+                            is_setup: Some(false),
+                        },
+                    );
+                })
+                .await;
+            match res {
+                Ok(_) => {}
+                Err(e) => tracing::error!("error inserting stuff into binary doc {e}"),
+            }
         });
-
         // TODO: actually store the handle
         handle
     }

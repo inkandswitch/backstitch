@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use automerge::{Automerge, ChangeMetadata};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 
 use crate::{
     helpers::branch::Branch,
@@ -42,7 +42,7 @@ impl BranchDb {
     /// Get the most recent ref on a given branch (on the shadow doc).
     pub async fn get_latest_ref_on_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
     ) -> Result<HistoryRef, DbError> {
         let heads = self
             .with_shadow_document(branch, async |d| d.get_heads())
@@ -53,7 +53,7 @@ impl BranchDb {
     /// Get the most recent ref on a given branch (on the canonical doc).
     pub async fn get_latest_canonical_ref_on_branch(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
     ) -> Result<HistoryRef, DbError> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(branch).cloned() else {
@@ -66,19 +66,21 @@ impl BranchDb {
 
         let st = state.lock().await;
         let handle = st.canonical_doc.clone();
-        let heads =
-            tokio::task::spawn_blocking(move || handle.with_document(|d| d.get_heads())).await?;
+        let heads = self
+            .repo
+            .with_document(&handle, async |d| d.get_heads())
+            .await?;
         Ok(HistoryRef::new(branch.clone(), heads))
     }
 
-    pub async fn get_main_branch(&self) -> Result<DocumentId, DbError> {
+    pub async fn get_main_branch(&self) -> Result<SedimentreeId, DbError> {
         self.get_metadata_state()
             .await
             .map(|(_, meta)| meta.main_doc_id)
     }
 
     /// Check if a path should be ignored based on the provided glob patterns
-    pub fn should_ignore(&self, path: &PathBuf, is_dir: bool) -> bool {
+    pub fn should_ignore(&self, path: &Path, is_dir: bool) -> bool {
         // TODO: We should check if it's a symlink or not. This is a syscall, so don't do it here!!!!
         // if path.is_symlink() {
         //     return true;
@@ -97,7 +99,7 @@ impl BranchDb {
             .is_ignore()
     }
 
-    pub async fn get_branch_name(&self, id: &DocumentId) -> Result<String, DbError> {
+    pub async fn get_branch_name(&self, id: &SedimentreeId) -> Result<String, DbError> {
         let meta = self.metadata_state.lock().await;
 
         Ok(meta
@@ -115,7 +117,7 @@ impl BranchDb {
     // However, we NEVER want to expose our internal BranchState mutexes.
     // That could cause deadlocks if they acquired a branch state and later tried to call any branch info method on branch_db.
     // Callers should preferentially use other getter methods.
-    pub async fn get_branch_state(&self, id: &DocumentId) -> Result<Branch, DbError> {
+    pub async fn get_branch_state(&self, id: &SedimentreeId) -> Result<Branch, DbError> {
         let meta = self.metadata_state.lock().await;
         Ok(meta
             .as_ref()
@@ -130,7 +132,7 @@ impl BranchDb {
     /// Run a closure over a mutable reference to our Automerge shadow document for a branch.
     pub(super) async fn with_shadow_document<F, R>(
         &self,
-        branch: &DocumentId,
+        branch: &SedimentreeId,
         f: F,
     ) -> Result<R, DbError>
     where
@@ -149,7 +151,7 @@ impl BranchDb {
         Ok(f(shadow_doc).await)
     }
 
-    pub async fn get_branch_children(&self, id: &DocumentId) -> Vec<DocumentId> {
+    pub async fn get_branch_children(&self, id: &SedimentreeId) -> Vec<SedimentreeId> {
         let meta = self.metadata_state.lock().await;
         let mut result = Vec::new();
         let Some((_, m)) = meta.as_ref() else {
@@ -167,7 +169,7 @@ impl BranchDb {
     }
 
     /// Get ALL change metadata on the current branch shadow document, including those changes made before the document was created.
-    pub async fn get_shadow_changes(&self, id: &DocumentId) -> Option<Vec<ChangeMetadata<'_>>> {
+    pub async fn get_shadow_changes(&self, id: &SedimentreeId) -> Option<Vec<ChangeMetadata<'_>>> {
         self.with_shadow_document(id, async |d| {
             d.get_changes_meta(&[])
                 .iter()
@@ -180,7 +182,10 @@ impl BranchDb {
     }
 
     /// Get ALL change metadata on the current branch canonical document, including those changes made before the document was created.
-    pub async fn get_canonical_changes(&self, id: &DocumentId) -> Option<Vec<ChangeMetadata<'_>>> {
+    pub async fn get_canonical_changes(
+        &self,
+        id: &SedimentreeId,
+    ) -> Option<Vec<ChangeMetadata<'_>>> {
         let sync_states = self.branch_sync_states.lock().await;
         let Some(state) = sync_states.get(id).cloned() else {
             tracing::error!(
@@ -189,36 +194,33 @@ impl BranchDb {
             return None;
         };
         let handle = state.lock().await.canonical_doc.clone();
-        tokio::task::spawn_blocking(move || {
-            handle.with_document(|d| {
+        self.repo
+            .with_document(&handle, async |d| {
                 d.get_changes_meta(&[])
                     .iter()
                     // this may be slow? we could consider putting it in a struct with only the info we need like CommitInfo.
                     .map(|i| i.clone().into_owned())
                     .collect()
             })
-        })
-        .await
-        .ok()
+            .await
+            .inspect_err(|e| tracing::error!("Failed to get_canonical_changes {e}"))
+            .ok()
     }
 
     /// Dumps a branch document to disk, at ./.backstitch/DUMP_{id}.bin
-    pub async fn dump_branch_doc(&self, id: &DocumentId) {
+    pub async fn dump_branch_doc(&self, id: &SedimentreeId) {
         let path = self
             .get_project_dir()
             .join("./.backstitch/")
             .join(format!("DUMP_{id}.bin"));
-        let handle = {
-            let states = self.branch_sync_states.lock().await;
-            let Some(state) = states.get(id) else {
+
+        let bytes = match self.repo.with_document(id, async |d| d.save()).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::error!("Error dumping branch doc {id}: {e}");
                 return;
-            };
-            let state = state.lock().await;
-            state.canonical_doc.clone()
+            }
         };
-        let bytes = tokio::task::spawn_blocking(move || handle.with_document(|d| d.save()))
-            .await
-            .unwrap();
 
         if let Err(e) = tokio::fs::write(path.clone(), bytes).await {
             tracing::error!("Error dumping branch {id} to {:?}: {:?}", path, e);

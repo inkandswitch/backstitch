@@ -10,6 +10,7 @@ use subduction_core::{
     },
     peer::id::PeerId,
     subduction::error::AddConnectionError,
+    timeout::call::CallTimeout,
 };
 use subduction_crypto::signer::memory::MemorySigner;
 use subduction_websocket::{
@@ -291,29 +292,40 @@ impl RemoteConnectionInner {
             .events_tx
             .send(RemoteConnectionEvent::Connected { username: None });
 
-        select! {
-            _ = self.shutdown.cancelled() => {}
-            _ = token.cancelled() => {}
-            res = listener_fut => {
-                match res {
-                    Ok(()) => tracing::debug!("Listener exiting successfully..."),
-                    Err(e) => tracing::error!("Listener exiting with error: {e}"),
+        let shutdown = self.shutdown.clone();
+        let t = tokio::task::spawn(async move {
+            select! {
+                _ = shutdown.cancelled() => {}
+                _ = token.cancelled() => {}
+                res = listener_fut => {
+                    match res {
+                        Ok(()) => tracing::debug!("Listener exiting successfully..."),
+                        Err(e) => tracing::error!("Listener exiting with error: {e}"),
+                    }
+                }
+                res = sender_fut => {
+                    match res {
+                        Ok(()) => tracing::debug!("Sender exiting successfully..."),
+                        Err(e) => tracing::error!("Sender exiting with error: {e}"),
+                    }
+                }
+                res = keepalive_task => {
+                    match res {
+                        KeepAliveOutcome::ConnectionClosed => tracing::debug!("Keepalive: connection closed"),
+                        KeepAliveOutcome::Timeout { missed } => tracing::error!("Keepalive: timeout ({missed} missed)"),
+                        KeepAliveOutcome::StaleNoPong { unanswered } => tracing::error!("Keepalive: no pong ({unanswered} unanswered)"),
+                    }
                 }
             }
-            res = sender_fut => {
-                match res {
-                    Ok(()) => tracing::debug!("Sender exiting successfully..."),
-                    Err(e) => tracing::error!("Sender exiting with error: {e}"),
-                }
-            }
-            res = keepalive_task => {
-                match res {
-                    KeepAliveOutcome::ConnectionClosed => tracing::debug!("Keepalive: connection closed"),
-                    KeepAliveOutcome::Timeout { missed } => tracing::error!("Keepalive: timeout ({missed} missed)"),
-                    KeepAliveOutcome::StaleNoPong { unanswered } => tracing::error!("Keepalive: no pong ({unanswered} unanswered)"),
-                }
-            }
-        }
+        });
+
+        tracing::debug!("full syncing...");
+        let _ = subd
+            .full_sync_with_all_peers(CallTimeout::TimeoutMillis(10000))
+            .await;
+        tracing::debug!("done full syncing");
+
+        t.await;
 
         {
             let mut info = self.connection_info.lock().await;

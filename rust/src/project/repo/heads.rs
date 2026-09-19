@@ -1,7 +1,7 @@
 use automerge::ChangeHash;
 
 // todo: should this be nonempty?
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Default)]
 pub struct Heads(Vec<ChangeHash>);
 
 impl PartialEq for Heads {
@@ -18,14 +18,32 @@ impl PartialEq for Heads {
 
 impl Eq for Heads {}
 
-impl From<Vec<ChangeHash>> for Heads {
-    fn from(heads: Vec<ChangeHash>) -> Self {
-        Self(heads)
+impl<'a> IntoIterator for &'a Heads {
+    type Item = &'a ChangeHash;
+    type IntoIter = std::slice::Iter<'a, ChangeHash>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for Heads {
+    type Item = ChangeHash;
+    type IntoIter = std::vec::IntoIter<ChangeHash>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
 impl From<Heads> for Vec<ChangeHash> {
     fn from(heads: Heads) -> Self {
         heads.0
+    }
+}
+
+impl From<Vec<ChangeHash>> for Heads {
+    fn from(value: Vec<ChangeHash>) -> Self {
+        Self(value)
     }
 }

@@ -8,7 +8,7 @@ export RUST_BACKTRACE := "full"
 default_arch := shell("rustc --version --verbose | grep host | awk '{print $2}'")
 
 default:
-  just --list
+    just --list
 
 # Safely symlink src to dest
 _symlink src dest:
@@ -23,14 +23,14 @@ _symlink src dest:
             exit(1)
 
         target = (dest.parent / dest.readlink()).resolve()
-        
+
         if not target.samefile(src.resolve()):
             print(f"Destination {{dest}} already exists, but it points to {target} instead of {src.resolve()}.")
             exit(1)
 
         # symlink already exists and is valid
         exit(0)
-    
+
     try:
         dest.symlink_to(src.resolve(), True)
         exit(0)
@@ -156,11 +156,14 @@ _link-project project: (_acquire-project project) _make-plugin-dir
     just _symlink "build/backstitch" "build/{{project}}/addons/backstitch"
 
 # Link our custom Godot editor module
+[arg('profile', pattern='release|debug|sani')]
 [arg('skip_godot_clone', pattern='yes|no')]
-_link-godot skip_godot_clone="no":
+_link-godot profile="debug" skip_godot_clone="no":
     #!/usr/bin/env sh
     # set -euxo pipefail
-    if [[ "{{skip_godot_clone}}" = "no" ]] ; then
+    if [[ "{{ profile }}" = 'release' ]] ; then
+        echo "**** Skipping Godot clone for release build ****"
+    elif [[ "{{ skip_godot_clone }}" = "no" ]] ; then
         echo "**** Cloning Godot... ****"
         just _acquire-godot
     else
@@ -172,38 +175,130 @@ _link-godot skip_godot_clone="no":
 _link-public: _make-plugin-dir
     just _symlink "public" "build/backstitch/public"
 
+_download-godot godot_dir godot_path architecture slug platform:
+    #!/usr/bin/env python3
+    import os
+    import subprocess
+    from pathlib import Path
+    from urllib.request import urlopen
+    from zipfile import ZipFile
+
+
+    recommended_godot_split = str(os.getenv("RECOMMENDED_GODOT")).lstrip("v").split("-")
+    recommended_godot = recommended_godot_split[0].split("+")[0]
+    # check if recommended_godot matches <MAJOR>.<MINOR> or <MAJOR>.<MINOR>.<PATCH>
+    split_recommended_godot = recommended_godot.split(".")
+    if (not (len(split_recommended_godot) >= 2 and len(split_recommended_godot) <= 3)) or (not all(part.isdigit() for part in split_recommended_godot)):
+        print(f"**** Recommended Godot version {recommended_godot} is not a valid version!")
+        exit(1)
+    godot_dir_path = Path("{{ godot_dir }}")
+    godot_path = Path("{{ godot_path }}")
+    print("Ensuring godot path exists")
+    godot_dir_path.mkdir(parents=True, exist_ok=True)
+    if godot_path.exists():
+        print("Godot exists - checking version")
+        godot_version_check_split = subprocess.check_output([godot_path, "--version"]).decode("utf-8").strip().split(".official.")[0].split(".")
+        godot_version_flavour = godot_version_check_split.pop(-1)
+        godot_version_num = ".".join(godot_version_check_split)
+        fmt_ver = godot_version_num+"-"+godot_version_flavour
+        fmt_rec = recommended_godot_split[0]+"-"+recommended_godot_split[1]
+        if fmt_ver == fmt_rec:
+            print("Godot already at recommended version")
+            exit(0)
+        else:
+            print("Godot exists at the wrong version\ncurrent:'"+fmt_ver+"'\nrecommended:'"+fmt_rec+"'\nClearing dir and downloading")
+            subprocess.check_output(["rm -rf ", godot_dir_path + "./*"])
+    else:
+        print("Godot doesn't exist yet")
+
+    short_version = recommended_godot
+    flavor = recommended_godot_split[1]
+
+    url = "https://downloads.godotengine.org/?version={short_version}&flavor={flavor}&slug={{ slug }}.zip&platform={{ platform }}".format(short_version=short_version, flavor=flavor)
+    print("Downloading Godot from " + url)
+    zipPath = Path("{{ godot_dir }}/downloaded.zip")
+    if zipPath.exists():
+        zipPath.unlink()
+    subprocess.check_output(["curl", "-L", "-o", "{{ godot_dir }}/downloaded.zip", url])
+    with ZipFile(zipPath) as zip:
+        zip.extractall(path= godot_dir_path)
+    zipPath.unlink()
+    if "{{ platform }}" == "macos":
+        for child in godot_dir_path.glob("*.app"):
+            child.rename("{{ godot_dir }}/godot_macos_editor.app")
+    else:
+        for child in godot_dir_path.glob("Godot_v*"):
+            child.rename(str(child).replace("Godot_v{short_version}-{flavor}_".format(short_version=short_version, flavor=flavor), "godot.{{ platform }}.editor."))
+    subprocess.check_output(["chmod", "+x", godot_path])
 # Build the Godot editor with our editor module linked in. Available profiles are release, debug, or sani (for use_asan=yes)
 [arg('profile', pattern='release|debug|sani')]
 [arg('skip_godot_clone', pattern='yes|no')]
-build-godot profile skip_godot_clone="no": (_link-godot skip_godot_clone)
+build-godot profile skip_godot_clone="no": (_link-godot profile skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
     EXTRA_BUILD_FLAG=""
     EXTRA_ID_FLAG=""
-
-    # check for macos; if yes, add `generate_bundle=yes`
-    if [[ "{{os()}}" = "macos" ]] ; then
-        EXTRA_BUILD_FLAG="generate_bundle=yes"
-        # check for the .cargo/.devidentity file; if it exists, add `bundle_sign_identity=<contents>`
-        if [ -f .cargo/.devidentity ]; then
-            DEV_ID="$(cat .cargo/.devidentity)"
-            EXTRA_ID_FLAG="bundle_sign_identity=$DEV_ID"
-            echo "signing godot with identity: $DEV_ID"
+    if [[ "{{ profile }}" = 'release' ]] ; then
+        godot_path=""
+        arch={{ arch() }}
+        godot_dir="./build/godot/bin"
+        slug=""
+        platform=""
+        ext=""
+        case "{{ os() }}" in
+            "windows")
+                platform="windows"
+                if [[ "{{ arch() }}" == "x86_64" ]] ; then
+                    slug="win64.exe"
+                else
+                    slug="windows_arm64.exe"
+                fi
+                ext=".exe" ;;
+            "linux")
+                platform="linuxbsd"
+                if [[ "{{ arch() }}"  == "x86_64" ]] ; then
+                    slug="linux.x86_64"
+                else
+                    slug="linux.aarch64"
+                fi
+                ext="" ;;
+            "macos")
+                platform="macos"
+                slug="macos.universal"
+                ext="" ;;
+            *)
+                echo "Unsupported OS for development: {{ os() }}."
+                echo "If you think this OS should be supported, please open an issue on Github with your use-case and system details."
+                exit 1 ;;
+        esac
+        if [[ "{{ os() }}" = "macos" ]] ; then
+            godot_path="./build/godot/bin/godot_macos_editor.app/Contents/MacOS/Godot"
         else
-            echo "**** No development identity file found; if you want to enable code signing, create a .cargo/.devidentity file with your dev ID."
-            echo "**** Example: echo 'Developer ID Application: Your Name (TEAMID)' > .cargo/.devidentity"
-            echo "**** HINT: use 'security find-identity -p codesigning -v' to find your dev ID."
+            godot_path="./build/godot/bin/godot.$platform.editor.$arch$ext"
         fi
-    fi
-    cd "build/godot"
-    # TODO: figure out a way to see if scons actually needs a run, since this takes forever even when built
-    if [[ {{profile}} = "release" ]] ; then
-        
-        scons dev_build=no debug_symbols=no target=editor deprecated=yes minizip=yes compiledb=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
-    elif [[ {{profile}} = "sani" ]] ; then
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
+        just _download-godot $godot_dir $godot_path $arch $slug $platform
     else
-        scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
+        # check for macos; if yes, add `generate_bundle=yes`
+    if [[ "{{os()}}" = "macos" ]] ; then
+            EXTRA_BUILD_FLAG="generate_bundle=yes"
+            # check for the .cargo/.devidentity file; if it exists, add `bundle_sign_identity=<contents>`
+            if [ -f .cargo/.devidentity ]; then
+                DEV_ID="$(cat .cargo/.devidentity)"
+                EXTRA_ID_FLAG="bundle_sign_identity=$DEV_ID"
+                echo "signing godot with identity: $DEV_ID"
+            else
+                echo "**** No development identity file found; if you want to enable code signing, create a .cargo/.devidentity file with your dev ID."
+                echo "**** Example: echo 'Developer ID Application: Your Name (TEAMID)' > .cargo/.devidentity"
+                echo "**** HINT: use 'security find-identity -p codesigning -v' to find your dev ID."
+            fi
+        fi
+        cd "build/godot"
+
+        if [[ {{ profile }} = "sani" ]] ; then
+            scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes use_asan=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
+        else
+            scons dev_build=yes target=editor compiledb=yes deprecated=yes minizip=yes tests=yes metal=no module_text_server_fb_enabled=yes "$EXTRA_BUILD_FLAG" "$EXTRA_ID_FLAG"
+        fi
     fi
 
 # Build the Rust plugin binaries.
@@ -285,7 +380,7 @@ _build-plugin-single-arch architecture profile tracing_support: (_build-plugin a
             build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib
         just _sign-macos-plugin
     fi
-    
+
     if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" ] ; then
         cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" \
             build/backstitch/bin/backstitch_rust_core.pdb
@@ -301,7 +396,10 @@ _configure-backstitch: _make-plugin-dir
     print(f"Current directory: {os.getcwd()}")
     print(os.listdir())
 
-    git_describe = subprocess.check_output(["git", "describe", "--tags", "--abbrev=6"]).decode("utf-8").strip()
+    git_describe_raw = subprocess.run(["git", "describe", "--tags", "--abbrev=6"])
+    git_describe = ""
+    if git_describe_raw.returncode == 0:
+        gid_describe = git_describe_raw.stdout.decode("utf-8").strip()
 
     # if it has more than two `-` in the version, replace all the subsequent `-` with `+`
     if git_describe.count("-") >= 2:
@@ -358,7 +456,7 @@ build-backstitch profile architecture=(default_arch) tracing_support="none": _co
     if [[ "{{profile}}" = "debug" ]] ; then
         profile="release_debug"
     fi
-    
+
     just _build-plugin-single-arch "{{architecture}}" "$profile" "{{tracing_support}}"
 
 # Reset the Godot repository, removing the linked module and resetting the repo state.
@@ -369,7 +467,7 @@ clean-godot:
         exit 0
     fi
     cd "build"
-    
+
     # set -euxo pipefail
     if [[ ! -d "godot" ]]; then
         exit 0
@@ -409,7 +507,7 @@ clean-project project:
         exit 0
     fi
     cd "build"
-    
+
     if [[ ! -d "{{project}}" ]]; then
         exit 0
     fi
@@ -453,7 +551,7 @@ _write-url project url: (_link-project project)
         # skip future server URLs
         elif not line.startswith("server_url="):
             new_lines.append(line)
-    
+
     if not found_backstitch:
         new_lines = ['[backstitch]\n', 'server_url="{{url}}"']
 
@@ -495,7 +593,7 @@ launch project="moddable-platformer" backstitch_profile="release" godot_profile=
         (prepare project backstitch_profile godot_profile server_url tracing_support skip_godot_clone)
     #!/usr/bin/env sh
     # set -euxo pipefail
-    
+
     case "{{arch()}}" in
         "x86_64")
             arch=x86_64 ;;
@@ -506,7 +604,7 @@ launch project="moddable-platformer" backstitch_profile="release" godot_profile=
             echo "If you think this architecture should be supported, please open an issue on Github with your use-case and system details."
             exit 1 ;;
     esac
-    
+
     case "{{os()}}" in
         "windows")
             platform="windows"

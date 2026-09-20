@@ -1,6 +1,9 @@
 /// OVERALL THOUGHTS FROM THIS FIRST PASS:
 /// I think it mostly works, but I think there's a better fundamental architecture...
 /// Right now, the tasks kind of arbitrarily nest and have awkward cancellation dynamics.
+///
+/// I also haven't even considered fallibility...
+///
 /// I want to CONSIDER an alternative:
 ///  - Each persistence target has a driver thread
 ///  - For dependencies, these targets aggressively persist to each other, announcing whenever their
@@ -11,6 +14,18 @@
 ///    to others. When receiving others' root heads, put it in a state object per PersistenceId, and merge it in
 ///    only when it's actually ready. If new heads supersede before it's ready, just replace it and recheck
 ///    dependencies.
+///  - When we add a new target, we begin participating in the persistence conversation. We announce our data,
+///    when available. It might be out of date, so we specifically ASK everyone else to inform us of their heads.
+///
+/// This looks much more like a sync system than a tracking data structure... maybe that is OK?
+///
+/// This still doesn't account for fallibility, and might in some cases make it harder.
+///
+/// I'm very tired right now and my brain is fried. When I come back to this next, ask the questions:
+/// - Which architecture is better?
+/// - How does each architecture account for the assumptions, once we stop assuming?
+///     (historical heads, well-behaved peers, etc)
+/// - Does the alternative architecture change the API?
 ///
 use std::{
     collections::{HashMap, HashSet},
@@ -248,6 +263,9 @@ impl Clockument {
         // TODO: This reconcile idea works, but there's a problem: What if we're already inserting
         // some data in `insert` but it hasn't made its way to reconcile_from?
         // Then, we're reconciling an out of date document....
+        // The solution here, in this architecture, is to store the currently-inserting documents
+        // per target in a queue of some sort, and remove them when complete.
+        // Then, when we reconcile from the target, we ensure we copy the queue before reconciliation.
 
         // TODO: Do the actual reconcile
 

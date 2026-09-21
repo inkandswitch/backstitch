@@ -180,56 +180,77 @@ _download-godot godot_dir godot_path architecture slug platform:
     import os
     import subprocess
     from pathlib import Path
-    from urllib.request import urlopen
+    from urllib.request import urlopen, Request
     from zipfile import ZipFile
+    import shutil
+    import stat
+    import tempfile
 
+    # RECOMMENDED_GODOT is expected to be <version number>-<flavor>, such as 4.7.1-stable
+    recommended_version = str(os.getenv("RECOMMENDED_GODOT"))
+    version, flavor = recommended_version.split("-")
 
-    recommended_godot_split = str(os.getenv("RECOMMENDED_GODOT")).lstrip("v").split("-")
-    recommended_godot = recommended_godot_split[0].split("+")[0]
-    # check if recommended_godot matches <MAJOR>.<MINOR> or <MAJOR>.<MINOR>.<PATCH>
-    split_recommended_godot = recommended_godot.split(".")
-    if (not (len(split_recommended_godot) >= 2 and len(split_recommended_godot) <= 3)) or (not all(part.isdigit() for part in split_recommended_godot)):
-        print(f"**** Recommended Godot version {recommended_godot} is not a valid version!")
-        exit(1)
-    godot_dir_path = Path("{{ godot_dir }}")
+    godot_dir = Path("{{ godot_dir }}")
     godot_path = Path("{{ godot_path }}")
-    print("Ensuring godot path exists")
-    godot_dir_path.mkdir(parents=True, exist_ok=True)
+    godot_versionfile = Path("{{ godot_path }}" + ".version.txt")
+
+    print("Ensuring godot folder exists")
+    godot_dir.mkdir(parents=True, exist_ok=True)
+
     if godot_path.exists():
         print("Godot exists - checking version")
-        godot_version_check_split = subprocess.check_output([godot_path, "--version"]).decode("utf-8").strip().split(".official.")[0].split(".")
-        godot_version_flavour = godot_version_check_split.pop(-1)
-        godot_version_num = ".".join(godot_version_check_split)
-        fmt_ver = godot_version_num+"-"+godot_version_flavour
-        fmt_rec = recommended_godot_split[0]+"-"+recommended_godot_split[1]
-        if fmt_ver == fmt_rec:
-            print("Godot already at recommended version")
+        current_version = godot_versionfile.read_text().strip() if godot_versionfile.exists() else ""
+        if current_version == recommended_version:
+            print("Godot is already at recommended version")
             exit(0)
         else:
-            print("Godot exists at the wrong version\ncurrent:'"+fmt_ver+"'\nrecommended:'"+fmt_rec+"'\nClearing dir and downloading")
-            subprocess.check_output(["rm -rf ", godot_dir_path + "./*"])
+            print(f"""Godot exists at the wrong version.
+                Current:'{current_version}'
+                Recommended:'{recommended_version}'
+                Clearing dir and downloading.""")
+            godot_versionfile.unlink(missing_ok=True)
+            if godot_path.is_dir():
+                shutil.rmtree(godot_path)
+            elif godot_path.is_file():
+                godot_path.unlink()
     else:
         print("Godot doesn't exist yet")
 
-    short_version = recommended_godot
-    flavor = recommended_godot_split[1]
-
-    url = "https://downloads.godotengine.org/?version={short_version}&flavor={flavor}&slug={{ slug }}.zip&platform={{ platform }}".format(short_version=short_version, flavor=flavor)
+    url = f"https://downloads.godotengine.org/?version={version}&flavor={flavor}&slug={{ slug }}.zip&platform={{ platform }}"
     print("Downloading Godot from " + url)
-    zipPath = Path("{{ godot_dir }}/downloaded.zip")
-    if zipPath.exists():
-        zipPath.unlink()
-    subprocess.check_output(["curl", "-L", "-o", "{{ godot_dir }}/downloaded.zip", url])
-    with ZipFile(zipPath) as zip:
-        zip.extractall(path= godot_dir_path)
-    zipPath.unlink()
-    if "{{ platform }}" == "macos":
-        for child in godot_dir_path.glob("*.app"):
-            child.rename("{{ godot_dir }}/godot_macos_editor.app")
-    else:
-        for child in godot_dir_path.glob("Godot_v*"):
-            child.rename(str(child).replace("Godot_v{short_version}-{flavor}_".format(short_version=short_version, flavor=flavor), "godot.{{ platform }}.editor."))
-    subprocess.check_output(["chmod", "+x", godot_path])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = Path(tmpdir) / "downloaded.zip"
+        extract_path = Path(tmpdir) / "extract"
+        from urllib.request import Request, urlopen
+
+        req = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+
+        with urlopen(req) as response:
+            zip_path.write_bytes(response.read())
+
+        with ZipFile(zip_path) as zip:
+            zip.extractall(path=extract_path)
+            
+        if "{{ platform }}" == "macos":
+            for child in extract_path.glob("*.app"):
+                (child / "Contents" / "MacOS" / "Godot").chmod(child.stat().st_mode | stat.S_IEXEC)
+                child.rename(extract_path / "godot_macos_editor.app")
+        else:
+            # For windows, exclude the console binary.
+            child = next(c for c in extract_path.glob("Godot_v*") if "console" not in c.name)
+            child.chmod(child.stat().st_mode | stat.S_IEXEC)
+            child.rename(extract_path / godot_path.name)
+    
+        shutil.copytree(extract_path, godot_dir, dirs_exist_ok=True)
+    
+    godot_versionfile.write_text(recommended_version)
+
 # Build the Godot editor with our editor module linked in. Available profiles are release, debug, or sani (for use_asan=yes)
 [arg('profile', pattern='release|debug|sani')]
 [arg('skip_godot_clone', pattern='yes|no')]
@@ -279,7 +300,7 @@ build-godot profile skip_godot_clone="no": (_link-godot profile skip_godot_clone
         just _download-godot $godot_dir $godot_path $arch $slug $platform
     else
         # check for macos; if yes, add `generate_bundle=yes`
-    if [[ "{{os()}}" = "macos" ]] ; then
+        if [[ "{{os()}}" = "macos" ]] ; then
             EXTRA_BUILD_FLAG="generate_bundle=yes"
             # check for the .cargo/.devidentity file; if it exists, add `bundle_sign_identity=<contents>`
             if [ -f .cargo/.devidentity ]; then
@@ -396,10 +417,10 @@ _configure-backstitch: _make-plugin-dir
     print(f"Current directory: {os.getcwd()}")
     print(os.listdir())
 
-    git_describe_raw = subprocess.run(["git", "describe", "--tags", "--abbrev=6"])
+    git_describe_raw = subprocess.run(["git", "describe", "--tags", "--abbrev=6"], capture_output=True)
     git_describe = ""
     if git_describe_raw.returncode == 0:
-        gid_describe = git_describe_raw.stdout.decode("utf-8").strip()
+        git_describe = git_describe_raw.stdout.decode("utf-8").strip()
 
     # if it has more than two `-` in the version, replace all the subsequent `-` with `+`
     if git_describe.count("-") >= 2:

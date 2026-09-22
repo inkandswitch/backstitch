@@ -1,13 +1,3 @@
-// TODO NEXT TIME:
-// - Figure out how to correctly cancel insertion with a CancellationToken
-//   - What if one peer successfully finishes the thing, but another doesn't? Then it's canceled and everyone is sad
-//   - Can we make the handoff more explicit..?
-// - Figure out the stupid race condition during reconciliation; that will need restructuring
-//   - I think the actual solution here is to avoid reconciling in-flight state at ALL. On persist, then we
-//     notify to everyone anyways? and avoid overdoing it
-// - Validate deeply nested documents -- does it work? should we provide the relevant persistence to DependenciesFn?
-// -
-
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -21,6 +11,7 @@ use async_trait::async_trait;
 use automerge::{Automerge, PatchLog, transaction::Transaction};
 use futures::{StreamExt, stream::BoxStream};
 use sedimentree_core::id::SedimentreeId;
+use thiserror::Error;
 use tokio::{
     select,
     sync::{Mutex, mpsc, watch},
@@ -133,21 +124,21 @@ pub trait PersistenceTarget: Send + Sync {
     /// Null-op persistence should do nothing (i.e. if the destination document is identical to
     /// or a superset of the source document).
     /// Additionally, any actual persistent writes should appear atomic (such as to-disk).
-    async fn persist(
+    async fn put(
         &self,
         id: SedimentreeId,
         doc: Automerge,
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
-    /// Hard-lookup to see if a document's heads are persisted.
-    async fn is_persisted(
-        &self,
-        doc_ref: &DocumentRef,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    /// Check to see if the document is durably available at the provided ref (i.e. can be acquired by
+    /// [PersistenceTarget::has])
+    async fn has(&self, doc_ref: &DocumentRef) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
     /// Materialize a persisted document.
     async fn get(&self, id: SedimentreeId) -> Result<Automerge, Box<dyn Error + Send + Sync>>;
 
+    /// A stream returning new heads when they are persisted to the source.
+    /// This MUST be called by the implementation of [PersistenceTarget::put], when it puts new heads.
     fn new_heads(&self) -> BoxStream<'_, DocumentRef>;
 }
 
@@ -169,6 +160,12 @@ struct Insertion {
     token: CancellationToken,
 }
 
+struct PutResult {
+    doc_ref: DocumentRef,
+    source: PersistenceId,
+    // todo: track failure here?
+}
+
 struct PendingInsertion {
     insertion: Insertion,
     remaining_deps: HashSet<DocumentRef>,
@@ -179,38 +176,32 @@ type WorkerPool = Arc<Mutex<HashMap<PersistenceId, Arc<PersistenceWorker>>>>;
 #[derive(Clone)]
 struct PersistenceWorker {
     clockument: Clockument,
-    workers: WorkerPool,
     id: PersistenceId,
 
     token: CancellationToken,
     target: Arc<dyn PersistenceTarget>,
 
-    /// Heads coming in from other persistences, desiring to insert them
+    /// Channel for insertions this worker needs to process
     insert_tx: mpsc::UnboundedSender<Insertion>,
 
-    clockument_persist_tx: watch::Sender<()>,
+    /// Channel for when new data is available, i.e. when we put stuff
+    put_tx: mpsc::UnboundedSender<PutResult>,
+
+    /// Sent when we get a rebroadcast request
+    rebroadcast_tx: watch::Sender<()>,
 
     pending_insertions: Arc<Mutex<Vec<PendingInsertion>>>,
 }
 
 impl PersistenceWorker {
-    pub fn insert(&self, data: Insertion) {
-        let _ = self.insert_tx.send(data);
-    }
-
-    /// Subscribe to a notification
-    pub fn clockument_persisted(&self) -> watch::Receiver<()> {
-        self.clockument_persist_tx.subscribe()
-    }
-
-    pub async fn new(
+    pub fn new(
         id: PersistenceId,
         clockument: Clockument,
         target: Arc<dyn PersistenceTarget>,
-        workers: WorkerPool,
+        put_tx: mpsc::UnboundedSender<PutResult>,
     ) -> Arc<Self> {
         let (insert_tx, insert_rx) = mpsc::unbounded_channel();
-        let (persisted_tx, _) = watch::channel(());
+        let (rebroadcast_tx, _) = watch::channel(());
 
         let this = Self {
             id,
@@ -218,13 +209,11 @@ impl PersistenceWorker {
             token: CancellationToken::new(),
             target,
             insert_tx,
-            clockument_persist_tx: persisted_tx,
-            workers,
+            put_tx,
             pending_insertions: Default::default(),
+            rebroadcast_tx,
         };
 
-        // Then we can start the drivers.
-        // TODO: I think this is desirable to do before reconciliation -- is that actually true?
         {
             let this = this.clone();
             tokio::task::spawn(async move {
@@ -240,19 +229,19 @@ impl PersistenceWorker {
         Arc::new(this)
     }
 
-    pub async fn reconcile(&self, from: Option<Arc<PersistenceWorker>>) {
-        if let Some(worker) = from {
-            self.reconcile_from(worker).await;
-        }
-
-        self.reconcile_to_all().await;
+    pub fn insert(&self, data: Insertion) {
+        let _ = self.insert_tx.send(data);
     }
 
-    async fn reconcile_to_all(&self) {
+    pub fn rebroadcast(&self) {
+        let _ = self.rebroadcast_tx.send_replace(());
+    }
+
+    async fn notify_rebroadcast(&self) {
         // If we don't have a copy of the base clockument, reconciliation is not possible.
         if !self
             .target
-            .is_persisted(&DocumentRef {
+            .has(&DocumentRef {
                 id: self.clockument.id(),
                 heads: Heads::default(), // empty heads for any
             })
@@ -266,127 +255,54 @@ impl PersistenceWorker {
         // TODO: don't panic
         let mut doc = self.target.get(self.clockument.id()).await.unwrap();
         // Get the dependencies. If any aren't valid, this persistence is negligent.
+        // TODO: handle the negligent case or something
         let deps = self.clockument.get_dependencies(&mut doc);
         // Notify everyone of the dependencies
         for dep in deps {
-            self.notify_others(dep).await;
+            let _ = self.put_tx.send(PutResult {
+                doc_ref: dep,
+                source: self.id,
+            });
         }
         // Notify everyone of our clockument at the current heads
-        self.notify_others(DocumentRef {
-            id: self.clockument.id(),
-            heads: doc.get_heads().into(),
-        })
-        .await;
+        let _ = self.put_tx.send(PutResult {
+            doc_ref: DocumentRef {
+                heads: doc.get_heads().into(),
+                id: self.clockument.id(),
+            },
+            source: self.id,
+        });
     }
 
-    async fn reconcile_from(&self, other: Arc<PersistenceWorker>) {
-        let other_pending = other.pending_insertions.lock().await;
-        // If the other has a copy of the clockument persisted, notify ourself about it.
-        // This will guaranteed (I think?) get us up to date with the actual persisted clockument.
-        if other
-            .target
-            .is_persisted(&DocumentRef {
-                id: self.clockument.id(),
-                heads: Heads::default(), // empty heads for any
-            })
-            .await
-            .unwrap()
-        {
-            // Grab other version of the clockument
-            // TODO: don't panic
-            let mut doc = other.target.get(self.clockument.id()).await.unwrap();
-            // Get the dependencies. If any aren't valid, this persistence is negligent.
-            let deps = other.clockument.get_dependencies(&mut doc);
-            // Notify self of the dependencies
-            for dep in deps {
-                self.insert(Insertion {
-                    id: dep.id,
-                    // TODO: don't panic
-                    doc: other.target.get(dep.id).await.unwrap(),
-                    token: CancellationToken::new(), // dependencies don't hang
-                });
-            }
-            self.insert(Insertion {
-                id: self.clockument.id(),
-                doc: doc.clone(),
-                token: other.token.clone(),
-            });
-        }
-
-        // There may be a root insertion whose persistence is still pending.
-        for pending in &*other_pending {
-            // Add any dependencies that have already been resolved.
-            let mut doc = pending.insertion.doc.clone();
-            let deps = other.clockument.get_dependencies(&mut doc);
-
-            // Notify self of the dependencies
-            for dep in deps {
-                // TODO: don't panic
-                if other.target.is_persisted(&dep).await.unwrap() {
-                    self.insert(Insertion {
-                        id: dep.id,
-                        // TODO: don't panic
-                        doc: other.target.get(dep.id).await.unwrap(),
-                        token: CancellationToken::new(), // dependencies don't hang
-                    });
-                }
-            }
-
-            // Do the insertion -- this will check the dependencies for ourself, etc, and
-            // probably make our own PendingInsertion
-            self.insert(pending.insertion.clone());
-        }
-
-        // TODO: Potential race condition here...
-        // self (1) is reconciling from other (0).
-        // (0) has a PendingInsertion with deps {A,B,C}, from (2)
-        // Deps {A, B} is persisted to (0), {C} is not
-        // (2) has already looped through the targets and asked it to persist {C}.
-        // (0) is simply still waiting to process the event.
-        // Therefore, (1) never gets {C} from (0), and since (2) has finished notifying, it never
-        // gets it from (2).
-        //
-        // Is this a real race condition?
-        //
-        // If so, there's also probably a related, trickier one, where (0) is just taking
-        // a while to process/persist {C} -- it's removed from (0)'s recv queue, but not persisted!
-        //
-        // There's no way for us to figure out where {C} went?!?!
-    }
-
-    /// Driver for notifying other drivers of incoming heads
+    /// Driver for notifying the parent about puts
     async fn notifier_driver(&self) {
         let mut heads_stream = self.target.new_heads();
+        let mut rebroadcast_rx = self.rebroadcast_tx.subscribe();
         loop {
-            let heads = select! {
+            select! {
                 _ = self.token.cancelled() => { break; }
                 res = heads_stream.next() => match res {
-                    Some(heads) => heads,
+                    Some(heads) => self.notify_put(heads).await,
                     None => break,
+                },
+                _ = rebroadcast_rx.changed() => {
+                    self.notify_rebroadcast().await;
                 }
-            };
-
-            self.notify_others(heads).await;
-        }
-    }
-
-    async fn notify_others(&self, doc_ref: DocumentRef) {
-        let workers = self.workers.lock().await;
-        // TODO: don't panic. If this is'nt found, the peer is negligent.
-        let doc = self.target.get(doc_ref.id).await.unwrap();
-        for (id, worker) in &*workers {
-            if id == &self.id {
-                continue;
             }
-            worker.insert(Insertion {
-                id: doc_ref.id,
-                doc: doc.clone(),
-                token: self.token.clone(),
-            });
         }
     }
 
-    /// Driver for handling new data coming in from other persistence sources
+    async fn notify_put(&self, heads: DocumentRef) {
+        let _ = self.put_tx.send(PutResult {
+            doc_ref: heads.clone(),
+            source: self.id,
+        });
+
+        // Since we persisted a potential dependency, check to see if it resolves anything.
+        self.try_resolve_pending(heads.id).await;
+    }
+
+    /// Driver for handling new insertions coming in from other sources
     async fn inserter_driver(&self, mut insert_rx: mpsc::UnboundedReceiver<Insertion>) {
         loop {
             let insertion = select! {
@@ -412,36 +328,18 @@ impl PersistenceWorker {
         }
 
         // For anything that's not the root, greedily persist it.
+        // If it's a dependency, we'll resolve pendings during the later put event.
         // TODO: don't panic on failure
-        self.target
-            .persist(insertion.id, insertion.doc)
-            .await
-            .unwrap();
-
-        // Since we persisted a potential dependency, check to see if it resolves anything.
-        self.try_resolve_pending(insertion.id).await;
+        self.target.put(insertion.id, insertion.doc).await.unwrap();
     }
 
     async fn try_insert_root(&self, mut insertion: Insertion) {
         // If we're the root, we must check dependencies first.
-        let deps = self.clockument.get_dependencies(&mut insertion.doc);
+        let deps: HashSet<DocumentRef> = self.clockument.get_dependencies(&mut insertion.doc);
         let remaining_deps = self.retain_pending_deps(deps, None).await;
         if remaining_deps.is_empty() {
             // TODO: don't panic on failure
-            self.target
-                .persist(insertion.id, insertion.doc)
-                .await
-                .unwrap();
-
-            self.clockument_persist_tx.send_replace(());
-
-            // Don't need to notify anyone here (except users).
-            // The reason for this:
-            // - If existing in persistence is heads [A], we assume [A] is already being tracked.
-            // - If incoming heads are [B], we assume that's been sent to other persistence targets.
-            // - If the final persisted resolves to heads [B], that's fine, we sent it.
-            // - If the final persisted resolves to heads [A, B], then others will receive [A] and [B]
-            //   individually and do their own merge to the same heads [A, B].
+            self.target.put(insertion.id, insertion.doc).await.unwrap();
             return;
         }
 
@@ -453,14 +351,13 @@ impl PersistenceWorker {
             insertion,
             remaining_deps,
         });
-        return;
     }
 
     /// Called when we've inserted a new potential dependency and should check
     /// to see if any pending clockument writes can go through.
     async fn try_resolve_pending(&self, persisted_id: SedimentreeId) {
         // TODO: This is awkward; this could take some time if persist() or retain_pending_deps()
-        // takes some time. This mutex locks up the persistence threading, which sucks.
+        // takes some time. This mutex locks up the put threading, which sucks.
         let mut pendings = self.pending_insertions.lock().await;
 
         let mut i = 0;
@@ -493,12 +390,17 @@ impl PersistenceWorker {
                     let pending = pendings.remove(i);
                     // TODO: don't panic on failure
                     self.target
-                        .persist(pending.insertion.id, pending.insertion.doc)
+                        .put(pending.insertion.id, pending.insertion.doc)
                         .await
                         .unwrap();
-                    self.clockument_persist_tx.send_replace(());
                     continue;
                 }
+            }
+
+            // If we still have more deps, and it's been canceled, give up actually.
+            if pending.insertion.token.is_cancelled() {
+                let _ = pendings.remove(i);
+                continue;
             }
 
             i += 1;
@@ -521,7 +423,7 @@ impl PersistenceWorker {
             }
 
             // TODO: don't panic on error
-            if !self.target.is_persisted(&dep).await.unwrap() {
+            if !self.target.has(&dep).await.unwrap() {
                 remaining_deps.insert(dep);
             }
         }
@@ -561,23 +463,56 @@ pub struct ClockumentCoordinator {
 
     last_persistence_id: AtomicU64,
     workers: WorkerPool,
+
+    puts_tx: mpsc::UnboundedSender<PutResult>,
+
+    clockument_put_tx: watch::Sender<()>,
+
+    token: CancellationToken,
 }
 
+#[derive(Debug, Error)]
 pub enum ClockumentError {
+    #[error("the clockument didn't have an added persistence of ID {0:?}")]
     NoSuchTarget(PersistenceId),
+    #[error("no document was found matching the ID {0}")]
     NoSuchDocument(SedimentreeId),
+    #[error("no heads {0:?} were found on the document")]
     NoSuchHeads(Heads),
+    #[error("the document did not have any heads ready")]
     NoHeadsReady,
+    #[error("the target was removed")]
     TargetRemoved,
+    #[error("there was an error in persistence: {0}")]
     Persist(Box<dyn Error + Send + Sync>),
 }
 
 impl ClockumentCoordinator {
-    pub async fn new(clockument: Clockument) -> Self {
+    pub fn new(clockument: Clockument) -> Self {
+        let (puts_tx, puts_rx) = mpsc::unbounded_channel();
+        let (clockument_put_tx, _) = watch::channel(());
+        let token = CancellationToken::new();
+        let workers = WorkerPool::new(Default::default());
+
+        {
+            let workers = workers.clone();
+            let token = token.clone();
+            let clockument = clockument.clone();
+            let clockument_put_tx = clockument_put_tx.clone();
+            {
+                tokio::task::spawn(async move {
+                    Self::driver_loop(puts_rx, token, clockument, clockument_put_tx, workers).await;
+                });
+            }
+        }
+
         Self {
             clockument,
             last_persistence_id: Default::default(),
-            workers: Default::default(),
+            workers,
+            puts_tx,
+            token: token.clone(),
+            clockument_put_tx: clockument_put_tx.clone(),
         }
     }
 
@@ -587,33 +522,25 @@ impl ClockumentCoordinator {
     pub async fn add_persistence(
         &self,
         target: Box<dyn PersistenceTarget>,
-        reconcile_from: Option<PersistenceId>,
     ) -> Result<PersistenceId, ClockumentError> {
         let mut workers = self.workers.lock().await;
-
-        let reconcile_worker = match reconcile_from {
-            Some(id) => Some(
-                workers
-                    .get(&id)
-                    .cloned()
-                    .ok_or(ClockumentError::NoSuchTarget(id))?,
-            ),
-            None => None,
-        };
 
         let id = PersistenceId(self.last_persistence_id.fetch_add(1, Ordering::Relaxed));
         let worker = PersistenceWorker::new(
             id,
             self.clockument.clone(),
             target.into(),
-            self.workers.clone(),
-        )
-        .await;
+            self.puts_tx.clone(),
+        );
 
         workers.insert(id, worker.clone());
-        drop(workers);
 
-        worker.reconcile(reconcile_worker).await;
+        for (_, worker) in &*workers {
+            // Ask every worker to re-announce its persisted data to everyone else.
+            // This is intended to catch the new worker up to everyone, and also inform everyone
+            // of the new worker's data.
+            worker.rebroadcast();
+        }
 
         Ok(id)
     }
@@ -624,13 +551,74 @@ impl ClockumentCoordinator {
         let worker = workers
             .remove(&id)
             .ok_or(ClockumentError::NoSuchTarget(id))?;
+
+        // Shuts down all the inner stuff, AND notifies pending clockuments that are expecting stuff from the worker
+        // to give up.
         worker.token.cancel();
         Ok(())
     }
 
+    async fn driver_loop(
+        mut puts_rx: mpsc::UnboundedReceiver<PutResult>,
+        token: CancellationToken,
+        clockument: Clockument,
+        clockument_put_tx: watch::Sender<()>,
+        workers: WorkerPool,
+    ) {
+        loop {
+            // Whenever we see new heads incoming from somewhere, broadcast it to every driver.
+            let put = select! {
+                _ = token.cancelled() => { break; }
+                put = puts_rx.recv() => match put {
+                    Some(put) => put,
+                    None => { break; }
+                }
+            };
+
+            // Notify subscribers if the clockument changed
+            if put.doc_ref.id == clockument.id {
+                clockument_put_tx.send_replace(());
+            }
+
+            let workers = workers.lock().await;
+            let Some(worker) = workers.get(&put.source) else {
+                // Worker was removed, therefore we don't bother
+                continue;
+            };
+
+            // TODO: don't panic
+            // TODO: do we really always need to clone this into every worker? definitely not.
+            // We should instead store the heads of the inserted doc during put (the actual heads that would occur
+            // on materialization), pass them through to here, and get ad-hoc if needed.
+            // But that causes tricky conditions where a clockument is updated on the persistence again,
+            // and the merged result is then bad. So maybe we could only pull the doc through here for clockuments?
+            let doc = worker.target.get(put.doc_ref.id).await.unwrap();
+            let token = worker.token.clone();
+
+            for (id, worker) in &*workers {
+                // Don't do extra work
+                if *id == put.source {
+                    continue;
+                }
+                worker.insert(Insertion {
+                    doc: doc.clone(),
+                    id: put.doc_ref.id,
+                    // This will be used to cancel a PendingInsertion if the source worker drops.
+                    // TODO: Investigate issues here -- is there ever a situation where the source worker
+                    // drops after broadcasting all dependencies, and the pending cancels anyways?
+                    // That's OK if it's just one worker -- but the issue is that maybe, a source worker A drops
+                    // and doesn't insert, then a source worker B successfully inserts. But then the source worker C
+                    // would persist heads successfully... unless the heads didn't actually change on C!
+                    // But if that's the case, presumably B would already know about the heads from C anyways.
+                    // So I think we're good? Double check this.
+                    token: token.clone(),
+                });
+            }
+        }
+    }
+
     /// Insert new data into the coordinator. If a document with `id` already exists,
     /// it will be merged into the existing copy.
-    /// The data is assumed to be transient: i.e. it is not already persisted anywhere.
     /// This method will return when the insertion is queued, but not when any actual
     /// insertion is done.
     /// If `id` is that of the root clockument, it will not be persisted into any location until
@@ -752,6 +740,8 @@ impl ClockumentCoordinator {
         heads: Heads,
         persistence: PersistenceId,
     ) -> Result<(), ClockumentError> {
+        let mut rx = self.clockument_put_tx.subscribe();
+
         let workers = self.workers.lock().await;
         let worker = workers
             .get(&persistence)
@@ -760,19 +750,10 @@ impl ClockumentCoordinator {
 
         drop(workers);
 
-        let mut rx = worker.clockument_persisted();
-
-        // TODO: handle case where no clockument at persistence yet
-        let doc = worker
-            .target
-            .get(self.clockument.id)
-            .await
-            .map_err(|e| ClockumentError::Persist(e))?;
-
         // If we're already fully persisted at the desired heads, we're OK.
         if worker
             .target
-            .is_persisted(&DocumentRef {
+            .has(&DocumentRef {
                 id: self.clockument.id,
                 heads: heads.clone(),
             })
@@ -787,12 +768,14 @@ impl ClockumentCoordinator {
                 _ = worker.token.cancelled() => {
                     return Err(ClockumentError::TargetRemoved);
                 }
+                // This is always emitted AFTER a put -- so if we must wait some time before this fires, that's OK.
+                // This will occur on the next put, when we actually put the clockument.
                 res = rx.changed() => {
                     match res {
                         Ok(()) => {
                             if worker
                                 .target
-                                .is_persisted(&DocumentRef { id: self.clockument.id, heads: heads.clone() })
+                                .has(&DocumentRef { id: self.clockument.id, heads: heads.clone() })
                                 .await
                                 .map_err(|e| ClockumentError::Persist(e))?
                             {

@@ -1,6 +1,6 @@
 # workspace is in rust
 [workspace]
-members = ["rust"]
+members = ["backstitch"]
 
 [workspace.package]
 version = "3.0.0"

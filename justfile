@@ -251,7 +251,7 @@ _build-plugin-all-macos profile tracing_support: (_build-plugin "aarch64-apple-d
 
     # Copy the entire macos directory to get the Resources framework directory
     rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
-    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    cp -r "backstitch/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
 
     # Rather than copying the generated .dylibs, we combine them into a single one.
     lipo -create -output build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib \
@@ -268,7 +268,7 @@ _build-plugin-single-arch architecture profile tracing_support: (_build-plugin a
 
     # Copy the entire macos directory to get the Resources framework directory
     rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
-    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    cp -r "backstitch/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
 
     if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" ] ; then
         cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" \

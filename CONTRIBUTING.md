@@ -29,12 +29,11 @@ If any are missing, see [Detailed Setup](#detailed-setup) below.
 
 ---
 
-
 ### `just` build system
 
-We use [just](https://github.com/casey/just) as our command runner. 
+We use [just](https://github.com/casey/just) as our command runner.
 
-To view a detailed list of targets, type `just`. 
+To view a detailed list of targets, type `just`.
 
 ### Quick start: Launching projects
 
@@ -56,33 +55,29 @@ A variety of helpful launch configurations are specified when you open the proje
 
 When working with GDScript, you'll need to open `moddable-platformer`, `moddable-pong`, or `threadbare` directly in VSCode, and Godot must be running with `just launch`.
 
-
 ### Build structure
 
 When you run `just launch`, the output generated files are copied to `build/`. There are several important directories, here:
 
 - `build/backstitch`:
-  + The built plugin.
-  + `bin`: Rust binaries
-  + `public`: Symlinked from `public/` in the repo root. For GDScript and assets we must ship directly with the plugin.
+  - The built plugin.
+  - `bin`: Rust binaries
+  - `public`: Symlinked from `public/` in the repo root. For GDScript and assets we must ship directly with the plugin.
 - `build/moddable-platformer`/`build/threadbare`/`build/moddable-pong`:
-  + A clone of each project repository.
-  + `addons/backstitch`: Symlinked from `build/backstitch`, so feel free to make GDScript or UI changes directly to `addons/backstitch/public`.
+  - A clone of each project repository.
+  - `addons/backstitch`: Symlinked from `build/backstitch`, so feel free to make GDScript or UI changes directly to `addons/backstitch/public`.
 - `build/godot`:
-  + A clone of the Godot repository
-  + `modules/backstitch_editor`: Symlinked from `editor/` to form a new editor module.
-  + `bin`: Contains the built Godot executable.
+  - A clone of the Godot repository
+  - `modules/backstitch_editor`: Symlinked from `editor/` to form a new editor module.
+  - `bin`: Contains the built Godot executable.
 - `GodotFormatters`:
-  + A special `lldb` formatter for Godot objects. Only cloned when running the project through VSCode.
-
-
-
+  - A special `lldb` formatter for Godot objects. Only cloned when running the project through VSCode.
 
 ### Understanding Backstitch's Architecture
 
 Backstitch is a **GDExtension**:
 
-- **GDExtension Component** (`public/` and `rust/`) - Actually runs the application
+- **GDExtension Component** (`public/` and `backstitch/`) - Actually runs the application
   - Contains the Rust plugin DLL/library
   - Contains public GDScript UI components
   - Located in your project's `addons/backstitch/` folder

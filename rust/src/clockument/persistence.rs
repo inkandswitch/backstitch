@@ -100,6 +100,9 @@ use crate::project::repo::heads::Heads;
 /// ```
 ///
 ///
+/// 
+
+mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DocumentRef {

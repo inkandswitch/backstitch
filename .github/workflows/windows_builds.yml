@@ -28,6 +28,7 @@ jobs:
           rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
       - name: Windows Sign
         uses: ./.github/actions/windows-sign
+        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
           BINARY_PATHS: |
             ./build/backstitch/bin/backstitch_rust_core.windows.${{ matrix.arch }}.dll

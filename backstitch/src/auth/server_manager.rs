@@ -131,6 +131,12 @@ pub enum ServerError {
     Deauth(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl Default for ServerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerManager {
     pub fn new() -> Self {
         let (auth_tx, _) = watch::channel(AuthStatus::Idle);

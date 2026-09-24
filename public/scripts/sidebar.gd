@@ -694,6 +694,11 @@ func update_ui() -> void:
 	update_diff()
 
 func update_sync_status() -> void:
+	if !GodotProject.has_project():
+		sync_button.icon = null
+		sync_button.tooltip_text = "No Backstitch project configured"
+		return
+
 	var sync_status = GodotProject.get_sync_status()
 
 	if sync_status.state == "unknown":

@@ -16,9 +16,18 @@ func _ready():
 
 # Populate the branch picker with branches.
 func populate() -> void:
-	if !GodotProject.has_project(): return
 	clear()
+	if !GodotProject.has_project():
+		add_item("No project")
+		icon = node_warning_icon
+		set_item_icon(0, node_warning_icon)
+		disabled = true
+		tooltip_text = "Create or join a Backstitch project"
+		return
 
+	tooltip_text = "Select a branch..."
+	if override_icon:
+		icon = override_icon
 	var main_branch = GodotProject.get_main_branch();
 	var checked_out_branch = GodotProject.get_checked_out_branch()
 	if !checked_out_branch or !main_branch:

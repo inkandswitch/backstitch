@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use backstitch::diff::text_differ::TextDiffLine;
-use godot::meta::shape::GodotShape;
 use godot::obj::Singleton;
 use godot::{
     builtin::{Array, GString, StringName, VarDictionary, Variant, vdict},
@@ -30,17 +29,14 @@ use backstitch::{
 };
 
 use crate::interop::godot_helpers::{
-    LocalConvert, LocalTo, LocalToDefaultVariant, LocalToDefaultVariantFn,
+    LocalGodotConvert, LocalToDefaultVariant, LocalToDefaultVariantFn, LocalToGodot,
 };
 
-impl LocalConvert for TextDiffLine {
+impl LocalGodotConvert for TextDiffLine {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for TextDiffLine {
+impl LocalToGodot for TextDiffLine {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -55,14 +51,11 @@ impl LocalTo for TextDiffLine {
     }
 }
 
-impl LocalConvert for TextDiffHunk {
+impl LocalGodotConvert for TextDiffHunk {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for TextDiffHunk {
+impl LocalToGodot for TextDiffHunk {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -78,14 +71,11 @@ impl LocalTo for TextDiffHunk {
     }
 }
 
-impl LocalConvert for TextDiff {
+impl LocalGodotConvert for TextDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for TextDiff {
+impl LocalToGodot for TextDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -105,11 +95,8 @@ impl LocalTo for TextDiff {
     }
 }
 
-impl LocalConvert for ChangeType {
+impl LocalGodotConvert for ChangeType {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for ChangeType {
@@ -124,11 +111,8 @@ impl LocalToDefaultVariant for ChangeType {
     }
 }
 
-impl LocalConvert for Diff {
+impl LocalGodotConvert for Diff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for Diff {
@@ -143,11 +127,8 @@ impl LocalToDefaultVariant for Diff {
     }
 }
 
-impl LocalConvert for ProjectDiff {
+impl LocalGodotConvert for ProjectDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for ProjectDiff {
@@ -170,11 +151,8 @@ impl LocalToDefaultVariant for ProjectDiff {
     }
 }
 
-impl LocalConvert for SceneDiff {
+impl LocalGodotConvert for SceneDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for SceneDiff {
@@ -188,11 +166,8 @@ impl LocalToDefaultVariant for SceneDiff {
     }
 }
 
-impl LocalConvert for TextResourceDiff {
+impl LocalGodotConvert for TextResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for TextResourceDiff {
@@ -208,11 +183,8 @@ impl LocalToDefaultVariant for TextResourceDiff {
     }
 }
 
-impl LocalConvert for SubResourceDiff {
+impl LocalGodotConvert for SubResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for SubResourceDiff {
@@ -260,11 +232,8 @@ impl ToGodotExt for Vec<NodeDiff> {
     }
 }
 
-impl LocalConvert for NodeDiff {
+impl LocalGodotConvert for NodeDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for NodeDiff {
@@ -297,18 +266,12 @@ impl ToGodotExt for HashMap<String, PropertyDiff> {
     }
 }
 
-impl LocalConvert for PropertyDiff {
+impl LocalGodotConvert for PropertyDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalConvert for VariantValue {
+impl LocalGodotConvert for VariantValue {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 fn get_classdb_default_value(class_name: &str, prop: &str) -> String {
@@ -392,11 +355,8 @@ impl LocalToDefaultVariant for PropertyDiff {
     }
 }
 
-impl LocalConvert for BinaryResourceDiff {
+impl LocalGodotConvert for BinaryResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for BinaryResourceDiff {

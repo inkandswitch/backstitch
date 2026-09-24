@@ -21,16 +21,16 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-pub trait LocalConvert: Sized {
+pub trait LocalGodotConvert: Sized {
     type Via: GodotType;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-struct ConvertWrapper<'a, T: LocalConvert, A>(&'a T, PhantomData<A>);
+struct GodotConversionWrapper<'a, T: LocalGodotConvert, A>(&'a T, PhantomData<A>);
 
-impl<T: LocalConvert> LocalConvert for ConvertWrapper<'_, T, ()> {
+impl<T: LocalGodotConvert> LocalGodotConvert for GodotConversionWrapper<'_, T, ()> {
     type Via = T::Via;
 
     fn godot_shape() -> GodotShape {
@@ -38,7 +38,7 @@ impl<T: LocalConvert> LocalConvert for ConvertWrapper<'_, T, ()> {
     }
 }
 
-impl<T: LocalConvert, A> GodotConvert for ConvertWrapper<'_, T, A> {
+impl<T: LocalGodotConvert, A> GodotConvert for GodotConversionWrapper<'_, T, A> {
     type Via = T::Via;
 
     fn godot_shape() -> GodotShape {
@@ -46,7 +46,7 @@ impl<T: LocalConvert, A> GodotConvert for ConvertWrapper<'_, T, A> {
     }
 }
 
-pub trait LocalTo: LocalConvert {
+pub trait LocalToGodot: LocalGodotConvert {
     type Pass: ArgPassing;
     /// Converts this type to Godot representation, optimizing for zero-copy when possible.
     ///
@@ -59,7 +59,7 @@ pub trait LocalTo: LocalConvert {
     // Exception safety: introducing a panic would have invariant implications, e.g. in Array::resize().
     fn to_variant(&self) -> Variant;
 }
-impl<T: LocalTo + LocalConvert> ToGodot for ConvertWrapper<'_, T, ((), ())> {
+impl<T: LocalToGodot + LocalGodotConvert> ToGodot for GodotConversionWrapper<'_, T, ((), ())> {
     type Pass = T::Pass;
 
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
@@ -71,7 +71,7 @@ impl<T: LocalTo + LocalConvert> ToGodot for ConvertWrapper<'_, T, ((), ())> {
     }
 }
 
-pub trait LocalToDefaultVariant: LocalConvert {
+pub trait LocalToDefaultVariant: LocalGodotConvert {
     type Pass: ArgPassing;
     /// Converts this type to Godot representation, optimizing for zero-copy when possible.
     ///
@@ -81,7 +81,9 @@ pub trait LocalToDefaultVariant: LocalConvert {
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass>;
 }
 
-impl<T: LocalToDefaultVariant + LocalConvert> ToGodot for ConvertWrapper<'_, T, ((), (), ())> {
+impl<T: LocalToDefaultVariant + LocalGodotConvert> ToGodot
+    for GodotConversionWrapper<'_, T, ((), (), ())>
+{
     type Pass = T::Pass;
 
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
@@ -91,7 +93,7 @@ impl<T: LocalToDefaultVariant + LocalConvert> ToGodot for ConvertWrapper<'_, T, 
 
 pub trait LocalToDefaultVariantFn: LocalToDefaultVariant {
     fn to_variant(&self) -> Variant {
-        ConvertWrapper(self, PhantomData).to_variant()
+        GodotConversionWrapper(self, PhantomData).to_variant()
     }
 }
 
@@ -214,11 +216,8 @@ impl ToGodotExt for PathBuf {
     }
 }
 
-impl LocalConvert for HistoryRef {
+impl LocalGodotConvert for HistoryRef {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for HistoryRef {
@@ -228,11 +227,8 @@ impl LocalToDefaultVariant for HistoryRef {
     }
 }
 
-impl LocalConvert for DiffId {
+impl LocalGodotConvert for DiffId {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for DiffId {
@@ -280,11 +276,8 @@ pub(crate) fn change_view_model_to_dict(change: &impl ChangeViewModel) -> VarDic
     }
 }
 
-impl LocalConvert for SyncStatus {
+impl LocalGodotConvert for SyncStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for SyncStatus {
@@ -306,14 +299,11 @@ impl LocalToDefaultVariant for SyncStatus {
     }
 }
 
-impl LocalConvert for FileContent {
+impl LocalGodotConvert for FileContent {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for FileContent {
+impl LocalToGodot for FileContent {
     type Pass = ByValue;
     fn to_godot(&self) -> Variant {
         // < Self as backstitch::obj::EngineBitfield > ::ord(* self)
@@ -349,14 +339,11 @@ impl ToGodotExt for Vec<ChangedFile> {
     }
 }
 
-impl LocalConvert for TypeOrInstance {
+impl LocalGodotConvert for TypeOrInstance {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for TypeOrInstance {
+impl LocalToGodot for TypeOrInstance {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
@@ -375,11 +362,8 @@ impl ToVariantExt for Option<TypeOrInstance> {
     }
 }
 
-impl LocalConvert for DiffStatus {
+impl LocalGodotConvert for DiffStatus {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 impl LocalToDefaultVariant for DiffStatus {
@@ -441,15 +425,11 @@ where
 {
 }
 
-impl LocalConvert for ProjectStartStatus {
+impl LocalGodotConvert for ProjectStartStatus {
     type Via = VarDictionary;
-
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for ProjectStartStatus {
+impl LocalToGodot for ProjectStartStatus {
     type Pass = ByValue;
 
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
@@ -477,14 +457,11 @@ impl LocalTo for ProjectStartStatus {
     }
 }
 
-impl LocalConvert for AuthStatus {
+impl LocalGodotConvert for AuthStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for AuthStatus {
+impl LocalToGodot for AuthStatus {
     type Pass = ByValue;
 
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
@@ -507,14 +484,11 @@ impl LocalTo for AuthStatus {
     }
 }
 
-impl LocalConvert for ServerStatus {
+impl LocalGodotConvert for ServerStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl LocalTo for ServerStatus {
+impl LocalToGodot for ServerStatus {
     type Pass = ByValue;
 
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {

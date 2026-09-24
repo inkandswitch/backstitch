@@ -7,8 +7,8 @@ jobs:
     runs-on: "windows-latest"
     name: 🔨 Build ${{ matrix.arch }}
     permissions:
-      contents: 'read'
-      id-token: 'write'
+      contents: "read"
+      id-token: "write"
     strategy:
       fail-fast: false
       matrix:
@@ -25,12 +25,12 @@ jobs:
       - name: Remove macOS framework
         shell: bash
         run: |
-          rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
+          rm -rf ./build/backstitch/bin/libbackstitch_rust_godot.macos.framework
       - name: Windows Sign
         uses: ./.github/actions/windows-sign
         with:
           BINARY_PATHS: |
-            ./build/backstitch/bin/backstitch_rust_core.windows.${{ matrix.arch }}.dll
+            ./build/backstitch/bin/backstitch_rust_godot.windows.${{ matrix.arch }}.dll
           KMS_CREDENTIALS_JSON: ${{ secrets.GCLOUD_SERVICE_ACCOUNT_KEY }}
           KMS_PUBLIC_CERT: ${{ secrets.CODESIGN_PUBLIC_CERT }}
           KMS_PROJECT: ${{ secrets.KMS_PROJECT }}

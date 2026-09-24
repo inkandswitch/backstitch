@@ -5,12 +5,11 @@ use godot::{
     obj::{Gd, NewAlloc, NewGd},
 };
 
-use crate::{
-    helpers::tracing::initialize_tracing,
-    interop::{
-        backstitch_resource_loader::{BackstitchResourceFormatSaver, BackstitchResourceLoader},
-        godot_project::GodotProject,
-    },
+use backstitch::helpers::tracing::initialize_tracing;
+
+use crate::interop::{
+    backstitch_resource_loader::{BackstitchResourceFormatSaver, BackstitchResourceLoader},
+    godot_project::GodotProject,
 };
 
 struct MyExtension;

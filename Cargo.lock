@@ -403,7 +403,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "backstitch_rust"
+name = "backstitch"
 version = "3.0.0"
 dependencies = [
  "async-stream",
@@ -457,6 +457,24 @@ dependencies = [
  "url",
  "uuid",
  "wincode",
+]
+
+[[package]]
+name = "backstitch_godot"
+version = "3.0.0"
+dependencies = [
+ "automerge",
+ "autosurgeon",
+ "backstitch",
+ "console-subscriber",
+ "futures",
+ "godot",
+ "regex",
+ "safer-ffi",
+ "samod",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

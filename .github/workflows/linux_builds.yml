@@ -43,7 +43,7 @@ jobs:
       - name: Remove macOS framework
         shell: bash
         run: |
-          rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
+          rm -rf ./build/backstitch/bin/libbackstitch_rust_godot.macos.framework
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -51,4 +51,3 @@ jobs:
           name: backstitch-build-linux-${{ matrix.arch.id }}
           path: ./build/backstitch/*
           if-no-files-found: error
-

@@ -1,16 +1,16 @@
-use crate::fs::file_utils::{FileContent, FileSystemEvent};
 use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
-    ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
+    LocalTo, LocalToDefaultVariant, ToGodotExt, branch_view_model_to_dict,
+    change_view_model_to_dict, diff_view_model_to_dict,
 };
-use crate::project::project_api::{
+use automerge::ChangeHash;
+use backstitch::fs::file_utils::{FileContent, FileSystemEvent};
+use backstitch::project::project_api::{
     BranchViewModel, CreateMergePreviewBranchError, CreateRevertPreviewBranchError,
     ProjectViewModel, RequestDiffError,
 };
-use crate::project::project_base::GodotProjectSignal;
-use crate::project::{Project, ProjectStartStatus};
-use ::safer_ffi::prelude::*;
-use automerge::ChangeHash;
+use backstitch::project::project_base::GodotProjectSignal;
+use backstitch::project::{Project, ProjectStartStatus};
 use godot::classes::DirAccess;
 use godot::classes::EditorInterface;
 use godot::classes::Os;
@@ -22,6 +22,7 @@ use godot::classes::{ConfirmationDialog, Control};
 use godot::classes::{EditorPlugin, Engine, IEditorPlugin};
 use godot::global::Error;
 use godot::prelude::*;
+use safer_ffi::prelude::*;
 use samod::DocumentId;
 use std::collections::HashSet;
 use std::ops::DerefMut;
@@ -757,7 +758,7 @@ impl INode for GodotProject {
         self.was_scanning = EditorFilesystemAccessor::is_scanning();
     }
 
-    #[instrument(target = "backstitch_rust_core::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
+    #[instrument(target = "backstitch_rust_godot::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
     fn process(&mut self, _delta: f64) {
         if self.deferred_start > 0 {
             self.deferred_start -= 1;

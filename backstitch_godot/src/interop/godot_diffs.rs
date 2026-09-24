@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use backstitch::diff::text_differ::TextDiffLine;
 use godot::meta::shape::GodotShape;
 use godot::obj::Singleton;
 use godot::{
@@ -7,35 +8,39 @@ use godot::{
     classes::ClassDb,
     global::str_to_var,
     meta::conv::ByValue,
-    meta::{GodotConvert, ToArg, ToGodot},
+    meta::{ToArg, ToGodot},
 };
 use regex::Regex;
 
-use crate::helpers::utils::ChangeType;
-use crate::{
+use crate::interop::{
+    godot_helpers::{GodotConvertExt, ToGodotExt, ToVariantExt},
+    lazy_load_token::LazyLoadToken,
+};
+use backstitch::helpers::utils::ChangeType;
+use backstitch::{
     diff::{
         differ::{Diff, ProjectDiff},
         resource_differ::BinaryResourceDiff,
         scene_differ::{
             NodeDiff, PropertyDiff, SceneDiff, SubResourceDiff, TextResourceDiff, VariantValue,
         },
-        text_differ::{TextDiff, TextDiffHunk, TextDiffLine},
-    },
-    interop::{
-        godot_helpers::{GodotConvertExt, ToGodotExt, ToVariantExt},
-        lazy_load_token::LazyLoadToken,
+        text_differ::{TextDiff, TextDiffHunk},
     },
     parser::godot_parser::TypeOrInstance,
 };
 
-impl GodotConvert for TextDiffLine {
+use crate::interop::godot_helpers::{
+    LocalConvert, LocalTo, LocalToDefaultVariant, LocalToDefaultVariantFn,
+};
+
+impl LocalConvert for TextDiffLine {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for TextDiffLine {
+impl LocalTo for TextDiffLine {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -50,14 +55,14 @@ impl ToGodot for TextDiffLine {
     }
 }
 
-impl GodotConvert for TextDiffHunk {
+impl LocalConvert for TextDiffHunk {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for TextDiffHunk {
+impl LocalTo for TextDiffHunk {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -73,14 +78,14 @@ impl ToGodot for TextDiffHunk {
     }
 }
 
-impl GodotConvert for TextDiff {
+impl LocalConvert for TextDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for TextDiff {
+impl LocalTo for TextDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -100,14 +105,14 @@ impl ToGodot for TextDiff {
     }
 }
 
-impl GodotConvert for ChangeType {
+impl LocalConvert for ChangeType {
     type Via = GString;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for ChangeType {
+impl LocalToDefaultVariant for ChangeType {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
@@ -119,14 +124,14 @@ impl ToGodot for ChangeType {
     }
 }
 
-impl GodotConvert for Diff {
+impl LocalConvert for Diff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for Diff {
+impl LocalToDefaultVariant for Diff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
@@ -138,14 +143,14 @@ impl ToGodot for Diff {
     }
 }
 
-impl GodotConvert for ProjectDiff {
+impl LocalConvert for ProjectDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for ProjectDiff {
+impl LocalToDefaultVariant for ProjectDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         let mut dict = vdict! {};
@@ -165,14 +170,14 @@ impl ToGodot for ProjectDiff {
     }
 }
 
-impl GodotConvert for SceneDiff {
+impl LocalConvert for SceneDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for SceneDiff {
+impl LocalToDefaultVariant for SceneDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -183,14 +188,14 @@ impl ToGodot for SceneDiff {
     }
 }
 
-impl GodotConvert for TextResourceDiff {
+impl LocalConvert for TextResourceDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for TextResourceDiff {
+impl LocalToDefaultVariant for TextResourceDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -203,14 +208,14 @@ impl ToGodot for TextResourceDiff {
     }
 }
 
-impl GodotConvert for SubResourceDiff {
+impl LocalConvert for SubResourceDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for SubResourceDiff {
+impl LocalToDefaultVariant for SubResourceDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -255,14 +260,14 @@ impl ToGodotExt for Vec<NodeDiff> {
     }
 }
 
-impl GodotConvert for NodeDiff {
+impl LocalConvert for NodeDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for NodeDiff {
+impl LocalToDefaultVariant for NodeDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -292,14 +297,14 @@ impl ToGodotExt for HashMap<String, PropertyDiff> {
     }
 }
 
-impl GodotConvert for PropertyDiff {
+impl LocalConvert for PropertyDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl GodotConvert for VariantValue {
+impl LocalConvert for VariantValue {
     type Via = Variant;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
@@ -347,7 +352,7 @@ fn str_to_var_safe(s: &str) -> Variant {
     str_to_var(replaced)
 }
 
-impl ToGodot for VariantValue {
+impl LocalToDefaultVariant for VariantValue {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
@@ -375,7 +380,7 @@ impl ToGodot for VariantValue {
     }
 }
 
-impl ToGodot for PropertyDiff {
+impl LocalToDefaultVariant for PropertyDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
@@ -387,14 +392,14 @@ impl ToGodot for PropertyDiff {
     }
 }
 
-impl GodotConvert for BinaryResourceDiff {
+impl LocalConvert for BinaryResourceDiff {
     type Via = VarDictionary;
     fn godot_shape() -> GodotShape {
         GodotShape::Variant
     }
 }
 
-impl ToGodot for BinaryResourceDiff {
+impl LocalToDefaultVariant for BinaryResourceDiff {
     type Pass = ByValue;
     fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {

@@ -1,6 +1,7 @@
 # workspace is in rust
 [workspace]
-members = ["backstitch"]
+members = ["backstitch", "backstitch_godot"]
+resolver = "3"
 
 [workspace.package]
 version = "3.0.0"

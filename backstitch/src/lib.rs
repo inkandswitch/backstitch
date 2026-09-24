@@ -1,7 +1,6 @@
-mod auth;
-mod diff;
-mod fs;
-mod helpers;
-mod interop;
-mod parser;
-mod project;
+pub mod auth;
+pub mod diff;
+pub mod fs;
+pub mod helpers;
+pub mod parser;
+pub mod project;

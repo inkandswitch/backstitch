@@ -1,5 +1,5 @@
 [package]
-name = "backstitch_rust"
+name = "backstitch"
 version.workspace = true
 authors = [
   "Orion Henry <orion.henry@gmail.com>",
@@ -9,11 +9,6 @@ edition = "2024"
 license = "MIT"
 rust-version = "1.91.1"
 
-[lib]
-name = "backstitch_rust_core"
-crate-type = ["cdylib", "staticlib", "rlib"]
-bench = false
-doc = false
 
 [features]
 default = []

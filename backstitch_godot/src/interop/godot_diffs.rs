@@ -1,43 +1,40 @@
 use std::collections::HashMap;
 
-use godot::meta::shape::GodotShape;
+use backstitch::diff::text_differ::TextDiffLine;
 use godot::obj::Singleton;
 use godot::{
     builtin::{Array, GString, StringName, VarDictionary, Variant, vdict},
     classes::ClassDb,
     global::str_to_var,
     meta::conv::ByValue,
-    meta::{GodotConvert, ToArg, ToGodot},
+    meta::{ToArg, ToGodot},
 };
 use regex::Regex;
 
-use crate::helpers::utils::ChangeType;
-use crate::{
+use crate::interop::{
+    godot_helpers::{GodotConvertExt, ToGodotExt, ToVariantExt},
+    lazy_load_token::LazyLoadToken,
+};
+use backstitch::helpers::utils::ChangeType;
+use backstitch::{
     diff::{
         differ::{Diff, ProjectDiff},
         resource_differ::BinaryResourceDiff,
         scene_differ::{
             NodeDiff, PropertyDiff, SceneDiff, SubResourceDiff, TextResourceDiff, VariantValue,
         },
-        text_differ::{TextDiff, TextDiffHunk, TextDiffLine},
-    },
-    interop::{
-        godot_helpers::{GodotConvertExt, ToGodotExt, ToVariantExt},
-        lazy_load_token::LazyLoadToken,
+        text_differ::{TextDiff, TextDiffHunk},
     },
     parser::godot_parser::TypeOrInstance,
 };
 
-impl GodotConvert for TextDiffLine {
+impl GodotConvertExt for TextDiffLine {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for TextDiffLine {
+impl ToGodotExt for TextDiffLine {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
             "new_line_no" => self.new_line_no,
             "old_line_no" => self.old_line_no,
@@ -45,71 +42,62 @@ impl ToGodot for TextDiffLine {
             "status" => &self.status.to_godot(),
         }
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
-impl GodotConvert for TextDiffHunk {
+impl GodotConvertExt for TextDiffHunk {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for TextDiffHunk {
+impl ToGodotExt for TextDiffHunk {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
             "new_start" => self.new_start,
             "old_start" => self.old_start,
             "new_lines" => self.new_lines,
             "old_lines" => self.old_lines,
-            "diff_lines" => &self.diff_lines.iter().map(|line| line.to_godot()).collect::<Array<VarDictionary>>(),
+            "diff_lines" => &self.diff_lines.iter().map(|line| line._to_godot()).collect::<Array<VarDictionary>>(),
         }
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
-impl GodotConvert for TextDiff {
+impl GodotConvertExt for TextDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for TextDiff {
+impl ToGodotExt for TextDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
             "path" => &self.path.to_godot(),
             "diff_type" => "text_changed",
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "text_diff" => &vdict! {
                 // In the future, if we track renames, we should use the different paths here. Currently we don't, though.
                 "new_file" => &self.path.to_godot(),
                 "old_file" => &self.path.to_godot(),
-                "diff_hunks" => &self.diff_hunks.iter().map(|hunk| hunk.to_godot()).collect::<Array<VarDictionary>>(),
+                "diff_hunks" => &self.diff_hunks.iter().map(|hunk| hunk._to_godot()).collect::<Array<VarDictionary>>(),
             }
         }
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
-impl GodotConvert for ChangeType {
+impl GodotConvertExt for ChangeType {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for ChangeType {
+impl ToGodotExt for ChangeType {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
             ChangeType::Created => "added",
             ChangeType::Modified => "modified",
@@ -119,35 +107,29 @@ impl ToGodot for ChangeType {
     }
 }
 
-impl GodotConvert for Diff {
+impl GodotConvertExt for Diff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for Diff {
+impl ToGodotExt for Diff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
-            Diff::Scene(diff) => diff.to_godot(),
-            Diff::TextResourceDiff(diff) => diff.to_godot(),
-            Diff::BinaryResource(diff) => diff.to_godot(),
-            Diff::Text(diff) => diff.to_godot(),
+            Diff::Scene(diff) => diff._to_godot(),
+            Diff::TextResourceDiff(diff) => diff._to_godot(),
+            Diff::BinaryResource(diff) => diff._to_godot(),
+            Diff::Text(diff) => diff._to_godot(),
         }
     }
 }
 
-impl GodotConvert for ProjectDiff {
+impl GodotConvertExt for ProjectDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for ProjectDiff {
+impl ToGodotExt for ProjectDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         let mut dict = vdict! {};
         for diff in &self.file_diffs {
             dict.set(
@@ -158,43 +140,37 @@ impl ToGodot for ProjectDiff {
                     Diff::Text(text_diff) => text_diff.path.clone(),
                 }
                 .to_variant(),
-                &diff.to_godot(),
+                &diff._to_godot(),
             )
         }
         dict
     }
 }
 
-impl GodotConvert for SceneDiff {
+impl GodotConvertExt for SceneDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for SceneDiff {
+impl ToGodotExt for SceneDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "changed_nodes" => &self.changed_nodes.to_godot(),
             "diff_type" => "scene_changed"
         }
     }
 }
 
-impl GodotConvert for TextResourceDiff {
+impl GodotConvertExt for TextResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for TextResourceDiff {
+impl ToGodotExt for TextResourceDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "resource_type" => &self.resource_type.to_godot(),
             "changed_sub_resources" => &self.changed_sub_resources.to_godot(),
             "changed_main_resource" => &self.changed_main_resource.as_ref().map(|s| s.to_variant()).unwrap_or(Variant::nil()),
@@ -203,18 +179,15 @@ impl ToGodot for TextResourceDiff {
     }
 }
 
-impl GodotConvert for SubResourceDiff {
+impl GodotConvertExt for SubResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for SubResourceDiff {
+impl ToGodotExt for SubResourceDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "sub_resource_id" => &self.sub_resource_id.to_godot(),
             "resource_type" => &self.resource_type.to_godot(),
             "script_class" => &self.script_class.as_ref().map(|s| s.to_godot().to_variant()).unwrap_or(Variant::nil()),
@@ -231,7 +204,7 @@ impl ToGodotExt for Vec<SubResourceDiff> {
     type Pass = ByValue;
     fn _to_godot(&self) -> Array<VarDictionary> {
         self.iter()
-            .map(|s| s.to_godot())
+            .map(|s| s._to_godot())
             .collect::<Array<VarDictionary>>()
     }
     fn _to_variant(&self) -> Variant {
@@ -247,7 +220,7 @@ impl ToGodotExt for Vec<NodeDiff> {
     type Pass = ByValue;
     fn _to_godot(&self) -> Array<VarDictionary> {
         self.iter()
-            .map(|s| s.to_godot())
+            .map(|s| s._to_godot())
             .collect::<Array<VarDictionary>>()
     }
     fn _to_variant(&self) -> Variant {
@@ -255,18 +228,15 @@ impl ToGodotExt for Vec<NodeDiff> {
     }
 }
 
-impl GodotConvert for NodeDiff {
+impl GodotConvertExt for NodeDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for NodeDiff {
+impl ToGodotExt for NodeDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "changed_props" => &self.changed_properties.to_godot(),
             "node_path" => &self.node_path.to_godot(),
             "type" => &self.node_type.to_variant()
@@ -283,7 +253,7 @@ impl ToGodotExt for HashMap<String, PropertyDiff> {
     fn _to_godot(&self) -> VarDictionary {
         let mut dict = vdict! {};
         for (name, diff) in self {
-            dict.set(name.clone(), &diff.to_godot());
+            dict.set(name.clone(), &diff._to_godot());
         }
         dict
     }
@@ -292,18 +262,12 @@ impl ToGodotExt for HashMap<String, PropertyDiff> {
     }
 }
 
-impl GodotConvert for PropertyDiff {
+impl GodotConvertExt for PropertyDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl GodotConvert for VariantValue {
+impl GodotConvertExt for VariantValue {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
 fn get_classdb_default_value(class_name: &str, prop: &str) -> String {
@@ -347,9 +311,9 @@ fn str_to_var_safe(s: &str) -> Variant {
     str_to_var(replaced)
 }
 
-impl ToGodot for VariantValue {
+impl ToGodotExt for VariantValue {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
             VariantValue::Variant(s) => str_to_var_safe(s),
             VariantValue::DefaultValue(type_or_instance, property_name) => {
@@ -375,32 +339,29 @@ impl ToGodot for VariantValue {
     }
 }
 
-impl ToGodot for PropertyDiff {
+impl ToGodotExt for PropertyDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
+            "change_type" => &self.change_type._to_godot(),
             "name" => &self.name.to_godot(),
-            "new_value" => &self.new_value.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
-            "old_value" => &self.old_value.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
+            "new_value" => &self.new_value.as_ref().map(|v| v._to_godot()).unwrap_or(Variant::nil()),
+            "old_value" => &self.old_value.as_ref().map(|v| v._to_godot()).unwrap_or(Variant::nil()),
         }
     }
 }
 
-impl GodotConvert for BinaryResourceDiff {
+impl GodotConvertExt for BinaryResourceDiff {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for BinaryResourceDiff {
+impl ToGodotExt for BinaryResourceDiff {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         vdict! {
-            "change_type" => &self.change_type.to_godot(),
-            "new_resource" => &self.new_resource.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
-            "old_resource" => &self.old_resource.as_ref().map(|v| v.to_godot()).unwrap_or(Variant::nil()),
+            "change_type" => &self.change_type._to_godot(),
+            "new_resource" => &self.new_resource.as_ref().map(|v| v._to_godot()).unwrap_or(Variant::nil()),
+            "old_resource" => &self.old_resource.as_ref().map(|v| v._to_godot()).unwrap_or(Variant::nil()),
             "diff_type" => "resource_changed"
         }
     }

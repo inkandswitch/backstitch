@@ -14,12 +14,12 @@ use godot::global::Error;
 use godot::prelude::*;
 use uuid::Uuid;
 
-use crate::fs::file_utils::FileContent;
-use crate::helpers::history_path::HistoryRefPath;
-use crate::helpers::history_ref::HistoryRef;
 use crate::interop::fake_importers::FakeImporter;
 use crate::interop::godot_project::GodotProject;
-use crate::project::project_api::ProjectViewModel;
+use backstitch::fs::file_utils::FileContent;
+use backstitch::helpers::history_path::HistoryRefPath;
+use backstitch::helpers::history_ref::HistoryRef;
+use backstitch::project::project_api::ProjectViewModel;
 
 /// This class allows us to load resources directly from backstitch history.
 /// It is registered as a resource format loader with Godot.

@@ -1,0 +1,68 @@
+[package]
+name = "backstitch"
+version.workspace = true
+authors = [
+  "Orion Henry <orion.henry@gmail.com>",
+  "Jason Kankiewicz <jason.kankiewicz@gmail.com>",
+]
+edition = "2024"
+license = "MIT"
+rust-version = "1.91.1"
+
+
+[features]
+default = []
+tokio-console = ["tokio/tracing"]
+
+[dependencies]
+automerge = { workspace = true }
+autosurgeon = { workspace = true }
+futures = { workspace = true }
+godot = { workspace = true }
+tokio = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-godot-resource = { workspace = true }
+safer-ffi = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+similar = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+ignore = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+samod = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+async-stream = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+sys-locale = { workspace = true }
+blake3 = { workspace = true }
+wincode = { workspace = true }
+fjall = { workspace = true }
+jwalk = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+openidconnect = { workspace = true }
+url = { workspace = true }
+open = { workspace = true }
+axum = { workspace = true }
+html-escape = { workspace = true }
+reqwest = { workspace = true }
+semver = { workspace = true }
+async-trait = { workspace = true }
+secrecy = { workspace = true }
+keyring = { workspace = true }
+toml = { workspace = true }
+tungstenite = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
+static_vcruntime = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

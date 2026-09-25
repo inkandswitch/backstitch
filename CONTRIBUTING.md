@@ -75,19 +75,15 @@ When you run `just launch`, the output generated files are copied to `build/`. T
 
 ### Understanding Backstitch's Architecture
 
-Backstitch is a **GDExtension**:
+Backstitch has several separate components:
 
-- **GDExtension Component** (`public/` and `backstitch_godot/`) - Actually runs the application
-  - Contains the Rust plugin DLL/library
-  - Contains public GDScript UI components
-  - Located in your project's `addons/backstitch/` folder
-  - `backstitc_godot` is the crate containing the godot interop layer
+- **Rust Backend** (`backstitch/`) - The core rust crate powering the sync engine, branching, and file system interactions, without any Godot-specific code.
+- **Godot Frontend** (`public/` and `backstitch_godot/`) - An in-Godot **GDExtension** that displays the UI.
+    - The `public` directory contains Godot scenes and GDScript for UI components
+    - The `backstitch_godot` rust crate initializes the extension, and translates between GDScript and the core `backstitch` crate.
+    - When Backstitch is built, the `plugin.cfg` file is automatically created. It has an empty `script` field, because `backstitch_godot` handles engine initialization. 
+- **CLI Frontend**: Coming soon!
 
-- **Rust Crate** (`backstitch/`) - The core rust crate powering the sync engine, branching & file system interactions, without any godot interop specific code. This will be used to power a CLI in the near future.
-
-The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
-
-**In summary:** When `just` builds Godot with Backstitch and symlinks the files to `addons/backstitch/`, the plugin is **always active** - you don't need to manually enable it in the Plugins menu. The Backstitch tab will appear automatically.
 
 ### Development Workflow
 
@@ -100,10 +96,6 @@ Click the "Reload UI" button in the Backstitch tab to reload the UI.
 **For Rust changes:**
 
 Either run `just build-backstitch (release/debug)` in a terminal, or launch the `Hot reload backstitch` target in VSCode. Godot should reload the Rust binary automatically, but you may have to restart the editor if it explodes.
-
-**For C++ module changes:**
-
-Close the editor, and run `just launch` again (or launch from VSCode).
 
 #### Auto-rebuild Rust changes (optional)
 

@@ -1,6 +1,6 @@
 use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
-    LocalToGodot, LocalToDefaultVariant, ToGodotExt, branch_view_model_to_dict,
+    LocalToDefaultVariant, LocalToGodot, ToGodotExt, branch_view_model_to_dict,
     change_view_model_to_dict, diff_view_model_to_dict,
 };
 use automerge::ChangeHash;

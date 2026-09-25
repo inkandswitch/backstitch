@@ -474,6 +474,9 @@ dependencies = [
  "samod",
  "tokio",
  "tracing",
+ "tracing-appender",
+ "tracing-panic",
+ "tracing-subscriber",
  "uuid",
 ]
 

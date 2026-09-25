@@ -5,7 +5,7 @@ use godot::{
     obj::{Gd, NewAlloc, NewGd},
 };
 
-use backstitch::helpers::tracing::initialize_tracing;
+use crate::tracing::initialize_tracing;
 
 use crate::interop::{
     backstitch_resource_loader::{BackstitchResourceFormatSaver, BackstitchResourceLoader},

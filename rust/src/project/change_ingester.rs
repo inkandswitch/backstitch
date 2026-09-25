@@ -18,7 +18,7 @@ use crate::{
         spawn_utils::spawn_named,
         utils::{CommitInfo, CommitMetadata, summarize_changes},
     },
-    project::{branch_db::BranchDb, peer_watcher::PeerWatcher, project_api::ChangeViewModel},
+    project::{branch_db::BranchDb, peer_watcher::PeerWatcher},
 };
 
 #[derive(Debug)]
@@ -154,8 +154,13 @@ impl ChangeIngesterInner {
         }
 
         // initial commit
-        if change.is_setup() {
-            return Some("Initialized repository".to_string());
+        if let Some(meta) = &change.metadata
+            && meta.is_setup.is_some_and(|is_setup| is_setup)
+        {
+            return Some(meta.changed_files.as_ref().map_or_else(
+                || "Initialized repository".to_string(),
+                |files| format!("Checked-in {:?} files", files.len()),
+            ));
         }
 
         Some(summarize_changes(&author, meta?.changed_files.as_ref()?))

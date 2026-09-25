@@ -20,49 +20,49 @@ autosurgeon = { workspace = true }
 futures = { workspace = true }
 godot = { workspace = true }
 tokio = { workspace = true }
-tree-sitter = "0.26.11"
-tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
+tree-sitter = { workspace = true }
+tree-sitter-godot-resource = { workspace = true }
 safer-ffi = { workspace = true }
-serde_json = "1.0.138"
+serde_json = { workspace = true }
 uuid = { workspace = true }
-similar = { version = "3.1.1", features = ["unicode"] }
-notify = { version = "8.2.0", features = ["macos_fsevent"] }
-notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
-rand = "0.10.2"
-serde = { version = "1.0", features = ["derive"] }
-ignore = "0.4.22"
+similar = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+ignore = { workspace = true }
 tracing = { workspace = true }
-chrono = { version = "0.4", features = ["unstable-locales"] }
+chrono = { workspace = true }
 samod = { workspace = true }
-rayon = "1.11.0"
+rayon = { workspace = true }
 regex = { workspace = true }
-async-stream = "0.3.6"
-tokio-stream = { version = "0.1.18", features = ["sync"] }
-tokio-util = "0.7.18"
-sys-locale = "0.3.2"
-blake3 = { version = "1.8.4", features = ["serde"] }
-wincode = { version = "0.6.0", features = ["derive"] }
-fjall = "3.1.4"
-jwalk = "0.8.1"
-thiserror = "2.0.18"
-indexmap = "2.14"
-openidconnect = { version = "4.0.1", features = ["reqwest"] }
-url = "2.5.8"
-open = "5.4.0"
-axum = "0.8.9"
-html-escape = "0.2.14"
-reqwest = { version = "0.13.4", features = ["json"] }
-semver = { version = "1.0.28", features = ["serde"] }
-async-trait = "0.1.91"
-secrecy = "0.10.3"
-keyring = { version = "4.1.6", features = ["v1"] }
-toml = "1.1.4"
-tungstenite = "0.30.0"
-tokio-tungstenite = "0.30.0"
+async-stream = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+sys-locale = { workspace = true }
+blake3 = { workspace = true }
+wincode = { workspace = true }
+fjall = { workspace = true }
+jwalk = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+openidconnect = { workspace = true }
+url = { workspace = true }
+open = { workspace = true }
+axum = { workspace = true }
+html-escape = { workspace = true }
+reqwest = { workspace = true }
+semver = { workspace = true }
+async-trait = { workspace = true }
+secrecy = { workspace = true }
+keyring = { workspace = true }
+toml = { workspace = true }
+tungstenite = { workspace = true }
+tokio-tungstenite = { workspace = true }
 
 [build-dependencies]
-cbindgen = "^0.27"
-static_vcruntime = "3.0"
+cbindgen = { workspace = true }
+static_vcruntime = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = { workspace = true }

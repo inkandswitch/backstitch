@@ -41,3 +41,40 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing-appender = "0.2.2"
 tracing-panic = "0.1.2"
+tree-sitter = "0.26.11"
+tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
+serde_json = "1.0.138"
+similar = { version = "3.1.1", features = ["unicode"] }
+notify = { version = "8.2.0", features = ["macos_fsevent"] }
+notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
+rand = "0.10.2"
+serde = { version = "1.0", features = ["derive"] }
+ignore = "0.4.22"
+chrono = { version = "0.4", features = ["unstable-locales"] }
+rayon = "1.11.0"
+async-stream = "0.3.6"
+tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-util = "0.7.18"
+sys-locale = "0.3.2"
+blake3 = { version = "1.8.4", features = ["serde"] }
+wincode = { version = "0.6.0", features = ["derive"] }
+fjall = "3.1.4"
+jwalk = "0.8.1"
+thiserror = "2.0.18"
+indexmap = "2.14"
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
+url = "2.5.8"
+open = "5.4.0"
+axum = "0.8.9"
+html-escape = "0.2.14"
+reqwest = { version = "0.13.4", features = ["json"] }
+semver = { version = "1.0.28", features = ["serde"] }
+async-trait = "0.1.91"
+secrecy = "0.10.3"
+keyring = { version = "4.1.6", features = ["v1"] }
+toml = "1.1.4"
+tungstenite = "0.30.0"
+tokio-tungstenite = "0.30.0"
+cbindgen = "^0.27"
+static_vcruntime = "3.0"
+tempfile = "3.0"

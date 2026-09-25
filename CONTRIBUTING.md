@@ -77,10 +77,13 @@ When you run `just launch`, the output generated files are copied to `build/`. T
 
 Backstitch is a **GDExtension**:
 
-- **GDExtension Component** (`public/` and `backstitch/`) - Actually runs the application
+- **GDExtension Component** (`public/` and `backstitch_godot/`) - Actually runs the application
   - Contains the Rust plugin DLL/library
   - Contains public GDScript UI components
   - Located in your project's `addons/backstitch/` folder
+  - `backstitc_godot` is the crate containing the godot interop layer
+
+- **Rust Crate** (`backstitch/`) - The core rust crate powering the sync engine, branching & file system interactions, without any godot interop specific code. This will be used to power a CLI in the near future.
 
 The `plugin.cfg` file exists for compatibility but has an empty `script=""` field because there's no GDScript plugin script to enable/disable.
 

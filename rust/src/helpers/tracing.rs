@@ -53,9 +53,12 @@ pub fn initialize_tracing() {
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
                 .add_directive("backstitch_rust_core=debug".parse().unwrap())
-                .add_directive("tracing_panic=info".parse().unwrap()),
-            // .add_directive("samod=info".parse().unwrap())
-            // .add_directive("samod_core=info".parse().unwrap()),
+                .add_directive("tracing_panic=info".parse().unwrap())
+                .add_directive("subduction_core=trace".parse().unwrap())
+                .add_directive("sedimentree_core=trace".parse().unwrap())
+                .add_directive("subduction_redb_storage=trace".parse().unwrap())
+                .add_directive("subduction_websocket=trace".parse().unwrap())
+                .add_directive("subduction_crypto=trace".parse().unwrap()),
         );
     let file_layer = tracing_subscriber::fmt::layer()
         .with_line_number(true)

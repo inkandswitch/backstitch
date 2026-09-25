@@ -1,8 +1,12 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use automerge::AutomergeError;
 use autosurgeon::{HydrateError, ReconcileError};
-use samod::{DocHandle, DocumentId, Repo};
+use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, RwLock, broadcast, watch},
@@ -11,7 +15,10 @@ use tokio::{
 
 use crate::{
     helpers::{branch::BranchesMetadataDoc, history_ref::HistoryRef},
-    project::branch_db::branch_sync::BranchSyncState,
+    project::{
+        branch_db::branch_sync::BranchSyncState,
+        repo::{Repo, RepoError},
+    },
 };
 
 mod branch;
@@ -42,17 +49,15 @@ pub enum DbError {
     #[error("there was no loaded metadata state")]
     NoMetadataState,
     #[error("there was no branch matching the id {0}")]
-    NoBranch(Box<DocumentId>),
+    NoBranch(Box<SedimentreeId>),
     #[error("the branch state of id {0} is wrong ({1})")]
-    BadBranchState(Box<DocumentId>, String),
+    BadBranchState(Box<SedimentreeId>, String),
     #[error("bad branch document at ref {0} ({1})")]
     BadBranchDocument(Box<HistoryRef>, String),
     #[error("shadow doc isn't initialized")]
     ShadowDocNotInitialized,
     #[error("there was an issue with threading: {0}")]
     Thread(#[from] JoinError),
-    #[error(transparent)]
-    RepoStopped(#[from] samod::Stopped),
     #[error(transparent)]
     Automerge(#[from] AutomergeError),
     #[error(transparent)]
@@ -63,6 +68,8 @@ pub enum DbError {
     InvalidRef(Box<HistoryRef>),
     #[error("there were no provided file filters")]
     NoFilters,
+    #[error(transparent)]
+    Repo(#[from] RepoError),
 }
 
 /// [BranchDb] is the primary data source for project data.
@@ -77,9 +84,9 @@ pub struct BranchDb {
     default_username: Arc<Mutex<Option<String>>>,
     authenticated_username: Arc<Mutex<Option<String>>>,
 
-    binary_states: Arc<Mutex<HashMap<DocumentId, Option<DocHandle>>>>,
-    branch_sync_states: Arc<Mutex<HashMap<DocumentId, Arc<Mutex<BranchSyncState>>>>>,
-    metadata_state: Arc<Mutex<Option<(DocHandle, BranchesMetadataDoc)>>>,
+    binary_states: Arc<Mutex<HashMap<SedimentreeId, bool>>>,
+    branch_sync_states: Arc<Mutex<HashMap<SedimentreeId, Arc<Mutex<BranchSyncState>>>>>,
+    metadata_state: Arc<Mutex<Option<(SedimentreeId, BranchesMetadataDoc)>>>,
 
     // The checked out ref is the ref that the filesystem is currently synced with.
     // Has a separate lock because of its importance; it needs to be locked while we're prepping a commit or checking out stuff

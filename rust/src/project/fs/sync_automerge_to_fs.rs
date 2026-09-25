@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     fs::file_utils::FileContent,
@@ -94,7 +97,7 @@ impl SyncAutomergeToFileSystem {
         Some(joined)
     }
 
-    async fn compare_hashes(&self, path: &PathBuf, content: &FileContent) -> bool {
+    async fn compare_hashes(&self, path: &Path, content: &FileContent) -> bool {
         match self.fs_index.get_hash(path).await {
             Ok(existing_hash) => {
                 let hash = content.to_hash();
@@ -120,7 +123,7 @@ impl SyncAutomergeToFileSystem {
 
     /// Update a file on disk if it exists and hasn't been ignored, and if the hash has changed.
     /// Returns Some(()) if we successfully wrote the file.
-    pub async fn handle_file_update(&self, path: &PathBuf, content: &FileContent) -> Option<()> {
+    pub async fn handle_file_update(&self, path: &Path, content: &FileContent) -> Option<()> {
         // Skip if path matches any ignore pattern
         if self.branch_db.should_ignore(path, false) {
             return None;
@@ -140,7 +143,7 @@ impl SyncAutomergeToFileSystem {
     }
 
     /// Delete a file on disk, if it exists and isn't ignored. Returns Some(()) if we successfully deleted the file.
-    pub async fn handle_file_delete(&self, path: &PathBuf) -> Option<()> {
+    pub async fn handle_file_delete(&self, path: &Path) -> Option<()> {
         // Skip if path matches any ignore pattern
         if self.branch_db.should_ignore(path, false) {
             return None;

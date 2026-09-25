@@ -9,7 +9,7 @@ use crate::project::driver::Driver;
 use crate::project::main_thread_block::MainThreadBlock;
 use crate::project::project_api::RequestDiffError;
 use crate::project::{Project, ProjectStartStatus};
-use samod::DocumentId;
+use sedimentree_core::id::SedimentreeId;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub enum GodotProjectSignal {
 impl Project {
     // kinda awkward, considering the existence of the driver get_project_id... don't confuse them!
     // this one is for before we've started the driver. (consider API change here)
-    pub fn get_project_doc_id(&self) -> Option<DocumentId> {
+    pub fn get_project_doc_id(&self) -> Option<SedimentreeId> {
         let config = self.config.clone();
         self.runtime
             .block_on(async move { config.project_doc_id().await })
@@ -323,11 +323,11 @@ impl Project {
         // Check to see if we need to produce a CheckedOutBranch signal
         let rx = self.checked_out_ref_rx.as_mut().unwrap();
         if rx.has_changed().unwrap_or(false) {
-            let doc_id = rx.borrow().as_ref().map(|r| r.branch()).cloned();
+            let doc_id = rx.borrow().as_ref().map(|r| r.branch());
             // TODO: do we need to block on this? Maybe just spawn this off
             let config = self.config.clone();
             self.runtime.block_on(async move {
-                config.set_checked_out_branch_doc_id(doc_id.as_ref()).await;
+                config.set_checked_out_branch_doc_id(doc_id).await;
             });
             rx.mark_unchanged();
             signals.push(GodotProjectSignal::BranchCheckedOut);

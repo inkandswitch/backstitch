@@ -12,7 +12,9 @@
         "editor.formatOnSaveMode": "file",
         "editor.formatOnSave": true,
     },
-    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.allTargets": true,
+    "rust-analyzer.cargo.allTargets": true,
+    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
     "black-formatter.args": [
         "-l 120"
     ],

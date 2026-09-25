@@ -9,6 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use automerge::{Automerge, PatchLog, transaction::Transaction};
+use autosurgeon::{Hydrate, Reconcile};
 use futures::{StreamExt, stream::BoxStream};
 use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
@@ -100,12 +101,15 @@ use crate::project::repo::heads::Heads;
 /// ```
 ///
 ///
-/// 
+///
+///
 
+#[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Hydrate, Reconcile)]
 pub struct DocumentRef {
+    #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_doc_id")]
     id: SedimentreeId,
     heads: Heads,
 }
@@ -145,13 +149,20 @@ pub trait PersistenceTarget: Send + Sync {
     fn new_heads(&self) -> BoxStream<'_, DocumentRef>;
 }
 
-/// A function to get the dependencies, given a transaction.
+/// Provides a method to get the dependencies, given a transaction.
 /// Users should implement this based on their own schema, which may vary.
 /// There are two options for a contract: Users can either provide all dependencies at the transaction heads,
 /// or they can provide all dpeendencies at the transaction heads AND all previous heads.
 /// The former upholds the clockument contract for any monotonically-advancing dependencies, but not for reverts.
 /// The latter supports arbitrary reversion of dependencies.
-pub type DependenciesFn = Arc<dyn Fn(&Transaction) -> HashSet<DocumentRef> + Send + Sync>;
+#[async_trait]
+pub trait DependencyResolver: Send + Sync {
+    async fn get_dependencies(
+        &self,
+        tx: &Transaction,
+        target: Arc<dyn PersistenceTarget>,
+    ) -> HashSet<DocumentRef>;
+}
 
 #[derive(Clone)]
 struct Insertion {
@@ -259,7 +270,10 @@ impl PersistenceWorker {
         let mut doc = self.target.get(self.clockument.id()).await.unwrap();
         // Get the dependencies. If any aren't valid, this persistence is negligent.
         // TODO: handle the negligent case or something
-        let deps = self.clockument.get_dependencies(&mut doc);
+        let deps = self
+            .clockument
+            .get_dependencies(&mut doc, self.target.clone())
+            .await;
         // Notify everyone of the dependencies
         for dep in deps {
             let _ = self.put_tx.send(PutResult {
@@ -338,7 +352,10 @@ impl PersistenceWorker {
 
     async fn try_insert_root(&self, mut insertion: Insertion) {
         // If we're the root, we must check dependencies first.
-        let deps: HashSet<DocumentRef> = self.clockument.get_dependencies(&mut insertion.doc);
+        let deps: HashSet<DocumentRef> = self
+            .clockument
+            .get_dependencies(&mut insertion.doc, self.target.clone())
+            .await;
         let remaining_deps = self.retain_pending_deps(deps, None).await;
         if remaining_deps.is_empty() {
             // TODO: don't panic on failure
@@ -378,13 +395,12 @@ impl PersistenceWorker {
             // a dependency has caused a different behavior in the clockument.
             // This might occur in the case of deeply-nested dependencies, where we can only
             // verify a dependency once a further-nested dependency is seen.
-            // TODO (important): This recheck seems correct, but I think DependenciesFn should have
-            // some reference to the persistence at-hand...
-            // That's weird with its transaction-based flow, though.
             if pending.remaining_deps.is_empty() {
                 pending.remaining_deps = self
                     .retain_pending_deps(
-                        self.clockument.get_dependencies(&mut pending.insertion.doc),
+                        self.clockument
+                            .get_dependencies(&mut pending.insertion.doc, self.target.clone())
+                            .await,
                         None,
                     )
                     .await;
@@ -438,26 +454,27 @@ impl PersistenceWorker {
 #[derive(Clone)]
 pub struct Clockument {
     id: SedimentreeId,
-    dependencies_fn: DependenciesFn,
+    dependencies: Arc<dyn DependencyResolver>,
 }
 
 impl Clockument {
-    pub fn new(id: SedimentreeId, dependencies_fn: DependenciesFn) -> Self {
-        Self {
-            id,
-            dependencies_fn,
-        }
+    pub fn new(id: SedimentreeId, dependencies: Arc<dyn DependencyResolver>) -> Self {
+        Self { id, dependencies }
     }
 
     pub fn id(&self) -> SedimentreeId {
         self.id
     }
 
-    fn get_dependencies(&self, doc: &mut Automerge) -> HashSet<DocumentRef> {
+    async fn get_dependencies(
+        &self,
+        doc: &mut Automerge,
+        target: Arc<dyn PersistenceTarget>,
+    ) -> HashSet<DocumentRef> {
         let tx = doc
             .transaction_at(PatchLog::inactive(), doc.get_heads().as_slice())
             .unwrap();
-        (self.dependencies_fn)(&tx)
+        self.dependencies.get_dependencies(&tx, target).await
     }
 }
 
@@ -524,17 +541,13 @@ impl ClockumentCoordinator {
     /// fully synced up and ready for more events.
     pub async fn add_persistence(
         &self,
-        target: Box<dyn PersistenceTarget>,
+        target: Arc<dyn PersistenceTarget>,
     ) -> Result<PersistenceId, ClockumentError> {
         let mut workers = self.workers.lock().await;
 
         let id = PersistenceId(self.last_persistence_id.fetch_add(1, Ordering::Relaxed));
-        let worker = PersistenceWorker::new(
-            id,
-            self.clockument.clone(),
-            target.into(),
-            self.puts_tx.clone(),
-        );
+        let worker =
+            PersistenceWorker::new(id, self.clockument.clone(), target, self.puts_tx.clone());
 
         workers.insert(id, worker.clone());
 

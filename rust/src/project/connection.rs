@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{convert::Infallible, str::FromStr, sync::Arc, time::Duration};
 
 use axum::http::Uri;
 use futures::{Stream, StreamExt};
@@ -96,7 +96,7 @@ pub enum RemoteConnectionError {
     #[error(transparent)]
     Connect(#[from] ClientConnectError),
     #[error(transparent)]
-    AddConnection(#[from] AddConnectionError<!>),
+    AddConnection(#[from] AddConnectionError<Infallible>),
     #[error(transparent)]
     Repo(#[from] RepoError),
 }

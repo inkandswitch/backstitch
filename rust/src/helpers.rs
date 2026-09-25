@@ -1,4 +1,4 @@
-mod autosurgeon_utils;
+pub mod autosurgeon_utils;
 pub mod branch;
 pub mod doc_utils;
 pub mod history_path;

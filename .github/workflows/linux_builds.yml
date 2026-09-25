@@ -43,7 +43,7 @@ jobs:
       - name: Remove macOS framework
         shell: bash
         run: |
-          rm -rf ./build/backstitch/bin/libbackstitch_rust_godot.macos.framework
+          rm -rf ./build/backstitch/bin/libbackstitch_godot.macos.framework
 
       - name: Upload
         uses: actions/upload-artifact@v4

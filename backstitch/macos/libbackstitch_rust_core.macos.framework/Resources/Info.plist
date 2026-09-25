@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>libbackstitch_rust_godot.dylib</string>
+	<string>libbackstitch_godot.dylib</string>
 	<key>CFBundleName</key>
 	<string>Backstitch Godot Plugin</string>
 	<key>CFBundleDisplayName</key>

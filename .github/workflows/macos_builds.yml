@@ -25,7 +25,7 @@ jobs:
       - name: Mac Sign
         uses: ./.github/actions/macos-sign
         with:
-          FRAMEWORK_PATH: ./build/backstitch/bin/libbackstitch_rust_godot.macos.framework
+          FRAMEWORK_PATH: ./build/backstitch/bin/libbackstitch_godot.macos.framework
           SIGN_FLAGS: "--deep --force"
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}

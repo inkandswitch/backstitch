@@ -758,7 +758,7 @@ impl INode for GodotProject {
         self.was_scanning = EditorFilesystemAccessor::is_scanning();
     }
 
-    #[instrument(target = "backstitch_rust_godot::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
+    #[instrument(target = "backstitch_godot::godot_project::outer_process", level = tracing::Level::TRACE, skip_all)]
     fn process(&mut self, _delta: f64) {
         if self.deferred_start > 0 {
             self.deferred_start -= 1;

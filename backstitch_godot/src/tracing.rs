@@ -52,7 +52,7 @@ pub fn initialize_tracing() {
             EnvFilter::new("off")
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
-                .add_directive("backstitch_rust_godot=debug".parse().unwrap())
+                .add_directive("backstitch_godot=debug".parse().unwrap())
                 .add_directive("tracing_panic=info".parse().unwrap()),
             // .add_directive("samod=info".parse().unwrap())
             // .add_directive("samod_core=info".parse().unwrap()),
@@ -63,7 +63,7 @@ pub fn initialize_tracing() {
         .with_writer(non_blocking_file_writer.clone())
         .with_filter(
             EnvFilter::new("info")
-                .add_directive("backstitch_rust_godot=debug".parse().unwrap())
+                .add_directive("backstitch_godot=debug".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
                 .add_directive("samod_core=info".parse().unwrap())
                 .add_directive("tracing_panic=info".parse().unwrap()),
@@ -241,7 +241,7 @@ const LEVEL_NAMES_TO_REPLACEMENT: &[(&str, &str)] = &[
     ("ERROR", "X"),
 ];
 
-const CRATE_NAME: &str = "backstitch_rust_godot";
+const CRATE_NAME: &str = "backstitch_godot";
 
 impl Write for CustomStdoutWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

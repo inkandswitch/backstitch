@@ -64,6 +64,7 @@ pub fn initialize_tracing() {
         .with_filter(
             EnvFilter::new("info")
                 .add_directive("backstitch_godot=debug".parse().unwrap())
+                .add_directive("backstitch=debug".parse().unwrap())
                 .add_directive("samod=info".parse().unwrap())
                 .add_directive("samod_core=info".parse().unwrap())
                 .add_directive("tracing_panic=info".parse().unwrap()),

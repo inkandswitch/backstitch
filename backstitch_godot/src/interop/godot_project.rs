@@ -1,7 +1,6 @@
 use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
-    LocalToDefaultVariant, LocalToGodot, ToGodotExt, branch_view_model_to_dict,
-    change_view_model_to_dict, diff_view_model_to_dict,
+    ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
 };
 use automerge::ChangeHash;
 use backstitch::fs::file_utils::{FileContent, FileSystemEvent};
@@ -254,7 +253,7 @@ impl GodotProject {
 
     #[func]
     fn ping_server(&self, server: String, retry: bool) -> Variant {
-        self.project().ping_server(&server, retry).to_variant()
+        self.project().ping_server(&server, retry)._to_variant()
     }
 
     #[func]
@@ -334,7 +333,7 @@ impl GodotProject {
                     "emit_signal",
                     &[
                         "start_status_changed".to_variant(),
-                        ProjectStartStatus::Failed(e.to_string()).to_variant(),
+                        ProjectStartStatus::Failed(e.to_string())._to_variant(),
                     ],
                 );
                 return;
@@ -802,13 +801,13 @@ impl INode for GodotProject {
                 GodotProjectSignal::StartStatusChanged(status) => {
                     self.base_mut().call_deferred(
                         "emit_signal",
-                        &["start_status_changed".to_variant(), status.to_variant()],
+                        &["start_status_changed".to_variant(), status._to_variant()],
                     );
                 }
                 GodotProjectSignal::AuthStatusChanged(status) => {
                     self.base_mut().call_deferred(
                         "emit_signal",
-                        &["auth_status_changed".to_variant(), status.to_variant()],
+                        &["auth_status_changed".to_variant(), status._to_variant()],
                     );
                 }
                 GodotProjectSignal::ServerStatusChanged => {

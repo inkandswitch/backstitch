@@ -53,6 +53,7 @@ pub fn initialize_tracing() {
                 // .add_directive("tokio=trace".parse().unwrap())
                 // .add_directive("runtime=trace".parse().unwrap())
                 .add_directive("backstitch_godot=debug".parse().unwrap())
+                .add_directive("backstitch=debug".parse().unwrap())
                 .add_directive("tracing_panic=info".parse().unwrap()),
             // .add_directive("samod=info".parse().unwrap())
             // .add_directive("samod_core=info".parse().unwrap()),

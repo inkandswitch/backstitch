@@ -350,7 +350,7 @@ _build-plugin architecture profile tracing_support:
         exit 0
     fi
     identity=$(cat .cargo/.devidentity)
-    framework="build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    framework="build/backstitch/bin/libbackstitch_godot.macos.framework"
     if [ ! -d "$framework" ]; then
         exit 0
     fi
@@ -366,13 +366,13 @@ _build-plugin-all-macos profile tracing_support: (_build-plugin "aarch64-apple-d
     mkdir -p build/backstitch/bin
 
     # Copy the entire macos directory to get the Resources framework directory
-    rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
-    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    rm -rf "build/backstitch/bin/libbackstitch_godot.macos.framework"
+    cp -r "backstitch/macos/libbackstitch_godot.macos.framework" "build/backstitch/bin/libbackstitch_godot.macos.framework"
 
     # Rather than copying the generated .dylibs, we combine them into a single one.
-    lipo -create -output build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib \
-        target/aarch64-apple-darwin/{{profile}}/libbackstitch_rust_core.dylib \
-        target/x86_64-apple-darwin/{{profile}}/libbackstitch_rust_core.dylib
+    lipo -create -output build/backstitch/bin/libbackstitch_godot.macos.framework/libbackstitch_godot.dylib \
+        target/aarch64-apple-darwin/{{profile}}/libbackstitch_godot.dylib \
+        target/x86_64-apple-darwin/{{profile}}/libbackstitch_godot.dylib
 
     just _sign-macos-plugin
 
@@ -383,28 +383,28 @@ _build-plugin-single-arch architecture profile tracing_support: (_build-plugin a
     mkdir -p build/backstitch/bin
 
     # Copy the entire macos directory to get the Resources framework directory
-    rm -rf "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
-    cp -r "rust/macos/libbackstitch_rust_core.macos.framework" "build/backstitch/bin/libbackstitch_rust_core.macos.framework"
+    rm -rf "build/backstitch/bin/libbackstitch_godot.macos.framework"
+    cp -r "backstitch/macos/libbackstitch_godot.macos.framework" "build/backstitch/bin/libbackstitch_godot.macos.framework"
 
-    if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" ] ; then
-        cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.dll" \
-            build/backstitch/bin/backstitch_rust_core.windows.{{architecture}}.dll
+    if [ -f "target/{{architecture}}/{{profile}}/backstitch_godot.dll" ] ; then
+        cp "target/{{architecture}}/{{profile}}/backstitch_godot.dll" \
+            build/backstitch/bin/backstitch_godot.windows.{{architecture}}.dll
     fi
 
-    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.so" ] ; then
-        cp "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.so" \
-            build/backstitch/bin/backstitch_rust_core.linux.{{architecture}}.so
+    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_godot.so" ] ; then
+        cp "target/{{architecture}}/{{profile}}/libbackstitch_godot.so" \
+            build/backstitch/bin/backstitch_godot.linux.{{architecture}}.so
     fi
 
-    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.dylib" ] ; then
-        cp "target/{{architecture}}/{{profile}}/libbackstitch_rust_core.dylib" \
-            build/backstitch/bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib
+    if [ -f "target/{{architecture}}/{{profile}}/libbackstitch_godot.dylib" ] ; then
+        cp "target/{{architecture}}/{{profile}}/libbackstitch_godot.dylib" \
+            build/backstitch/bin/libbackstitch_godot.macos.framework/libbackstitch_godot.dylib
         just _sign-macos-plugin
     fi
 
-    if [ -f "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" ] ; then
-        cp "target/{{architecture}}/{{profile}}/backstitch_rust_core.pdb" \
-            build/backstitch/bin/backstitch_rust_core.pdb
+    if [ -f "target/{{architecture}}/{{profile}}/backstitch_godot.pdb" ] ; then
+        cp "target/{{architecture}}/{{profile}}/backstitch_godot.pdb" \
+            build/backstitch/bin/backstitch_godot.pdb
     fi
 
 # Write plugin.cfg and Backstitch.gdextension
@@ -453,12 +453,12 @@ _configure-backstitch: _make-plugin-dir
     reloadable = true
 
     [libraries]
-    linux.editor.x86_64 =        "bin/backstitch_rust_core.linux.x86_64-unknown-linux-gnu.so"
-    linux.editor.arm64 =         "bin/backstitch_rust_core.linux.aarch64-unknown-linux-gnu.so"
-    linux.editor.arm32 =         "bin/backstitch_rust_core.linux.armv7-unknown-linux-gnueabihf.so"
-    windows.editor.x86_64 =      "bin/backstitch_rust_core.windows.x86_64-pc-windows-msvc.dll"
-    windows.editor.arm64 =       "bin/backstitch_rust_core.windows.aarch64-pc-windows-msvc.dll"
-    macos.editor =               "bin/libbackstitch_rust_core.macos.framework/libbackstitch_rust_core.dylib"
+    linux.editor.x86_64 =        "bin/backstitch_godot.linux.x86_64-unknown-linux-gnu.so"
+    linux.editor.arm64 =         "bin/backstitch_godot.linux.aarch64-unknown-linux-gnu.so"
+    linux.editor.arm32 =         "bin/backstitch_godot.linux.armv7-unknown-linux-gnueabihf.so"
+    windows.editor.x86_64 =      "bin/backstitch_godot.windows.x86_64-pc-windows-msvc.dll"
+    windows.editor.arm64 =       "bin/backstitch_godot.windows.aarch64-pc-windows-msvc.dll"
+    macos.editor =               "bin/libbackstitch_godot.macos.framework/libbackstitch_godot.dylib"
     """)
 
 # Build the plugin and output it to the plugin build dir. For MacOS multi-arch, use architecture=all-apple-darwin to build all architectures.

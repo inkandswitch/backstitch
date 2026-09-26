@@ -1,0 +1,36 @@
+[package]
+name = "backstitch_godot"
+edition = "2024"
+version.workspace = true
+license = "MIT"
+rust-version = "1.91.1"
+
+[lib]
+name = "backstitch_godot"
+crate-type = ["cdylib", "staticlib", "rlib"]
+bench = false
+doc = false
+
+[features]
+default = []
+tokio-console = ["dep:console-subscriber", "tokio/tracing"]
+
+[dependencies]
+backstitch = { path = "../backstitch" }
+godot = { workspace = true }
+uuid = { workspace = true }
+
+automerge = { workspace = true }
+autosurgeon = { workspace = true }
+futures = { workspace = true }
+
+samod = { workspace = true }
+
+safer-ffi = { workspace = true }
+regex = { workspace = true }
+tokio = { workspace = true }
+console-subscriber = { workspace = true, optional = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-panic = { workspace = true }

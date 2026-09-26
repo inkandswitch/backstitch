@@ -1,36 +1,60 @@
-use crate::auth::server_manager::{AuthStatus, ServerStatus};
-use crate::fs::file_utils::FileContent;
-use crate::helpers::history_ref::HistoryRef;
-use crate::helpers::utils::{ChangedFile, DiffId};
-use crate::parser::godot_parser::TypeOrInstance;
-use crate::project::ProjectStartStatus;
-use crate::project::project_api::{BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus};
-use crate::project::project_base::DiffStatus;
 use automerge::ChangeHash;
+use backstitch::auth::server_manager::{AuthStatus, ServerStatus};
+use backstitch::fs::file_utils::FileContent;
+use backstitch::helpers::history_ref::HistoryRef;
+use backstitch::helpers::utils::{ChangedFile, DiffId};
+use backstitch::parser::godot_parser::TypeOrInstance;
+use backstitch::project::ProjectStartStatus;
+use backstitch::project::project_api::{
+    BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus,
+};
+use backstitch::project::project_base::DiffStatus;
 use godot::builtin::Variant;
 use godot::classes::{Control, Font, StyleBox};
 use godot::meta::conv::{ArgPassing, ByValue};
-use godot::meta::shape::GodotShape;
-use godot::meta::{GodotType, ToArg};
+use godot::meta::{GodotType, ToArg, ToGodot};
 use godot::obj::WithBaseField;
-use godot::{meta::GodotConvert, meta::ToGodot, prelude::*};
+use godot::prelude::*;
 use samod::DocumentId;
 use std::fmt::Display;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 
-pub trait GodotConvertExt {
+pub trait GodotConvertExt<Phantom = ()> {
     /// The type through which `Self` is represented in Godot.
     type Via: GodotType;
 }
 
-pub trait ToGodotExt: Sized + GodotConvertExt {
+struct GodotConversionWrapper<'a, T: GodotConvertExt<Phantom>, Phantom>(
+    &'a T,
+    PhantomData<Phantom>,
+);
+
+impl<'a, T: GodotConvertExt<Phantom>, Phantom> GodotConvert
+    for GodotConversionWrapper<'a, T, Phantom>
+{
+    type Via = T::Via;
+
+    fn godot_shape() -> godot::meta::shape::GodotShape {
+        godot::meta::shape::GodotShape::Variant
+    }
+}
+
+impl<'a, T: ToGodotExt<Phantom>, Phantom> ToGodot for GodotConversionWrapper<'a, T, Phantom> {
+    type Pass = T::Pass;
+
+    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+        self.0.to_godot()
+    }
+}
+pub trait ToGodotExt<Phantom = ()>: Sized + GodotConvertExt<Phantom> {
     /// Target type of [`to_godot()`](ToGodot::to_godot), which can differ from [`Via`][GodotConvert::Via] for pass-by-reference types.
     ///
-    /// Note that currently, this only differs from `Via` when `Self` is [`RefArg<'r, T>`][crate::meta::RefArg], which is
+    /// Note that currently, this only differs from `Via` when `Self` is [`RefArg<'r, T>`][backstitch::meta::RefArg], which is
     /// used inside generated code of  engine methods. Other uses of `to_godot()`, such as return types in `#[func]`, still use value types.
     /// This may change in future versions.
     ///
-    /// See also [`AsArg<T>`](crate::meta::AsArg) used as the "front-end" in Godot API parameters.
+    /// See also [`AsArg<T>`](backstitch::meta::AsArg) used as the "front-end" in Godot API parameters.
     type Pass: ArgPassing;
 
     /// Converts this type to the Godot type by reference, usually by cloning.
@@ -43,7 +67,9 @@ pub trait ToGodotExt: Sized + GodotConvertExt {
     /// Converts this type to a [Variant].
     // Exception safety: must not panic apart from exceptional circumstances (Nov 2024: only u64).
     // This has invariant implications, e.g. in Array::resize().
-    fn _to_variant(&self) -> Variant;
+    fn _to_variant(&self) -> Variant {
+        Self::Pass::ref_to_variant(&GodotConversionWrapper(self, PhantomData))
+    }
 
     fn to_variant(&self) -> Variant {
         self._to_variant()
@@ -103,11 +129,11 @@ impl ToVariantExt for Option<ChangeHash> {
     }
 }
 
-impl<D: Display> GodotConvertExt for Vec<D> {
+impl<D: Display> GodotConvertExt<((), ())> for Vec<D> {
     type Via = PackedStringArray;
 }
 
-impl<D: Display> ToGodotExt for Vec<D> {
+impl<D: Display> ToGodotExt<((), ())> for Vec<D> {
     type Pass = ByValue;
     fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         self.iter().map(|s| GString::from(&s.to_string())).collect()
@@ -135,35 +161,29 @@ impl ToGodotExt for PathBuf {
     }
 }
 
-impl GodotConvert for HistoryRef {
+impl GodotConvertExt for HistoryRef {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for HistoryRef {
+impl ToGodotExt for HistoryRef {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
     }
 }
 
-impl GodotConvert for DiffId {
+impl GodotConvertExt for DiffId {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for DiffId {
+impl ToGodotExt for DiffId {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
     }
 }
 
-// I couldn't figure out how to use GodotConvert with impls, so just use methods for these.
+// I couldn't figure out how to use LocalConvert  with impls, so just use methods for these.
 
 pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDictionary {
     let merge_into = branch.get_merge_into();
@@ -182,7 +202,7 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
 
 pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary {
     vdict! {
-        "dict" => &diff.get_diff().to_godot(),
+        "dict" => &diff.get_diff()._to_godot(),
         "title" => &diff.get_title().to_variant(),
     }
 }
@@ -201,17 +221,14 @@ pub(crate) fn change_view_model_to_dict(change: &impl ChangeViewModel) -> VarDic
     }
 }
 
-impl GodotConvert for SyncStatus {
+impl GodotConvertExt for SyncStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for SyncStatus {
+impl ToGodotExt for SyncStatus {
     type Pass = ByValue;
 
-    fn to_godot(&self) -> VarDictionary {
+    fn _to_godot(&self) -> VarDictionary {
         vdict! {
             "state" => match self {
                 SyncStatus::Unknown => "unknown",
@@ -227,20 +244,17 @@ impl ToGodot for SyncStatus {
     }
 }
 
-impl GodotConvert for FileContent {
+impl GodotConvertExt for FileContent {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for FileContent {
+impl ToGodotExt for FileContent {
     type Pass = ByValue;
-    fn to_godot(&self) -> Variant {
-        // < Self as crate::obj::EngineBitfield > ::ord(* self)
-        self.to_variant()
+    fn _to_godot(&self) -> Variant {
+        // < Self as backstitch::obj::EngineBitfield > ::ord(* self)
+        self._to_variant()
     }
-    fn to_variant(&self) -> Variant {
+    fn _to_variant(&self) -> Variant {
         match self {
             FileContent::String(s) => GString::from(s).to_variant(),
             FileContent::Binary(bytes) => PackedByteArray::from(bytes.as_slice()).to_variant(),
@@ -270,43 +284,37 @@ impl ToGodotExt for Vec<ChangedFile> {
     }
 }
 
-impl GodotConvert for TypeOrInstance {
+impl GodotConvertExt for TypeOrInstance {
     type Via = GString;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for TypeOrInstance {
+impl ToGodotExt for TypeOrInstance {
     type Pass = ByValue;
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         GString::from(&self.to_string())
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
 impl ToVariantExt for Option<TypeOrInstance> {
     fn _to_variant(&self) -> Variant {
         match self {
-            Some(type_or_instance) => type_or_instance.to_variant(),
+            Some(type_or_instance) => type_or_instance._to_variant(),
             None => Variant::nil(),
         }
     }
 }
 
-impl GodotConvert for DiffStatus {
+impl GodotConvertExt for DiffStatus {
     type Via = Variant;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for DiffStatus {
+impl ToGodotExt for DiffStatus {
     type Pass = ByValue;
 
-    fn to_godot(&self) -> Variant {
+    fn _to_godot(&self) -> Variant {
         match self {
             DiffStatus::Loading => "loading".to_variant(),
             DiffStatus::Ready(project_diff) => project_diff.to_variant(),
@@ -362,18 +370,14 @@ where
 {
 }
 
-impl GodotConvert for ProjectStartStatus {
+impl GodotConvertExt for ProjectStartStatus {
     type Via = VarDictionary;
-
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for ProjectStartStatus {
+impl ToGodotExt for ProjectStartStatus {
     type Pass = ByValue;
 
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
             ProjectStartStatus::NotStarted => vdict! {
                 "status" => "not_started"
@@ -393,22 +397,19 @@ impl ToGodot for ProjectStartStatus {
             },
         }
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
-impl GodotConvert for AuthStatus {
+impl GodotConvertExt for AuthStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for AuthStatus {
+impl ToGodotExt for AuthStatus {
     type Pass = ByValue;
 
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
             AuthStatus::NeedsUserLogin(url) => vdict! {
                 "status" => "needs_user_login",
@@ -423,22 +424,19 @@ impl ToGodot for AuthStatus {
             },
         }
     }
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }
 
-impl GodotConvert for ServerStatus {
+impl GodotConvertExt for ServerStatus {
     type Via = VarDictionary;
-    fn godot_shape() -> GodotShape {
-        GodotShape::Variant
-    }
 }
 
-impl ToGodot for ServerStatus {
+impl ToGodotExt for ServerStatus {
     type Pass = ByValue;
 
-    fn to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
+    fn _to_godot(&self) -> ToArg<'_, Self::Via, Self::Pass> {
         match self {
             ServerStatus::None => vdict! { "status" => "none" },
             ServerStatus::Handshaking => vdict! { "status" => "handshaking" },
@@ -462,7 +460,7 @@ impl ToGodot for ServerStatus {
         }
     }
 
-    fn to_variant(&self) -> Variant {
-        self.to_godot().to_variant()
+    fn _to_variant(&self) -> Variant {
+        self._to_godot().to_variant()
     }
 }

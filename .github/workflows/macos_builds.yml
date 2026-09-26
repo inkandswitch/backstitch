@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch:  ["x86_64-apple-darwin"]
+        arch: ["x86_64-apple-darwin"]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -26,7 +26,7 @@ jobs:
         if: github.event.pull_request.head.repo.full_name == github.repository
         uses: ./.github/actions/macos-sign
         with:
-          FRAMEWORK_PATH: ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
+          FRAMEWORK_PATH: ./build/backstitch/bin/libbackstitch_godot.macos.framework
           SIGN_FLAGS: "--deep --force"
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}

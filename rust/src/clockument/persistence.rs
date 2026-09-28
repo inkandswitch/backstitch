@@ -8,8 +8,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-use automerge::{Automerge, PatchLog, transaction::Transaction};
-use autosurgeon::{Hydrate, Reconcile};
+use automerge::{Automerge, AutomergeError, PatchLog, transaction::Transaction};
+use autosurgeon::{
+    Hydrate, HydrateError, Reconcile, ReconcileError,
+    bytes::ByteVec,
+    hydrate::Unexpected,
+    reconcile::{LoadKey, MapReconciler},
+};
 use futures::{StreamExt, stream::BoxStream};
 use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
@@ -19,7 +24,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::project::repo::heads::Heads;
+use crate::{clockument::document_ref::DocumentRef, project::repo::heads::Heads};
 
 /// Desired API (pseudocode for now)
 ///
@@ -107,13 +112,6 @@ use crate::project::repo::heads::Heads;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Hydrate, Reconcile)]
-pub struct DocumentRef {
-    #[autosurgeon(with = "crate::helpers::autosurgeon_utils::autosurgeon_doc_id")]
-    id: SedimentreeId,
-    heads: Heads,
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PersistenceId(u64);
 
@@ -149,6 +147,23 @@ pub trait PersistenceTarget: Send + Sync {
     fn new_heads(&self) -> BoxStream<'_, DocumentRef>;
 }
 
+pub enum HealResult {
+    RollBack(Heads),
+    Remove,
+}
+
+// TODO: Implement healing...
+// - Healing is required when ???
+// - Case A: Dependency document doesn't exist
+//      - Auto-heal: Check all other targets for the missing document, and insert into ours.
+//          - If we found the document at the heads, everything is OK; resolve the dependency.
+//          - If we found the document, but not at heads, move to case B.
+//          - On failure, continue...
+//      - User must transact over the clockument to resolve/remove the dependency.
+//        TODO: But what about historical heads?
+// - Case B: Dependency document exists on the peer, but doesn't have matching heads
+//      - TODO: Figure out auto-healing or suggesting old heads(?)
+
 /// Provides a method to get the dependencies, given a transaction.
 /// Users should implement this based on their own schema, which may vary.
 /// There are two options for a contract: Users can either provide all dependencies at the transaction heads,
@@ -162,6 +177,12 @@ pub trait DependencyResolver: Send + Sync {
         tx: &Transaction,
         target: Arc<dyn PersistenceTarget>,
     ) -> HashSet<DocumentRef>;
+
+    async fn heal(
+        &self,
+        dependency: SedimentreeId,
+        target: Arc<dyn PersistenceTarget>,
+    ) -> HealResult;
 }
 
 #[derive(Clone)]
@@ -255,10 +276,10 @@ impl PersistenceWorker {
         // If we don't have a copy of the base clockument, reconciliation is not possible.
         if !self
             .target
-            .has(&DocumentRef {
-                id: self.clockument.id(),
-                heads: Heads::default(), // empty heads for any
-            })
+            .has(&DocumentRef::new(
+                self.clockument.id(),
+                Heads::default(), // empty heads for any
+            ))
             .await
             .unwrap()
         {
@@ -283,10 +304,7 @@ impl PersistenceWorker {
         }
         // Notify everyone of our clockument at the current heads
         let _ = self.put_tx.send(PutResult {
-            doc_ref: DocumentRef {
-                heads: doc.get_heads().into(),
-                id: self.clockument.id(),
-            },
+            doc_ref: DocumentRef::new(self.clockument.id(), doc.get_heads().into()),
             source: self.id,
         });
     }
@@ -316,7 +334,7 @@ impl PersistenceWorker {
         });
 
         // Since we persisted a potential dependency, check to see if it resolves anything.
-        self.try_resolve_pending(heads.id).await;
+        self.try_resolve_pending(heads.id()).await;
     }
 
     /// Driver for handling new insertions coming in from other sources
@@ -337,6 +355,7 @@ impl PersistenceWorker {
         }
     }
 
+    // TODO: See if we can spawn off a task to do this method -- this could be v slow!
     async fn try_insert(&self, insertion: Insertion) {
         // Special-case the root clockument
         if insertion.id == self.clockument.id() {
@@ -435,7 +454,7 @@ impl PersistenceWorker {
 
         for dep in deps {
             if let Some(id) = scope_to_id
-                && dep.id != id
+                && dep.id() != id
             {
                 remaining_deps.insert(dep);
                 continue;
@@ -592,7 +611,7 @@ impl ClockumentCoordinator {
             };
 
             // Notify subscribers if the clockument changed
-            if put.doc_ref.id == clockument.id {
+            if put.doc_ref.id() == clockument.id() {
                 clockument_put_tx.send_replace(());
             }
 
@@ -608,7 +627,7 @@ impl ClockumentCoordinator {
             // on materialization), pass them through to here, and get ad-hoc if needed.
             // But that causes tricky conditions where a clockument is updated on the persistence again,
             // and the merged result is then bad. So maybe we could only pull the doc through here for clockuments?
-            let doc = worker.target.get(put.doc_ref.id).await.unwrap();
+            let doc = worker.target.get(put.doc_ref.id()).await.unwrap();
             let token = worker.token.clone();
 
             for (id, worker) in &*workers {
@@ -618,7 +637,7 @@ impl ClockumentCoordinator {
                 }
                 worker.insert(Insertion {
                     doc: doc.clone(),
-                    id: put.doc_ref.id,
+                    id: put.doc_ref.id(),
                     // This will be used to cancel a PendingInsertion if the source worker drops.
                     // TODO: Investigate issues here -- is there ever a situation where the source worker
                     // drops after broadcasting all dependencies, and the pending cancels anyways?
@@ -723,7 +742,7 @@ impl ClockumentCoordinator {
         // TODO: handle missing docs
         let mut doc = worker
             .target
-            .get(doc_ref.id)
+            .get(doc_ref.id())
             .await
             .map_err(|e| ClockumentError::Persist(e))?;
         let persisted_heads = doc.get_heads();
@@ -731,7 +750,7 @@ impl ClockumentCoordinator {
             let mut tx = doc
                 .transaction_at(
                     PatchLog::inactive(),
-                    doc_ref.heads.clone().into_iter().as_slice(),
+                    doc_ref.heads().clone().into_iter().as_slice(),
                 )
                 .unwrap();
 
@@ -745,7 +764,7 @@ impl ClockumentCoordinator {
 
         // Persist to all sources. If something else persists in the meantime,
         // our changes will be merged in.
-        self.insert(doc_ref.id, doc).await?;
+        self.insert(doc_ref.id(), doc).await?;
 
         Ok(res)
     }
@@ -769,10 +788,7 @@ impl ClockumentCoordinator {
         // If we're already fully persisted at the desired heads, we're OK.
         if worker
             .target
-            .has(&DocumentRef {
-                id: self.clockument.id,
-                heads: heads.clone(),
-            })
+            .has(&DocumentRef::new(self.clockument.id, heads.clone()))
             .await
             .map_err(|e| ClockumentError::Persist(e))?
         {
@@ -791,7 +807,7 @@ impl ClockumentCoordinator {
                         Ok(()) => {
                             if worker
                                 .target
-                                .has(&DocumentRef { id: self.clockument.id, heads: heads.clone() })
+                                .has(&DocumentRef::new(self.clockument.id(), heads.clone()))
                                 .await
                                 .map_err(|e| ClockumentError::Persist(e))?
                             {

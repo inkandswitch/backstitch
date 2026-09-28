@@ -32,7 +32,7 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         prefix-key: backstitch_rust_plugin-${{ inputs.arch }}
-    - name: Build for Windows and Linux
+    - name: Build for Windows, Linux and Android
       shell: sh
       env:
         CI: 1

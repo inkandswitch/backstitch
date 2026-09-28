@@ -58,7 +58,7 @@ tokio-util = "0.7.18"
 sys-locale = "0.3.2"
 blake3 = { version = "1.8.4", features = ["serde"] }
 wincode = { version = "0.6.0", features = ["derive"] }
-fjall = "3.1.4"
+fjall = { git = "https://github.com/nikitalita/fjall", branch = "handle-unsupported-file-lock" } # Needed for Android build
 jwalk = "0.8.1"
 thiserror = "2.0.18"
 indexmap = "2.14"
@@ -67,7 +67,7 @@ url = "2.5.8"
 open = "5.4.0"
 axum = "0.8.9"
 html-escape = "0.2.14"
-reqwest = { version = "0.13.4", features = ["json"] }
+reqwest = { version = "0.13.5", features = ["json", "native-tls"] }
 semver = { version = "1.0.28", features = ["serde"] }
 async-trait = "0.1.91"
 secrecy = "0.10.3"

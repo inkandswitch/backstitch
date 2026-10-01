@@ -85,6 +85,7 @@ keyring = { version = "4.1.6", features = ["v1"] }
 toml = "1.1.4"
 tungstenite = "0.30.0"
 tokio-tungstenite = "0.30.0"
+indextree = "4.9.1"
 
 [build-dependencies]
 cbindgen = "^0.27"

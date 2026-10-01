@@ -8,13 +8,18 @@ use std::{
     time::Duration,
 };
 
-use crate::clockument::persistence::ClockumentCoordinator;
+use crate::clockument::persistence::{
+    ClockumentCoordinator, NegligenceDecision, PersistenceError, PersistenceId,
+};
 use async_trait::async_trait;
-use automerge::{Automerge, ChangeHash, PatchLog, ReadDoc, transaction::Transaction};
+use automerge::{
+    Automerge, ChangeHash, PatchLog, ReadDoc,
+    transaction::{Transactable, Transaction},
+};
 use autosurgeon::{Hydrate, Reconcile};
 use futures::{StreamExt, stream::BoxStream};
 use rand::Rng;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, broadcast, watch};
@@ -30,12 +35,6 @@ fn generate_sedimentree_id() -> SedimentreeId {
     rand::rng().fill_bytes(id.as_mut_slice());
     let id = SedimentreeId::from_bytes(id);
     id
-}
-
-#[derive(Error, Debug)]
-enum TransientTargetError {
-    #[error("the document was not found")]
-    DocumentNotFound,
 }
 
 #[derive(Clone)]
@@ -106,13 +105,11 @@ impl TransientTarget {
         true
     }
 
-    async fn get_fast(&self, id: SedimentreeId) -> Result<Automerge, Box<dyn Error + Send + Sync>> {
+    async fn get_fast(&self, id: SedimentreeId) -> Result<Automerge, PersistenceError> {
         self.op_count.fetch_add(1, Ordering::Relaxed);
         self.stuck_guard(id).await;
         let data = self.data.read().await;
-        let d = data
-            .get(&id)
-            .ok_or(TransientTargetError::DocumentNotFound)?;
+        let d = data.get(&id).ok_or(PersistenceError::NotFound(id))?;
         Ok(d.clone())
     }
 }
@@ -120,11 +117,7 @@ impl TransientTarget {
 // TODO: Design a set of tests intended for testing PersistenceTarget methods for expected properties.
 #[async_trait]
 impl PersistenceTarget for TransientTarget {
-    async fn put(
-        &self,
-        id: SedimentreeId,
-        doc: Automerge,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put(&self, id: SedimentreeId, doc: Automerge) -> Result<(), PersistenceError> {
         self.op_count.fetch_add(1, Ordering::Relaxed);
         tokio::time::sleep(self.ping).await;
         self.stuck_guard(id).await;
@@ -157,7 +150,7 @@ impl PersistenceTarget for TransientTarget {
         Ok(())
     }
 
-    async fn has(&self, doc_ref: &DocumentRef) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn has(&self, doc_ref: &DocumentRef) -> Result<bool, PersistenceError> {
         // println!("HAS: {doc_ref:?}");
         self.op_count.fetch_add(1, Ordering::Relaxed);
         // tokio::time::sleep(self.ping).await;
@@ -176,14 +169,12 @@ impl PersistenceTarget for TransientTarget {
         Ok(false)
     }
 
-    async fn get(&self, id: SedimentreeId) -> Result<Automerge, Box<dyn Error + Send + Sync>> {
+    async fn get(&self, id: SedimentreeId) -> Result<Automerge, PersistenceError> {
         self.op_count.fetch_add(1, Ordering::Relaxed);
         tokio::time::sleep(self.ping).await;
         self.stuck_guard(id).await;
         let data = self.data.read().await;
-        let d = data
-            .get(&id)
-            .ok_or(TransientTargetError::DocumentNotFound)?;
+        let d = data.get(&id).ok_or(PersistenceError::NotFound(id))?;
         Ok(d.clone())
     }
 
@@ -222,59 +213,14 @@ struct ClockumentDatabase {
     docs: HashMap<SedimentreeId, Automerge>,
 }
 
-#[async_trait]
 impl DependencyResolver for ClockumentDatabase {
-    #[tracing::instrument(skip_all)]
-    async fn get_dependencies(
-        &self,
-        tx: &Transaction,
-        target: Arc<dyn PersistenceTarget>,
-    ) -> HashSet<DocumentRef> {
-        let mut deps = HashSet::new();
-        let mut stack = Vec::new();
-
+    fn get_dependencies(&self, tx: &Transaction) -> HashSet<DocumentRef> {
         let data: DocumentData = autosurgeon::hydrate(tx).unwrap();
-        stack.extend(data.deps);
+        data.deps.into_iter().collect()
+    }
 
-        let mut elapsed_get = tokio::time::Duration::ZERO;
-        let mut elapsed_transact = tokio::time::Duration::ZERO;
-        let mut elapsed_hydrate = tokio::time::Duration::ZERO;
-
-        while let Some(dep) = stack.pop() {
-            // Avoid processing the same dependency more than once.
-            if !deps.insert(dep.clone()) {
-                continue;
-            }
-
-            // hack the test to get this quick
-            let target: Arc<TransientTarget> = unsafe {
-                let raw = Arc::into_raw(target.clone()) as *const TransientTarget;
-                Arc::from_raw(raw)
-            };
-            let start = tokio::time::Instant::now();
-            let Ok(mut doc) = target.get_fast(dep.id()).await else {
-                continue;
-            };
-            elapsed_get += start.elapsed();
-
-            let start = tokio::time::Instant::now();
-            let patchlog = PatchLog::inactive();
-            let Ok(tx) = doc.transaction_at(patchlog, dep.heads().iter().as_slice()) else {
-                continue;
-            };
-
-            elapsed_transact += start.elapsed();
-
-            let start = tokio::time::Instant::now();
-            let data: DocumentData = autosurgeon::hydrate(&tx).unwrap();
-            elapsed_hydrate += start.elapsed();
-            stack.extend(data.deps);
-        }
-
-        tracing::info!(elapsed_get = ?elapsed_get);
-        tracing::info!(elapsed_transact = ?elapsed_transact);
-        tracing::info!(elapsed_hydrate = ?elapsed_hydrate);
-        deps
+    fn negligence(&self, clockument_id: SedimentreeId) -> NegligenceDecision {
+        NegligenceDecision::Propagate
     }
 }
 
@@ -333,7 +279,7 @@ async fn setup_clockument(config: ClockumentConfig) -> (Clockument, Arc<Clockume
     };
 
     let db = Arc::new(db);
-    (Clockument::new(root, db.clone()), db)
+    (Clockument::new(root, db.clone(), None), db)
 }
 
 type TargetSet = Vec<Arc<TransientTarget>>;
@@ -350,6 +296,34 @@ fn make_target_set(setup: TargetSetup) -> TargetSet {
             TransientTarget::new(Duration::from_millis(20)),
             TransientTarget::new(Duration::from_millis(20)),
         ],
+    }
+}
+
+async fn add_targets(
+    coordinator: &ClockumentCoordinator,
+    targets: &TargetSet,
+) -> Vec<PersistenceId> {
+    let mut out = Vec::new();
+    for target in targets {
+        out.push(
+            coordinator
+                .add_persistence(target.clone())
+                .await
+                .expect("target add failed"),
+        );
+    }
+    out
+}
+
+async fn check_synced(targets: &TargetSet, docs: &ClockumentDatabase) {
+    for (id, doc) in &docs.docs {
+        let doc_ref = DocumentRef::new(*id, doc.get_heads().into());
+        for target in targets {
+            assert!(
+                target.has(&doc_ref).await.expect("has shouldn't fail"),
+                "target should have the document"
+            );
+        }
     }
 }
 
@@ -384,10 +358,15 @@ async fn quiessence_reached(target_set: &TargetSet) -> Result<(), TestError> {
     }
 }
 
-#[test]
-fn test() {
-    let test = 1;
-    assert_eq!(test, 1);
+#[fixture]
+fn tracing() {
+    use tracing_subscriber::fmt::format::FmtSpan;
+
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_max_level(::tracing::Level::INFO)
+        .try_init();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -402,23 +381,15 @@ fn test() {
 #[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
 #[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
 async fn root_clockument_waits_to_persist(
+    _tracing: (),
     #[case] config: ClockumentConfig,
     #[case] target_setup: TargetSetup,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use tracing_subscriber::fmt::format::FmtSpan;
-
-    tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_span_events(FmtSpan::CLOSE)
-        .with_max_level(tracing::Level::INFO)
-        .init();
     let set = make_target_set(target_setup);
     let (clockument, data) = setup_clockument(config).await;
 
     let coordinator = ClockumentCoordinator::new(clockument.clone());
-    for target in &set {
-        coordinator.add_persistence(target.clone()).await?;
-    }
+    let _ = add_targets(&coordinator, &set).await;
 
     // Start by inserting the root document
     let cloc = data.docs.get(&clockument.id).unwrap().clone();
@@ -448,26 +419,280 @@ async fn root_clockument_waits_to_persist(
 
     quiessence_reached(&set).await?;
 
-    // Make sure all targets have all documents
+    check_synced(&set, &data).await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskOnly)]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskOnly)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskOnly)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
+async fn loads_from_existing_persistence(
+    _tracing: (),
+    #[case] config: ClockumentConfig,
+    #[case] target_setup: TargetSetup,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let set = make_target_set(target_setup);
+    let (clockument, data) = setup_clockument(config).await;
+
+    let target = set[0].clone();
+
+    // seed before creating coordinator
+    for (id, doc) in &data.docs {
+        target.put(*id, doc.clone()).await?;
+    }
+
+    let coordinator = ClockumentCoordinator::new(clockument.clone());
+    let ids = add_targets(&coordinator, &set).await;
+
+    // we should be ready at the first persistence already
+    let root = data.docs.get(&clockument.id()).unwrap().clone();
+    coordinator
+        .heads_ready(root.get_heads().into(), ids[0])
+        .await?;
+
+    quiessence_reached(&set).await?;
+
+    check_synced(&set, &data).await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
+async fn newly_added_target_catches_up(
+    _tracing: (),
+    #[case] config: ClockumentConfig,
+    #[case] target_setup: TargetSetup,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (clockument, data) = setup_clockument(config).await;
+
+    let mut set = make_target_set(target_setup);
+    let new_target = set.pop().unwrap();
+
+    let coordinator = ClockumentCoordinator::new(clockument.clone());
+    let _ = add_targets(&coordinator, &set).await;
+
+    // Populate the coordinator through the first persistence.
+    for (id, doc) in &data.docs {
+        coordinator.insert(*id, doc.clone()).await?;
+    }
+
+    quiessence_reached(&set).await?;
+
     for target in &set {
-        assert!(
-            target.has(&cloc_ref).await?,
-            "the root clockument should be persisted"
-        );
         for (id, doc) in &data.docs {
-            let ref_ = DocumentRef::new(id.clone(), doc.get_heads().into());
-            assert!(
-                target.has(&ref_).await?,
-                "all dependencies should be persisted"
-            );
+            let doc_ref = DocumentRef::new(*id, doc.get_heads().into());
+            assert!(target.has(&doc_ref).await?);
         }
+    }
+
+    set.push(new_target.clone());
+    coordinator.add_persistence(new_target.clone()).await?;
+
+    quiessence_reached(&set).await?;
+
+    check_synced(&set, &data).await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskOnly)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskOnly)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
+async fn heads_ready_waits_for_delayed_persistence(
+    _tracing: (),
+    #[case] config: ClockumentConfig,
+    #[case] target_setup: TargetSetup,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (clockument, data) = setup_clockument(config).await;
+    let set = make_target_set(target_setup);
+    let coordinator = Arc::new(ClockumentCoordinator::new(clockument.clone()));
+    let ids = add_targets(&coordinator, &set).await;
+
+    let root = data.docs.get(&clockument.id()).unwrap().clone();
+    let root_heads = root.get_heads();
+
+    let join = {
+        let coordinator = coordinator.clone();
+        let root_heads = root_heads.clone();
+        let id = ids[0];
+        tokio::task::spawn(async move {
+            coordinator
+                .heads_ready(root_heads.into(), id)
+                .await
+                .expect("heads_ready shouldn't have failed");
+        })
+    };
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    quiessence_reached(&set).await?;
+    assert!(!join.is_finished(), "heads_ready shouldn't have worked");
+
+    coordinator.insert(clockument.id(), root).await?;
+
+    quiessence_reached(&set).await?;
+    assert!(!join.is_finished(), "heads_ready shouldn't have worked");
+
+    for (id, doc) in &data.docs {
+        coordinator.insert(*id, doc.clone()).await?;
+    }
+
+    // try a new one
+    coordinator
+        .heads_ready(root_heads.clone().into(), ids[0])
+        .await?;
+
+    // make sure the old one worked
+    join.await.expect("join should've worked");
+
+    check_synced(&set, &data).await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(true)]
+#[case(false)]
+async fn removed_target_causes_heads_ready_to_fail(
+    _tracing: (),
+    #[case] pend_insertion: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (clockument, data) = setup_clockument(ClockumentConfig::RootOnly).await;
+
+    let target = TransientTarget::new(Duration::ZERO);
+    let coordinator = Arc::new(ClockumentCoordinator::new(clockument.clone()));
+    let persistence = coordinator.add_persistence(target.clone()).await?;
+
+    let root = data.docs.get(&clockument.id()).unwrap().clone();
+    let heads = root.get_heads();
+
+    if pend_insertion {
+        // stop insertion from completing
+        target.stick(clockument.id()).await;
+        coordinator.insert(clockument.id(), root).await?;
+    }
+
+    // execute this immediately
+    let waiter_task = {
+        let coordinator = coordinator.clone();
+        let heads = heads.clone();
+        tokio::task::spawn(async move { coordinator.heads_ready(heads.into(), persistence).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    coordinator
+        .remove_persistence(persistence)
+        .await
+        .expect("remove failed");
+
+    let res = waiter_task.await.expect("join error");
+
+    assert!(matches!(
+        res,
+        Err(crate::clockument::persistence::ClockumentError::TargetRemoved)
+    ));
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::RootOnly, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
+async fn negligence_propagates_missing_dependency(
+    _tracing: (),
+    #[case] config: ClockumentConfig,
+    #[case] target_setup: TargetSetup,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (clockument, data) = setup_clockument(config).await;
+    let set = make_target_set(target_setup);
+
+    let source = set[0].clone();
+
+    // create a negligent source by seeding only the root...
+    let root = data.docs.get(&clockument.id()).unwrap().clone();
+    source.put(clockument.id(), root.clone()).await?;
+
+    let coordinator = ClockumentCoordinator::new(clockument.clone());
+    let _ = add_targets(&coordinator, &set).await;
+
+    quiessence_reached(&set).await?;
+
+    let root_ref = DocumentRef::new(clockument.id(), root.get_heads().into());
+
+    // make sure we propagated the root, even with all the negligent dependencies
+    for target in &set {
+        assert!(target.has(&root_ref).await?);
     }
 
     Ok(())
 }
 
-// TODO: Test loading from existing persistence (persistence already has the data when we add it)
-// TODO: Test that newly added targets can be informed of existing state and caught up
+#[tokio::test(flavor = "multi_thread")]
+#[rstest]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::ShallowNested { dependencies: 5 }, TargetSetup::DiskAndTwoPeers)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndServer)]
+#[case(ClockumentConfig::DeeplyNested { levels: 5, branching_factor: 2 }, TargetSetup::DiskAndTwoPeers)]
+async fn negligence_can_recover(
+    _tracing: (),
+    #[case] config: ClockumentConfig,
+    #[case] target_setup: TargetSetup,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (clockument, data) = setup_clockument(config).await;
+    let set = make_target_set(target_setup);
+
+    let source = set[0].clone();
+
+    // create a negligent source by seeding only the root...
+    let root = data.docs.get(&clockument.id()).unwrap().clone();
+    source.put(clockument.id(), root.clone()).await?;
+
+    // make a source that can recover by seeding all BUT the root
+    let source = set[1].clone();
+    for (id, doc) in &data.docs {
+        if *id == clockument.id {
+            continue;
+        }
+        source.put(*id, doc.clone()).await?;
+    }
+
+    let coordinator = ClockumentCoordinator::new(clockument.clone());
+    let _ = add_targets(&coordinator, &set).await;
+
+    quiessence_reached(&set).await?;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    check_synced(&set, &data).await;
+
+    Ok(())
+}
+
 // TODO: Test that transact for roots and transact_at for dependencies propagates correctly
 // TODO: Test that multiple simultaneous transact calls without calling heads_ready
-// TODO: Test that an error resolving function works, with various modes
+// TODO: Test that our NegligenceDecision works (propagates or does not propagate accordingly)
+// and can fully recover if the deps become non-negligent

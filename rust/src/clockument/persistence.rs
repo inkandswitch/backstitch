@@ -1,3 +1,28 @@
+// BIGGEST TODO: This class currently relies on a single known root clockument.
+// It uses this clockument to determine dependencies at every step.
+// In particular, with rebroadcast, it explicitly broadcasts all current dependencies
+// to all other persistence targets.
+//
+// Soon, we want to allow tracking clockuments dynamically. Ideally, we don't have to think
+// about clockuments at all -- a clockument is simply defined by a document *that has DependencyRef dependencies*.
+// So, all documents would have get_dependencies called on them -- if no dependencies are returned, it's synced greedily.
+//
+// However, if we do that, we suddenly have to think about *discovery.* Remote targets usually don't allow you to just
+// ask for all document IDs, so our rebroadcast() solution fails. There MUST be a point where the user specifies one
+// or more IDs to track.
+//
+// Also, it gets expensive -- if we're required to identify clockuments via contents, that means we have to check the
+// content of every single document, with potentially-expensive `get` calls, every time we persist it...
+//
+// One solution is to explicitly track a mutable set of root clockuments. But while that solves the discovery and
+// efficiency problems, it opens up failure modes. For example, what if we add a clockument with hash X, but we've
+// already tracked X as a regular document with no dependencies (let's say, from incoming heads)? The network is polluted!
+//
+// A solution there is to disallow incoming heads from being tracked unless they are explicitly needed as a dependency...
+// But that smells bad.
+//
+// For now, I'm forcing the user to declare a single clockument root.
+
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -8,19 +33,15 @@ use std::{
 };
 
 use async_trait::async_trait;
-use automerge::{Automerge, AutomergeError, PatchLog, transaction::Transaction};
-use autosurgeon::{
-    Hydrate, HydrateError, Reconcile, ReconcileError,
-    bytes::ByteVec,
-    hydrate::Unexpected,
-    reconcile::{LoadKey, MapReconciler},
-};
+use automerge::{Automerge, ChangeHash, PatchLog, transaction::Transaction};
 use futures::{StreamExt, stream::BoxStream};
+use indextree::Arena;
 use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 use tokio::{
     select,
     sync::{Mutex, mpsc, watch},
+    task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -115,6 +136,15 @@ mod tests;
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PersistenceId(u64);
 
+#[derive(Debug, thiserror::Error)]
+pub enum PersistenceError {
+    #[error("document {0} not found")]
+    NotFound(SedimentreeId),
+
+    #[error("operation failed")]
+    Other(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
 // Initial assumptions:
 //  - Users are using Subduction, Tokio, Automerge
 //  - 2PC to a document is not required by the user
@@ -129,18 +159,14 @@ pub trait PersistenceTarget: Send + Sync {
     /// Null-op persistence should do nothing (i.e. if the destination document is identical to
     /// or a superset of the source document).
     /// Additionally, any actual persistent writes should appear atomic (such as to-disk).
-    async fn put(
-        &self,
-        id: SedimentreeId,
-        doc: Automerge,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn put(&self, id: SedimentreeId, doc: Automerge) -> Result<(), PersistenceError>;
 
     /// Check to see if the document is durably available at the provided ref (i.e. can be acquired by
     /// [PersistenceTarget::has])
-    async fn has(&self, doc_ref: &DocumentRef) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn has(&self, doc_ref: &DocumentRef) -> Result<bool, PersistenceError>;
 
     /// Materialize a persisted document.
-    async fn get(&self, id: SedimentreeId) -> Result<Automerge, Box<dyn Error + Send + Sync>>;
+    async fn get(&self, id: SedimentreeId) -> Result<Automerge, PersistenceError>;
 
     /// A stream returning new heads when they are persisted to the source.
     /// This MUST be called by the implementation of [PersistenceTarget::put], when it puts new heads.
@@ -152,37 +178,37 @@ pub enum HealResult {
     Remove,
 }
 
-// TODO: Implement healing...
-// - Healing is required when ???
-// - Case A: Dependency document doesn't exist
-//      - Auto-heal: Check all other targets for the missing document, and insert into ours.
-//          - If we found the document at the heads, everything is OK; resolve the dependency.
-//          - If we found the document, but not at heads, move to case B.
-//          - On failure, continue...
-//      - User must transact over the clockument to resolve/remove the dependency.
-//        TODO: But what about historical heads?
-// - Case B: Dependency document exists on the peer, but doesn't have matching heads
-//      - TODO: Figure out auto-healing or suggesting old heads(?)
+/// Describes how a negligent [PersistenceTarget] should be handled.
+/// A negligent [PersistenceTarget] is a target that has persisted some clockument with heads `A`,
+/// but one or more of `dependencies(A)` are not persisted.
+/// Negligence will never occur under normal conditions, but disk errors, permission changes, or
+/// similar may cause negligence.
+pub enum NegligenceDecision {
+    /// The target should propagate the document, despite the negligent behavior.
+    /// This will likely cause an explosion of negligence across every persistence target.
+    /// The dependency will be cached as negligent, and other targets will remove the dependency
+    /// when checking if it is safe to propagate
+    Propagate,
+    /// The target should halt propagation of the clockument. This means that the negligence
+    /// will never propagate to other targets, but it also means that we can never receive changes from
+    /// the negligent target for as long as it is negligent.
+    DoNotPropagate,
+}
 
-/// Provides a method to get the dependencies, given a transaction.
-/// Users should implement this based on their own schema, which may vary.
-/// There are two options for a contract: Users can either provide all dependencies at the transaction heads,
-/// or they can provide all dpeendencies at the transaction heads AND all previous heads.
-/// The former upholds the clockument contract for any monotonically-advancing dependencies, but not for reverts.
-/// The latter supports arbitrary reversion of dependencies.
+/// Provides utilities to manage dependencies, given a transaction.
 #[async_trait]
 pub trait DependencyResolver: Send + Sync {
-    async fn get_dependencies(
-        &self,
-        tx: &Transaction,
-        target: Arc<dyn PersistenceTarget>,
-    ) -> HashSet<DocumentRef>;
+    /// Get an array of shallowly-nested dependencies from the [Transaction].
+    /// Users should implement this based on their own schema, which may vary.
+    /// Sub-documents may include more dependencies, so this method must handle arbitrary sizes.
+    /// There are two options for a contract: Users can either provide all dependencies at the transaction heads,
+    /// or they can provide all dpeendencies at the transaction heads AND all previous heads.
+    /// The former upholds the clockument contract for any monotonically-advancing dependencies, but not for reverts.
+    /// The latter supports arbitrary reversion of dependencies.
+    fn get_dependencies(&self, tx: &Transaction) -> HashSet<DocumentRef>;
 
-    async fn heal(
-        &self,
-        dependency: SedimentreeId,
-        target: Arc<dyn PersistenceTarget>,
-    ) -> HealResult;
+    /// The [NegligenceDecision] to enact if a negligent dependency is detected for the clockument.
+    fn negligence(&self, clockument_id: SedimentreeId) -> NegligenceDecision;
 }
 
 #[derive(Clone)]
@@ -193,20 +219,27 @@ struct Insertion {
     // Only used for pending from other sources, not transient.
     // Only used for root clockuments.
     token: CancellationToken,
+    // A set of the original dependencies from the target's put.
+    // Allows us to keep track of poisoned dependencies, so we don't end up
+    // relying on dependencies that might never arrive.
+    original_dependencies: DependencyTree,
+}
+
+struct PendingInsertion {
+    insertion: Insertion,
+    dependencies: DependencyTree,
 }
 
 struct PutResult {
     doc_ref: DocumentRef,
     source: PersistenceId,
-    // todo: track failure here?
-}
-
-struct PendingInsertion {
-    insertion: Insertion,
-    remaining_deps: HashSet<DocumentRef>,
+    dependencies: DependencyTree,
 }
 
 type WorkerPool = Arc<Mutex<HashMap<PersistenceId, Arc<PersistenceWorker>>>>;
+
+// TODO: eventually we'll need rebroadcast data probably (like which clockument to broadcast deps of)
+struct Rebroadcast;
 
 #[derive(Clone)]
 struct PersistenceWorker {
@@ -222,10 +255,26 @@ struct PersistenceWorker {
     /// Channel for when new data is available, i.e. when we put stuff
     put_tx: mpsc::UnboundedSender<PutResult>,
 
-    /// Sent when we get a rebroadcast request
-    rebroadcast_tx: watch::Sender<()>,
+    /// Channel for rebroadcast requests
+    rebroadcast_tx: mpsc::UnboundedSender<Rebroadcast>,
 
     pending_insertions: Arc<Mutex<Vec<PendingInsertion>>>,
+}
+
+#[derive(Clone)]
+struct DependencyTreeItem {
+    // If a dependency tree item is poisoned, it means we no longer wait for the dependency or any of its children.
+    poisoned: bool,
+    resolved: bool,
+    document_ref: DocumentRef,
+}
+
+type DependencyTree = Arena<DependencyTreeItem>;
+
+enum DependencyResolution {
+    Resolved { dependencies: HashSet<DocumentRef> },
+    NotFound,
+    Failed,
 }
 
 impl PersistenceWorker {
@@ -236,11 +285,11 @@ impl PersistenceWorker {
         put_tx: mpsc::UnboundedSender<PutResult>,
     ) -> Arc<Self> {
         let (insert_tx, insert_rx) = mpsc::unbounded_channel();
-        let (rebroadcast_tx, _) = watch::channel(());
+        let (rebroadcast_tx, rebroadcast_rx) = mpsc::unbounded_channel();
 
         let this = Self {
-            id,
             clockument,
+            id,
             token: CancellationToken::new(),
             target,
             insert_tx,
@@ -252,13 +301,19 @@ impl PersistenceWorker {
         {
             let this = this.clone();
             tokio::task::spawn(async move {
-                this.notifier_driver().await;
+                select! {
+                    _ = this.token.cancelled() => {}
+                    _ = this.notifier_driver(rebroadcast_rx) => {}
+                };
             });
         }
         {
             let this = this.clone();
             tokio::task::spawn(async move {
-                this.inserter_driver(insert_rx).await;
+                select! {
+                    _ = this.token.cancelled() => {}
+                    _ = this.inserter_driver(insert_rx) => {}
+                };
             });
         }
         Arc::new(this)
@@ -268,128 +323,402 @@ impl PersistenceWorker {
         let _ = self.insert_tx.send(data);
     }
 
-    pub fn rebroadcast(&self) {
-        let _ = self.rebroadcast_tx.send_replace(());
+    pub fn rebroadcast(&self, data: Rebroadcast) {
+        let _ = self.rebroadcast_tx.send(data);
     }
 
-    async fn notify_rebroadcast(&self) {
-        // If we don't have a copy of the base clockument, reconciliation is not possible.
-        if !self
-            .target
-            .has(&DocumentRef::new(
-                self.clockument.id(),
-                Heads::default(), // empty heads for any
-            ))
-            .await
-            .unwrap()
-        {
-            return;
+    async fn notify_rebroadcast(&self) -> Result<(), ClockumentError> {
+        // Grab our version of the clockument. If it doesn't exist, we can't rebroadcast it to anyone.
+        let heads: Heads = match self.target.get(self.clockument.id).await {
+            Ok(doc) => doc.get_heads().into(),
+            Err(e) => match e {
+                // this is ok!
+                PersistenceError::NotFound(_) => return Ok(()),
+                PersistenceError::Other(error) => return Err(ClockumentError::Persist(error)),
+            },
+        };
+
+        // Explicitly poison any not-found elements -- if we've already got a clockument, we'd better have the
+        // dependencies!
+        let tree = self.initialize_dependencies(heads.clone(), None);
+        let tree = self.resolve_dependencies(tree, true).await;
+
+        if tree.iter().any(|d| d.get().poisoned) {
+            // TODO: We may want to pause here, and figure out a way to receive other info
+            // from other targets. They may have the DocumentRef that is unresolved.
+            // Currently, the negligence propagates always. If the target DOES have the dependency,
+            // it's removed from the negligence array for future propagations, so eventually targets *should*
+            // get informed...
+            match self.clockument.dependencies.negligence(self.clockument.id) {
+                NegligenceDecision::Propagate => {}
+                NegligenceDecision::DoNotPropagate => return Ok(()),
+            }
         }
 
-        // Grab our version of the clockument
-        // TODO: don't panic
-        let mut doc = self.target.get(self.clockument.id()).await.unwrap();
-        // Get the dependencies. If any aren't valid, this persistence is negligent.
-        // TODO: handle the negligent case or something
-        let deps = self
-            .clockument
-            .get_dependencies(&mut doc, self.target.clone())
-            .await;
-        // Notify everyone of the dependencies
-        for dep in deps {
+        // Notify everyone of the dependencies that we do have
+        for node in &tree {
+            let data = node.get();
+            if !data.resolved {
+                continue;
+            }
             let _ = self.put_tx.send(PutResult {
-                doc_ref: dep,
+                doc_ref: data.document_ref.clone(),
                 source: self.id,
+                dependencies: Default::default(),
             });
         }
+
         // Notify everyone of our clockument at the current heads
         let _ = self.put_tx.send(PutResult {
-            doc_ref: DocumentRef::new(self.clockument.id(), doc.get_heads().into()),
+            doc_ref: DocumentRef::new(self.clockument.id, heads),
             source: self.id,
+            dependencies: tree,
         });
+        Ok(())
     }
 
     /// Driver for notifying the parent about puts
-    async fn notifier_driver(&self) {
+    async fn notifier_driver(&self, mut rebroadcast_rx: mpsc::UnboundedReceiver<Rebroadcast>) {
         let mut heads_stream = self.target.new_heads();
-        let mut rebroadcast_rx = self.rebroadcast_tx.subscribe();
         loop {
             select! {
-                _ = self.token.cancelled() => { break; }
                 res = heads_stream.next() => match res {
-                    Some(heads) => self.notify_put(heads).await,
+                    Some(heads) => self.notify_put(&heads).await,
                     None => break,
                 },
-                _ = rebroadcast_rx.changed() => {
-                    self.notify_rebroadcast().await;
+                res = rebroadcast_rx.recv() => {
+                    let _ = match res {
+                        Some(_) => (),
+                        None => break,
+                    };
+
+                    match self.notify_rebroadcast().await {
+                        Ok(()) => {},
+                        Err(e) => tracing::error!("Error requesting rebroadcast: {e:?}"),
+                    }
                 }
             }
         }
     }
 
-    async fn notify_put(&self, heads: DocumentRef) {
+    async fn notify_put(&self, doc_ref: &DocumentRef) {
+        let dependencies = if self.clockument.id == doc_ref.id() {
+            let tree = self.initialize_dependencies(doc_ref.heads().clone(), None);
+
+            // Explicitly poison any not-found elements -- if we've put a clockument, we'd better have the
+            // dependencies!
+            let tree = self.resolve_dependencies(tree, true).await;
+
+            if tree.iter().any(|d| d.get().poisoned) {
+                match self.clockument.dependencies.negligence(self.clockument.id) {
+                    NegligenceDecision::Propagate => {}
+                    NegligenceDecision::DoNotPropagate => return,
+                }
+            }
+            tree
+        } else {
+            DependencyTree::new()
+        };
+
         let _ = self.put_tx.send(PutResult {
-            doc_ref: heads.clone(),
+            doc_ref: doc_ref.clone(),
             source: self.id,
+            dependencies,
         });
 
-        // Since we persisted a potential dependency, check to see if it resolves anything.
-        self.try_resolve_pending(heads.id()).await;
+        // Since we persisted a potential dependency, check to see if it resolves anything else.
+        self.try_resolve_pending(doc_ref.id()).await;
+    }
+
+    /// Returns an unresolved [DependencyTree] with a single dependency, the root Clockument.
+    fn initialize_dependencies(
+        &self,
+        heads: Heads,
+        known_root: Option<&mut Automerge>,
+    ) -> DependencyTree {
+        let mut tree = DependencyTree::new();
+        let root = tree.new_node(DependencyTreeItem {
+            poisoned: false,
+            resolved: known_root.is_some(),
+            document_ref: DocumentRef::new(self.clockument.id, heads.clone()),
+        });
+        if let Some(known_root) = known_root {
+            let deps = self.clockument.get_dependencies(known_root, &heads);
+            for dep in deps {
+                root.append_value(
+                    DependencyTreeItem {
+                        poisoned: false,
+                        resolved: false,
+                        document_ref: dep,
+                    },
+                    &mut tree,
+                );
+            }
+        }
+        tree
+    }
+
+    // TODO: Currently, every check of this checks the entire fringe. Add a scope_to_id parameter
+    // that allows us to ONLY check the incoming document (and whatever children it might produce when resolved).
+    /// Resolve the [DependencyTree], inserting new dependencies as they're discovered.
+    /// The root item is expected to be a dependency for the clockument itself.
+    /// If should_poison is true, marks any not-found dependencies (and their children) as "poisoned".
+    /// "Poisoned" just means that the dependency wasn't resolved at the target it's coming from -- meaning the target was negligent.
+    /// While this won't prevent future lookups, it ensures that chlid dependencies remain fallible, if their parents are fallible.
+    /// In fact, the ability to poison a tree is the entire reason we're using a tree structure at all!
+    async fn resolve_dependencies(
+        &self,
+        mut tree: Arena<DependencyTreeItem>,
+        should_poison: bool,
+    ) -> Arena<DependencyTreeItem> {
+        let mut pending = JoinSet::new();
+
+        let mut frontier: Vec<_> = tree.roots().collect();
+        while let Some(item) = frontier.pop() {
+            let data = tree.get_data(item).expect("node exists");
+
+            // If the data has already been resolved by a previous invocation, we move immediately onto its children.
+            if data.resolved {
+                frontier.extend(item.children(&tree));
+                continue;
+            }
+
+            // Only spawn tasks for unresolved items
+            let depth = item.depth(&tree);
+            let clockument = self.clockument.clone();
+            let target = self.target.clone();
+            let doc_ref = data.document_ref.clone();
+            pending.spawn(async move {
+                (
+                    item,
+                    Self::resolve_dependency(clockument.clone(), target.clone(), depth, doc_ref)
+                        .await,
+                )
+            });
+        }
+
+        while let Some(res) = pending.join_next().await {
+            let (item, resolution) = res.expect("dependency resolution task panicked");
+            let depth = item.depth(&tree);
+            match resolution {
+                DependencyResolution::Resolved { dependencies } => {
+                    let data = tree.get_data_mut(item).expect("node exists");
+                    data.resolved = true;
+                    let poisoned = data.poisoned;
+                    for dep in dependencies {
+                        let child = item.append_value(
+                            DependencyTreeItem {
+                                document_ref: dep.clone(),
+                                poisoned,
+                                resolved: false,
+                            },
+                            &mut tree,
+                        );
+                        let clockument = self.clockument.clone();
+                        let target = self.target.clone();
+                        pending.spawn(async move {
+                            (
+                                child,
+                                Self::resolve_dependency(clockument, target, depth + 1, dep).await,
+                            )
+                        });
+                    }
+                }
+                DependencyResolution::NotFound => {
+                    let data = tree.get_data_mut(item).expect("node exists");
+                    data.poisoned = data.poisoned || should_poison;
+                }
+                DependencyResolution::Failed => {
+                    let data = tree.get_data_mut(item).expect("node exists");
+                    data.poisoned = true;
+                }
+            }
+        }
+        tree
+    }
+
+    async fn resolve_dependency(
+        clockument: Clockument,
+        target: Arc<dyn PersistenceTarget>,
+        depth: usize,
+        document_ref: DocumentRef,
+    ) -> DependencyResolution {
+        // If we're beyond a certain level, replace the expensive get check with a cheap has check.
+        if clockument
+            .dependency_search_depth
+            .is_some_and(|d| d < depth)
+        {
+            let resolved = target
+                .has(&document_ref)
+                .await
+                .inspect_err(|e| tracing::error!("Unknown error during has: {e}"))
+                .unwrap_or(false);
+            if resolved {
+                return DependencyResolution::Resolved {
+                    dependencies: Default::default(),
+                };
+            } else {
+                return DependencyResolution::NotFound;
+            }
+        }
+
+        // We assume this is cheap on a 404. Then, once we've resolved, we never need to run it again.
+        let mut doc = match target.get(document_ref.id()).await {
+            Ok(doc) => doc,
+            Err(e) => match e {
+                PersistenceError::NotFound(_) => {
+                    return DependencyResolution::NotFound;
+                }
+                PersistenceError::Other(error) => {
+                    tracing::error!("Unknown error during dependency tree fetch: {error}");
+                    // Assume that we'll never get this doc, so give up.
+                    return DependencyResolution::Failed;
+                }
+            },
+        };
+
+        return DependencyResolution::Resolved {
+            dependencies: clockument.get_dependencies(&mut doc, document_ref.heads()),
+        };
+    }
+
+    fn propagate_poison(
+        mut dependencies: DependencyTree,
+        source_dependencies: &DependencyTree,
+    ) -> DependencyTree {
+        // Notes the heads that have been poisoned.
+        // Warning: this method doesn't check derivative heads...
+        // If a parent head has been poisoned, the child MIGHT be poisoned (unless we've explicitly repaired it)!
+        // So, callers just assume that poisoned data has been merged alongside non-poisoned data.
+        let mut poisoned: HashMap<SedimentreeId, HashSet<ChangeHash>> = HashMap::new();
+
+        for dep in source_dependencies {
+            let data = dep.get();
+            if data.poisoned {
+                let entry = poisoned
+                    .entry(data.document_ref.id())
+                    .or_insert(HashSet::new());
+                entry.extend(data.document_ref.heads().iter());
+            }
+        }
+
+        for node in &mut dependencies {
+            let data = node.get_mut();
+            let Some(poisoned_heads) = poisoned.get(&data.document_ref.id()) else {
+                continue;
+            };
+            // The heads are only poisoned if all the poisoned heads are included.
+            data.poisoned = poisoned_heads
+                .iter()
+                .all(|h| data.document_ref.heads().iter().any(|head| head == h));
+        }
+
+        // Now that we've seeded the poison from the original set, make sure all children have that poison.
+        let mut processing = Vec::new();
+        for root in dependencies.roots() {
+            processing.push(root);
+        }
+        while let Some(item) = processing.pop() {
+            let parent = item.parent(&dependencies);
+            let poisoned = parent
+                .map(|node| dependencies.get_data(node).expect("parent exists").poisoned)
+                .unwrap_or(false);
+            let data = dependencies.get_data_mut(item).expect("id exists");
+            data.poisoned = data.poisoned || poisoned;
+
+            for child in item.children(&dependencies) {
+                processing.push(child);
+            }
+        }
+
+        dependencies
     }
 
     /// Driver for handling new insertions coming in from other sources
     async fn inserter_driver(&self, mut insert_rx: mpsc::UnboundedReceiver<Insertion>) {
         loop {
-            let insertion = select! {
-                _ = self.token.cancelled() => { break; }
-                res = insert_rx.recv() => match res {
-                    Some(r) => r,
-                    None => break,
-                }
+            let insertion = match insert_rx.recv().await {
+                Some(r) => r,
+                None => break,
             };
             // we may want to semaphore this?
             let this = self.clone();
+            let tok = self.token.clone();
             tokio::task::spawn(async move {
-                this.try_insert(insertion).await;
+                select! {
+                    _ = tok.cancelled() => {}
+                    _ = this.try_insert(insertion) => {}
+                }
             });
         }
     }
 
     // TODO: See if we can spawn off a task to do this method -- this could be v slow!
-    async fn try_insert(&self, insertion: Insertion) {
-        // Special-case the root clockument
-        if insertion.id == self.clockument.id() {
-            self.try_insert_root(insertion).await;
-            return;
-        }
+    async fn try_insert(&self, mut insertion: Insertion) {
+        if insertion.id == self.clockument.id {
+            let tree = self.initialize_dependencies(
+                insertion.doc.get_heads().into(),
+                Some(&mut insertion.doc),
+            );
 
-        // For anything that's not the root, greedily persist it.
-        // If it's a dependency, we'll resolve pendings during the later put event.
-        // TODO: don't panic on failure
-        self.target.put(insertion.id, insertion.doc).await.unwrap();
+            // We MUST lock this here. At any point, we might get a new_heads notification that resolves a dependency.
+            // As such, we need to lock our pending insertions array at the same time we're checking for the dependency.
+            // That way, we never miss a try_resolve_pending.
+            let mut pendings = self.pending_insertions.lock().await;
+
+            // Don't poison 404s here -- we're just still waiting on missing deps.
+            // This still could get poisoned if our target fails.
+            let tree = self.resolve_dependencies(tree, false).await;
+
+            // Propagate the poison from the original insertion
+            let tree = Self::propagate_poison(tree, &insertion.original_dependencies);
+
+            if self.try_put_tree(&tree).await {
+                self.do_put(insertion).await;
+                return;
+            }
+
+            // If the dependencies are not resolved, we gotta wait on them first.
+            // Push it to our pending array.
+            // When others are inserted, we'll re-check and try again.
+            pendings.push(PendingInsertion {
+                insertion,
+                dependencies: tree,
+            });
+        } else {
+            self.do_put(insertion).await;
+        }
     }
 
-    async fn try_insert_root(&self, mut insertion: Insertion) {
-        // If we're the root, we must check dependencies first.
-        let deps: HashSet<DocumentRef> = self
-            .clockument
-            .get_dependencies(&mut insertion.doc, self.target.clone())
-            .await;
-        let remaining_deps = self.retain_pending_deps(deps, None).await;
-        if remaining_deps.is_empty() {
-            // TODO: don't panic on failure
-            self.target.put(insertion.id, insertion.doc).await.unwrap();
-            return;
+    async fn try_put_tree(&self, tree: &DependencyTree) -> bool {
+        // don't do anything until the whole tree is either poisoned or resolved
+        if !tree
+            .iter()
+            .all(|item| item.get().poisoned || item.get().resolved)
+        {
+            return false;
         }
 
-        // If the dependencies are not resolved, we gotta wait on them first.
-        // Push it to our pending array.
-        // When others are inserted, we'll re-check and try again.
-        let mut pendings = self.pending_insertions.lock().await;
-        pendings.push(PendingInsertion {
-            insertion,
-            remaining_deps,
-        });
+        // If we resolved any poisoned deps, announce them to everyone!
+        for node in tree {
+            let data = node.get();
+            if !data.poisoned || !data.resolved {
+                continue;
+            }
+            let _ = self.put_tx.send(PutResult {
+                doc_ref: data.document_ref.clone(),
+                source: self.id,
+                dependencies: Default::default(),
+            });
+        }
+        true
+    }
+
+    async fn do_put(&self, insertion: Insertion) {
+        match self.target.put(insertion.id, insertion.doc).await {
+            Ok(()) => {}
+            Err(e) => tracing::error!("Error putting: {e}"),
+        }
     }
 
     /// Called when we've inserted a new potential dependency and should check
@@ -403,36 +732,15 @@ impl PersistenceWorker {
         while i < pendings.len() {
             let pending = &mut pendings[i];
 
-            pending.remaining_deps = self
-                .retain_pending_deps(
-                    std::mem::take(&mut pending.remaining_deps),
-                    Some(persisted_id),
-                )
+            // TODO: Scope this by persisted_id
+            pending.dependencies = self
+                .resolve_dependencies(std::mem::take(&mut pending.dependencies), false)
                 .await;
 
-            // Once we've drained remaining_deps, re-check get_dependencies in case persisting
-            // a dependency has caused a different behavior in the clockument.
-            // This might occur in the case of deeply-nested dependencies, where we can only
-            // verify a dependency once a further-nested dependency is seen.
-            if pending.remaining_deps.is_empty() {
-                pending.remaining_deps = self
-                    .retain_pending_deps(
-                        self.clockument
-                            .get_dependencies(&mut pending.insertion.doc, self.target.clone())
-                            .await,
-                        None,
-                    )
-                    .await;
-
-                if pending.remaining_deps.is_empty() {
-                    let pending = pendings.remove(i);
-                    // TODO: don't panic on failure
-                    self.target
-                        .put(pending.insertion.id, pending.insertion.doc)
-                        .await
-                        .unwrap();
-                    continue;
-                }
+            if self.try_put_tree(&pending.dependencies).await {
+                let pending = pendings.remove(i);
+                self.do_put(pending.insertion).await;
+                continue;
             }
 
             // If we still have more deps, and it's been canceled, give up actually.
@@ -444,56 +752,42 @@ impl PersistenceWorker {
             i += 1;
         }
     }
-
-    async fn retain_pending_deps(
-        &self,
-        deps: HashSet<DocumentRef>,
-        scope_to_id: Option<SedimentreeId>,
-    ) -> HashSet<DocumentRef> {
-        let mut remaining_deps = HashSet::new();
-
-        for dep in deps {
-            if let Some(id) = scope_to_id
-                && dep.id() != id
-            {
-                remaining_deps.insert(dep);
-                continue;
-            }
-
-            // TODO: don't panic on error
-            if !self.target.has(&dep).await.unwrap() {
-                remaining_deps.insert(dep);
-            }
-        }
-
-        remaining_deps
-    }
 }
 
 #[derive(Clone)]
 pub struct Clockument {
     id: SedimentreeId,
+    /// Specifies a depth which to stop searching for dependencies.
+    /// 0 means that only the root clockument is checked for dependencies. None has no depth, which means
+    /// ALL documents are checked for dependencies, which may incur a performance penalty.
+    dependency_search_depth: Option<usize>,
     dependencies: Arc<dyn DependencyResolver>,
 }
 
+// TODO: Add "identify clockument" feature to support adding arbitrary clockuments rather than just one
+// TODO: Add a way to handle errors
 impl Clockument {
-    pub fn new(id: SedimentreeId, dependencies: Arc<dyn DependencyResolver>) -> Self {
-        Self { id, dependencies }
+    pub fn new(
+        id: SedimentreeId,
+        dependencies: Arc<dyn DependencyResolver>,
+        dependency_search_depth: Option<usize>,
+    ) -> Self {
+        Self {
+            id,
+            dependencies,
+            dependency_search_depth,
+        }
     }
 
     pub fn id(&self) -> SedimentreeId {
         self.id
     }
 
-    async fn get_dependencies(
-        &self,
-        doc: &mut Automerge,
-        target: Arc<dyn PersistenceTarget>,
-    ) -> HashSet<DocumentRef> {
+    fn get_dependencies(&self, doc: &mut Automerge, heads: &Heads) -> HashSet<DocumentRef> {
         let tx = doc
-            .transaction_at(PatchLog::inactive(), doc.get_heads().as_slice())
+            .transaction_at(PatchLog::inactive(), heads.iter().as_slice())
             .unwrap();
-        self.dependencies.get_dependencies(&tx, target).await
+        self.dependencies.get_dependencies(&tx)
     }
 }
 
@@ -540,7 +834,10 @@ impl ClockumentCoordinator {
             let clockument_put_tx = clockument_put_tx.clone();
             {
                 tokio::task::spawn(async move {
-                    Self::driver_loop(puts_rx, token, clockument, clockument_put_tx, workers).await;
+                    select! {
+                        _ = token.cancelled() => {}
+                        _ = Self::driver_loop(puts_rx, clockument, clockument_put_tx, workers) => {}
+                    }
                 });
             }
         }
@@ -574,7 +871,7 @@ impl ClockumentCoordinator {
             // Ask every worker to re-announce its persisted data to everyone else.
             // This is intended to catch the new worker up to everyone, and also inform everyone
             // of the new worker's data.
-            worker.rebroadcast();
+            worker.rebroadcast(Rebroadcast);
         }
 
         Ok(id)
@@ -595,18 +892,17 @@ impl ClockumentCoordinator {
 
     async fn driver_loop(
         mut puts_rx: mpsc::UnboundedReceiver<PutResult>,
-        token: CancellationToken,
         clockument: Clockument,
         clockument_put_tx: watch::Sender<()>,
         workers: WorkerPool,
     ) {
+        // TODO: I think we can spawn off subtasks for the put ops... maybe
         loop {
             // Whenever we see new heads incoming from somewhere, broadcast it to every driver.
-            let put = select! {
-                _ = token.cancelled() => { break; }
-                put = puts_rx.recv() => match put {
-                    Some(put) => put,
-                    None => { break; }
+            let put = match puts_rx.recv().await {
+                Some(put) => put,
+                None => {
+                    break;
                 }
             };
 
@@ -616,6 +912,7 @@ impl ClockumentCoordinator {
             }
 
             let workers = workers.lock().await;
+
             let Some(worker) = workers.get(&put.source) else {
                 // Worker was removed, therefore we don't bother
                 continue;
@@ -627,8 +924,18 @@ impl ClockumentCoordinator {
             // on materialization), pass them through to here, and get ad-hoc if needed.
             // But that causes tricky conditions where a clockument is updated on the persistence again,
             // and the merged result is then bad. So maybe we could only pull the doc through here for clockuments?
-            let doc = worker.target.get(put.doc_ref.id()).await.unwrap();
-            let token = worker.token.clone();
+            let doc = select! {
+                _ = worker.token.cancelled() => { continue; }
+                res = worker.target.get(put.doc_ref.id()) => res,
+            };
+
+            let doc = match doc {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::error!("error getting putted doc: {e}");
+                    continue;
+                }
+            };
 
             for (id, worker) in &*workers {
                 // Don't do extra work
@@ -646,7 +953,8 @@ impl ClockumentCoordinator {
                     // would persist heads successfully... unless the heads didn't actually change on C!
                     // But if that's the case, presumably B would already know about the heads from C anyways.
                     // So I think we're good? Double check this.
-                    token: token.clone(),
+                    token: worker.token.clone(),
+                    original_dependencies: put.dependencies.clone(),
                 });
             }
         }
@@ -667,6 +975,9 @@ impl ClockumentCoordinator {
                 token: CancellationToken::new(), // can never be cancelled!
                 id,
                 doc: doc.clone(),
+                // We're expecting users to ALWAYS insert/transact dependencies into the coordinator.
+                // So, we don't need any poisonable dependencies.
+                original_dependencies: Default::default(),
             })
         }
         Ok(())
@@ -692,12 +1003,17 @@ impl ClockumentCoordinator {
 
         drop(workers);
 
-        // TODO: handle missing docs
         let mut doc = worker
             .target
             .get(self.clockument.id)
             .await
-            .map_err(|e| ClockumentError::Persist(e))?;
+            .map_err(|e| match e {
+                PersistenceError::NotFound(sedimentree_id) => {
+                    ClockumentError::NoSuchDocument(sedimentree_id)
+                }
+                PersistenceError::Other(error) => ClockumentError::Persist(error),
+            })?;
+
         let persisted_heads = doc.get_heads();
         let res = {
             let mut tx = doc
@@ -739,12 +1055,19 @@ impl ClockumentCoordinator {
 
         drop(workers);
 
-        // TODO: handle missing docs
-        let mut doc = worker
-            .target
-            .get(doc_ref.id())
-            .await
-            .map_err(|e| ClockumentError::Persist(e))?;
+        let mut doc = select! {
+            _ = worker.token.cancelled() => {
+                return Err(ClockumentError::TargetRemoved);
+            }
+            doc = worker.target.get(doc_ref.id()) => {
+                doc
+            }
+        }
+        .map_err(|e| match e {
+            PersistenceError::NotFound(id) => ClockumentError::NoSuchDocument(id),
+            PersistenceError::Other(error) => ClockumentError::Persist(error),
+        })?;
+
         let persisted_heads = doc.get_heads();
         let res = {
             let mut tx = doc
@@ -786,13 +1109,16 @@ impl ClockumentCoordinator {
         drop(workers);
 
         // If we're already fully persisted at the desired heads, we're OK.
-        if worker
-            .target
-            .has(&DocumentRef::new(self.clockument.id, heads.clone()))
-            .await
-            .map_err(|e| ClockumentError::Persist(e))?
-        {
-            return Ok(());
+        let doc_ref = DocumentRef::new(self.clockument.id, heads.clone());
+        select! {
+            _ = worker.token.cancelled() => {
+                return Err(ClockumentError::TargetRemoved);
+            }
+            has = worker.target.has(&doc_ref) => {
+                if has.map_err(|e|ClockumentError::Persist(Box::new(e)))? {
+                    return Ok(());
+                }
+            }
         }
 
         loop {
@@ -809,7 +1135,7 @@ impl ClockumentCoordinator {
                                 .target
                                 .has(&DocumentRef::new(self.clockument.id(), heads.clone()))
                                 .await
-                                .map_err(|e| ClockumentError::Persist(e))?
+                                .map_err(|e| ClockumentError::Persist(Box::new(e)))?
                             {
                                 return Ok(());
                             }

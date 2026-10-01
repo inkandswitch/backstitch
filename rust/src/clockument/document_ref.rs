@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use automerge::AutomergeError;
 use autosurgeon::{
     Hydrate, Reconcile,
@@ -55,6 +57,12 @@ impl DocumentRef {
 
     pub fn heads(&self) -> &Heads {
         &self.heads
+    }
+}
+
+impl Display for DocumentRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{}@{}", self.id.0, self.heads))
     }
 }
 

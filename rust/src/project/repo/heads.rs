@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt::Display;
 
 use automerge::ChangeHash;
 use autosurgeon::reconcile::{LoadKey, SeqReconciler};
@@ -8,6 +9,19 @@ use autosurgeon::{Reconciler, hydrate_key};
 // todo: should this be nonempty?
 #[derive(Debug, Clone, Hash, Default)]
 pub struct Heads(Vec<ChangeHash>);
+
+impl Display for Heads {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "[{}]",
+            self.0
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+}
 
 impl Hydrate for Heads {
     fn hydrate_seq<D: ReadDoc>(

@@ -10,11 +10,11 @@
         "editor.defaultFormatter": "rust-lang.rust-analyzer",
         // rust formatter just plain refuses to work unless this is set to "file"
         "editor.formatOnSaveMode": "file",
-        "editor.formatOnSave": true,
+        "editor.formatOnSave": true
     },
-    "rust-analyzer.check.allTargets": true,
-    "rust-analyzer.cargo.allTargets": true,
-    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.extraArgs": ["--tests"],
+    "rust-analyzer.debug.engine": "ms-vscode.cpptools",
     "black-formatter.args": [
         "-l 120"
     ],

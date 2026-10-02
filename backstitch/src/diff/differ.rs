@@ -118,6 +118,17 @@ impl Differ {
             if matches!(old_file_content, Some(FileContent::Scene(_)))
                 || matches!(new_file_content, Some(FileContent::Scene(_)))
             {
+                if matches!(old_file_content, Some(FileContent::String(_)))
+                    || matches!(new_file_content, Some(FileContent::String(_)))
+                {
+                    diffs.push(Diff::Text(self.get_text_diff(
+                        path,
+                        change_type.clone(),
+                        old_file_content,
+                        new_file_content,
+                    )));
+                    continue;
+                }
                 let old_scene = match old_file_content {
                     Some(FileContent::Scene(s)) => Some(s),
                     _ => None,

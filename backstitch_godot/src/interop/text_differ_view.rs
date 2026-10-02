@@ -1,36 +1,30 @@
+use backstitch::diff::text_differ::{TextDiff, TextDiffHunk, TextDiffLine};
+use backstitch::helpers::utils::ChangeType;
 use godot::builtin::{Array, GString, StringName, VarDictionary};
-use godot::classes::{EditorInterface, RichTextLabel, Theme};
+use godot::classes::{
+    DisplayServer, EditorInterface, IRichTextLabel, InputEvent, InputEventMouseButton, PopupMenu,
+    RichTextLabel, Theme,
+};
+use godot::global::MouseButton;
 use godot::prelude::*;
 
+use crate::interop::godot_helpers::ToGodotExt;
+
 #[derive(GodotClass)]
-#[class(base=Object)]
+#[class(tool, base=RichTextLabel)]
 pub struct TextDifferView {
     #[base]
-    base: Base<Object>,
+    base: Base<RichTextLabel>,
+    popup_menu: Gd<PopupMenu>,
+    diff_file: TextDiff,
+    split_view: bool,
 }
 
-struct DiffLine {
-    new_line_no: i64,
-    old_line_no: i64,
-    content: String,
-    status: String,
+trait TextDiffFromDict: Sized {
+    fn from_dict(dict: &VarDictionary) -> Option<Self>;
 }
 
-struct DiffHunk {
-    new_start: i64,
-    old_start: i64,
-    new_lines: i64,
-    old_lines: i64,
-    diff_lines: Vec<DiffLine>,
-}
-
-struct DiffFile {
-    new_file: String,
-    old_file: String,
-    diff_hunks: Vec<DiffHunk>,
-}
-
-impl DiffLine {
+impl TextDiffFromDict for TextDiffLine {
     fn from_dict(dict: &VarDictionary) -> Option<Self> {
         Some(Self {
             new_line_no: dict.get("new_line_no")?.to::<i64>(),
@@ -41,13 +35,13 @@ impl DiffLine {
     }
 }
 
-impl DiffHunk {
+impl TextDiffFromDict for TextDiffHunk {
     fn from_dict(dict: &VarDictionary) -> Option<Self> {
         let diff_lines_array = dict.get("diff_lines")?.to::<Array<VarDictionary>>();
         let mut diff_lines = Vec::new();
 
         for line_dict in diff_lines_array.iter_shared() {
-            if let Some(diff_line) = DiffLine::from_dict(&line_dict) {
+            if let Some(diff_line) = TextDiffLine::from_dict(&line_dict) {
                 diff_lines.push(diff_line);
             }
         }
@@ -62,69 +56,106 @@ impl DiffHunk {
     }
 }
 
-impl DiffFile {
+impl TextDiffFromDict for TextDiff {
     fn from_dict(dict: &VarDictionary) -> Option<Self> {
         let diff_hunks_array = dict.get("diff_hunks")?.to::<Array<VarDictionary>>();
         let mut diff_hunks = Vec::new();
 
         for hunk_dict in diff_hunks_array.iter_shared() {
-            if let Some(diff_hunk) = DiffHunk::from_dict(&hunk_dict) {
+            if let Some(diff_hunk) = TextDiffHunk::from_dict(&hunk_dict) {
                 diff_hunks.push(diff_hunk);
             }
         }
 
         Some(Self {
-            new_file: dict.get("new_file")?.to::<GString>().to_string(),
-            old_file: dict.get("old_file")?.to::<GString>().to_string(),
+            path: dict.get("old_file")?.to::<GString>().to_string(),
             diff_hunks,
+            change_type: ChangeType::Modified,
         })
     }
 }
 
 #[godot_api]
 impl TextDifferView {
+    const DISPLAY_UNIFIED_VIEW: i32 = 0;
+    const DISPLAY_SPLIT_VIEW: i32 = 1;
+    const COPY_AS_UNIFIED_DIFF: i32 = 2;
+
+    fn create_instance(base: Base<RichTextLabel>, diff: TextDiff, split_view: bool) -> Self {
+        Self {
+            base,
+            diff_file: diff,
+            split_view,
+            popup_menu: PopupMenu::new_alloc(),
+        }
+    }
+
+    pub fn create_new(diff: TextDiff, split_view: bool) -> Gd<TextDifferView> {
+        Gd::from_init_fn(|base| Self::create_instance(base, diff, split_view))
+    }
+
     #[func]
-    pub fn get_text_diff_view(diff: VarDictionary, split_view: bool) -> Option<Gd<RichTextLabel>> {
+    pub fn get_text_diff_view(diff: VarDictionary, split_view: bool) -> Option<Gd<TextDifferView>> {
+        let diff_file = TextDiff::from_dict(&diff)
+            .ok_or_else(|| godot_error!("Failed to create text diff"))
+            .ok()?;
+        let mut rich_text_label = TextDifferView::create_new(diff_file.clone(), split_view);
+        rich_text_label.bind_mut().redraw();
+
+        return Some(rich_text_label);
+    }
+
+    pub fn redraw(&mut self) {
+        self.base_mut().clear();
+        if self.diff_file.is_empty() {
+            return;
+        }
+
         let editor_interface = EditorInterface::singleton();
         let editor_theme = editor_interface.get_editor_theme();
         if editor_theme.is_none() {
             godot_error!("Editor theme is none");
-            return None;
+            return;
         }
+
         let editor_theme = editor_theme.unwrap();
 
-        // Parse dictionary into structured format
-        let diff_file = DiffFile::from_dict(&diff)?;
-
-        let mut rich_text_label = RichTextLabel::new_alloc();
-
         // Add file header
-        let doc_bold_font = editor_theme.get_font(
-            &StringName::from("doc_bold"),
-            &StringName::from("EditorFonts"),
-        )?;
+        let Some(doc_bold_font) = editor_theme
+            .get_font(
+                &StringName::from("doc_bold"),
+                &StringName::from("EditorFonts"),
+            )
+            .or_else(|| editor_theme.get_default_font())
+        else {
+            godot_error!("Doc bold font is none");
+            return;
+        };
+
         let accent_color = editor_theme.get_color(
             &StringName::from("accent_color"),
             &StringName::from("Editor"),
         );
 
+        let diff_file = self.diff_file.clone();
+        let split_view = self.split_view;
+        let mut rich_text_label = self.base_mut();
         rich_text_label.push_font(&doc_bold_font);
         rich_text_label.push_color(accent_color);
-        if diff_file.old_file != diff_file.new_file {
-            rich_text_label.add_text(&format!(
-                "File: {} -> {}",
-                diff_file.old_file, diff_file.new_file
-            ));
-        } else {
-            rich_text_label.add_text(&format!("File: {}", diff_file.new_file));
-        }
+        rich_text_label.add_text(&format!("File: {}", diff_file.path));
         rich_text_label.pop();
         rich_text_label.pop();
 
-        let status_source_font = editor_theme.get_font(
-            &StringName::from("status_source"),
-            &StringName::from("EditorFonts"),
-        )?;
+        let Some(status_source_font) = editor_theme
+            .get_font(
+                &StringName::from("status_source"),
+                &StringName::from("EditorFonts"),
+            )
+            .or_else(|| editor_theme.get_default_font())
+        else {
+            godot_error!("Status source font is none");
+            return;
+        };
         rich_text_label.push_font(&status_source_font);
 
         for hunk in &diff_file.diff_hunks {
@@ -155,13 +186,11 @@ impl TextDifferView {
 
         rich_text_label.pop();
         rich_text_label.newline();
-
-        Some(rich_text_label)
     }
 
     fn display_diff_split_view(
-        rich_text_label: &mut Gd<RichTextLabel>,
-        diff_lines: &[DiffLine],
+        rich_text_label: &mut godot::obj::BaseMut<TextDifferView>,
+        diff_lines: &[TextDiffLine],
         theme: &Gd<Theme>,
     ) {
         // Parse diff lines into a format suitable for split view
@@ -295,8 +324,8 @@ impl TextDifferView {
     }
 
     fn display_diff_unified_view(
-        rich_text_label: &mut Gd<RichTextLabel>,
-        diff_lines: &[DiffLine],
+        rich_text_label: &mut godot::obj::BaseMut<TextDifferView>,
+        diff_lines: &[TextDiffLine],
         theme: &Gd<Theme>,
     ) {
         // Create 4-column table: Old Line No | New Line No | status | code
@@ -381,12 +410,118 @@ impl TextDifferView {
 
         rich_text_label.pop();
     }
+
+    pub fn set_diff_file(&mut self, diff: TextDiff) {
+        self.diff_file = diff;
+        self.redraw();
+    }
+
+    pub fn get_diff_file(&self) -> TextDiff {
+        self.diff_file.clone()
+    }
+
+    #[func]
+    pub fn get_diff_dict(&self) -> VarDictionary {
+        self.get_diff_file().to_godot()
+    }
+
+    #[func]
+    pub fn set_diff_dict(&mut self, diff: VarDictionary) {
+        self.set_diff_file(TextDiff::from_dict(&diff).unwrap());
+    }
+
+    #[func]
+    pub fn set_split_view(&mut self, split_view: bool) {
+        if self.split_view != split_view {
+            self.split_view = split_view;
+            self.popup_menu
+                .set_item_checked(Self::DISPLAY_UNIFIED_VIEW, !self.split_view);
+            self.popup_menu
+                .set_item_checked(Self::DISPLAY_SPLIT_VIEW, self.split_view);
+            self.redraw();
+        }
+    }
+
+    #[func]
+    pub fn is_split_view(&self) -> bool {
+        self.split_view
+    }
+
+    #[func]
+    pub fn get_unified_diff_text(&self) -> String {
+        self.diff_file.to_unified()
+    }
+
+    #[func]
+    fn _on_popup_menu_id_pressed(&mut self, id: i64) {
+        self.popup_menu.set_visible(false);
+        match id as i32 {
+            Self::DISPLAY_UNIFIED_VIEW => {
+                self.set_split_view(false);
+            }
+            Self::DISPLAY_SPLIT_VIEW => {
+                self.set_split_view(true);
+            }
+            Self::COPY_AS_UNIFIED_DIFF => {
+                DisplayServer::singleton().clipboard_set(&self.get_unified_diff_text());
+            }
+            _ => {}
+        }
+    }
 }
 
 #[godot_api]
-impl IObject for TextDifferView {
-    fn init(base: Base<Object>) -> Self {
-        Self { base }
+impl IRichTextLabel for TextDifferView {
+    fn init(base: Base<RichTextLabel>) -> Self {
+        Self {
+            base,
+            diff_file: TextDiff {
+                path: String::new(),
+                diff_hunks: Vec::new(),
+                change_type: ChangeType::Modified,
+            },
+            split_view: false,
+            popup_menu: PopupMenu::new_alloc(),
+        }
+    }
+
+    fn ready(&mut self) {
+        // setup popup menu
+        let mut popup_menu = self.popup_menu.clone();
+        popup_menu.set_visible(false);
+        popup_menu
+            .add_radio_check_item_ex("Display Unified View")
+            .id(Self::DISPLAY_UNIFIED_VIEW)
+            .done();
+        popup_menu
+            .add_radio_check_item_ex("Display Split View")
+            .id(Self::DISPLAY_SPLIT_VIEW)
+            .done();
+        popup_menu.set_item_checked(Self::DISPLAY_UNIFIED_VIEW, !self.split_view);
+        popup_menu.set_item_checked(Self::DISPLAY_SPLIT_VIEW, self.split_view);
+        popup_menu.add_separator();
+        popup_menu
+            .add_item_ex("Copy As Unified Diff")
+            .id(Self::COPY_AS_UNIFIED_DIFF)
+            .done();
+
+        self.base_mut().add_child(&popup_menu);
+        let callable = Callable::from_object_method(&self.to_gd(), "_on_popup_menu_id_pressed");
+        popup_menu.connect("id_pressed", &callable);
+    }
+
+    // handle right click
+    fn gui_input(&mut self, event: Gd<InputEvent>) {
+        if let Ok(mb) = event.clone().try_cast::<InputEventMouseButton>() {
+            let is_pressed = mb.is_pressed();
+            let button_index = mb.get_button_index();
+            if is_pressed && button_index == MouseButton::RIGHT {
+                self.popup_menu
+                    .set_position(DisplayServer::singleton().mouse_get_position());
+                self.popup_menu.set_visible(true);
+                self.base_mut().accept_event();
+            }
+        }
     }
 }
 

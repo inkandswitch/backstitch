@@ -230,8 +230,19 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
         PackedStringArray::new()
     }
 
+    // TODO: This currently only recognizes files with import content to prevent crashes when loading resources with dependencies.
+    // Need to revisit this after diff refactor so we can determine where the race condition is coming from.
     fn recognize_path(&self, path: GString, _type: StringName) -> bool {
-        recognize_path(path)
+        let Ok(history_ref_path) = HistoryRefPath::from_str(&path.to_string()) else {
+            return false;
+        };
+        // if file exists at ref and is an imported resource, return true
+        if let Ok((_file_content, Some(_import_content))) =
+            self.get_content_and_import_file_content_at_history_ref_path(&history_ref_path)
+        {
+            return true;
+        }
+        false
     }
 
     fn handles_type(&self, _type_name: StringName) -> bool {

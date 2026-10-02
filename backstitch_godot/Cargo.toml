@@ -3,7 +3,7 @@ name = "backstitch_godot"
 edition = "2024"
 version.workspace = true
 license = "MIT"
-rust-version = "1.91.1"
+rust-version = "1.94"
 
 [lib]
 name = "backstitch_godot"

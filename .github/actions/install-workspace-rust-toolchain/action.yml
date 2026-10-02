@@ -1,0 +1,29 @@
+name: rustup install workspace toolchain
+description: Install the Rust toolchain for the workspace
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  targets:
+    description: Comma-separated list of target triples to install for this toolchain
+    required: false
+  components:
+    description: Comma-separated list of components to be additionally installed
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Extract Toolchain version from rust-toolchain.toml
+      id: extract-toolchain-version
+      uses: mikefarah/yq@v4
+      with:
+        cmd: |
+          yq '.toolchain.channel' rust-toolchain.toml || echo "WARNING: No toolchain version found in rust-toolchain.toml, using stable" >&2 && echo "stable"
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ steps.extract-toolchain-version.outputs.result }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}

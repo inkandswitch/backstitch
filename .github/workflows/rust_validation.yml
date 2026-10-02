@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/install-workspace-rust-toolchain
         with:
           components: rustfmt
 
@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/install-workspace-rust-toolchain
         with:
           components: clippy
 
@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/install-workspace-rust-toolchain
 
       - name: Run tests
         run: cargo test --all-targets --features ""

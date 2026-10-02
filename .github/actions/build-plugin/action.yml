@@ -11,23 +11,19 @@ runs:
   using: composite
   steps:
     - uses: extractions/setup-just@v3
-    - name: Update Rust
-      shell: sh
-      run: |
-        rustup update
-    - name: Show targets
-      shell: sh
-      run: |
-        rustc --print=target-list
+    - name: Install Rust
+      uses: ./.github/actions/install-workspace-rust-toolchain
+      with:
+        targets: ${{ inputs.arch }}
     - name: Add additional arm64 target for macOS
       shell: sh
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
       run: |
         rustup target add aarch64-apple-darwin
-    - name: Rust add current target
+    - name: Show targets
       shell: sh
       run: |
-        rustup target add ${{ inputs.arch }}
+        rustc --print=target-list
     - name: Restore Cache
       uses: Swatinem/rust-cache@v2
       with:

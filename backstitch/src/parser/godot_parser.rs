@@ -1334,6 +1334,14 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                 let from_node_id = match node_id_by_node_path.get(&from_path) {
                     Some(node_id) => node_id.clone(),
                     None => {
+                        // temporary node connection that somehow got saved to the scene; this should not have been saved
+                        if from_path.starts_with("@") || from_path.contains("/@") {
+                            tracing::error!(
+                                "Temporary node connection found in scene: {}; ignoring",
+                                from_path
+                            );
+                            continue;
+                        }
                         return Err(format!(
                             "Can't find node \"{}\", {:?}",
                             from_path, node_id_by_node_path
@@ -1343,7 +1351,17 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
 
                 let to_node_id = match node_id_by_node_path.get(&to_path) {
                     Some(node_id) => node_id.clone(),
-                    None => return Err(format!("Can't find node \"{}\"", from_path)),
+                    None => {
+                        // temporary node connection that somehow got saved to the scene; this should not have been saved
+                        if to_path.starts_with("@") || to_path.contains("/@") {
+                            tracing::error!(
+                                "Temporary node connection found in scene: {}; ignoring",
+                                to_path
+                            );
+                            continue;
+                        }
+                        return Err(format!("Can't find node \"{}\"", from_path));
+                    }
                 };
 
                 connection.from_node_id = from_node_id;

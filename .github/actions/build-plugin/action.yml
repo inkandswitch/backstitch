@@ -12,9 +12,10 @@ runs:
   steps:
     - uses: extractions/setup-just@v3
     - name: Install Rust
-      uses: ./.github/actions/install-workspace-rust-toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v2
       with:
-        targets: ${{ inputs.arch }}
+        target: ${{ inputs.arch }}
+        cache-key: backstitch_rust_plugin-${{ inputs.arch }}
     - name: Add additional arm64 target for macOS
       shell: sh
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
@@ -24,10 +25,6 @@ runs:
       shell: sh
       run: |
         rustc --print=target-list
-    - name: Restore Cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        prefix-key: backstitch_rust_plugin-${{ inputs.arch }}
     - name: Build for Windows and Linux
       shell: sh
       env:

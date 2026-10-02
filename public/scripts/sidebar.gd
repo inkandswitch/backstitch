@@ -93,6 +93,12 @@ var history_saved_selection = null # hash string
 var last_diff = null
 var diff_poll_timeout = -1
 
+var auto_generate_diffs: bool:
+	get:
+		return get_editor_setting("backstitch/GUI/auto_generate_diffs", true)
+	set(value):
+		EditorInterface.get_editor_settings().set_setting("backstitch/GUI/auto_generate_diffs", value)
+
 const CREATE_BRANCH_IDX = 1
 const MERGE_BRANCH_IDX = 2
 
@@ -105,6 +111,14 @@ var last_seen_branch: String = ""
 signal branch_checked_out
 
 static var instance: BackstitchSidebar
+
+static func get_editor_setting(setting_name: String, default_value: Variant = null) -> Variant:
+	var editor_settings = EditorInterface.get_editor_settings()
+	if not editor_settings.has_setting(setting_name):
+		if default_value != null:
+			editor_settings.set_setting(setting_name, default_value)
+		return default_value
+	return editor_settings.get_setting(setting_name)
 
 func _update_ui_on_state_change():
 	waiting_callables.append(
@@ -121,11 +135,6 @@ func _on_reload_ui_button_pressed():
 
 func _is_dev_mode() -> bool:
 	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.DEV_MODE)
-	var checked = action_menu_button.get_popup().is_item_checked(idx)
-	return checked
-
-func _auto_generate_diffs() -> bool:
-	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
 	var checked = action_menu_button.get_popup().is_item_checked(idx)
 	return checked
 
@@ -186,6 +195,10 @@ func update_init_panel():
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
+	# set the auto generate diffs checkbox to the current project setting
+	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
+	action_menu_button.get_popup().set_item_checked(idx, auto_generate_diffs)
+
 
 func _set_action_disabled(disabled: bool, action: int):
 	var popup = action_menu_button.get_popup()
@@ -863,7 +876,7 @@ func update_diff():
 			and !(GodotProject.is_merge_preview_branch_active()
 			or GodotProject.is_revert_preview_branch_active())):
 		# TODO: remove this, and the auto generate setting, when we fix diff speed
-		if _auto_generate_diffs():
+		if auto_generate_diffs:
 			diff = GodotProject.try_get_default_diff()
 	elif (selected_item == null
 			or GodotProject.is_merge_preview_branch_active()
@@ -955,6 +968,7 @@ func _on_action_menu_item_selected(id: int) -> void:
 			var popup := action_menu_button.get_popup()
 			var idx := popup.get_item_index(id)
 			popup.toggle_item_checked(idx)
+			auto_generate_diffs = popup.is_item_checked(idx)
 			update_ui()
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:

@@ -1,28 +1,3 @@
-// BIGGEST TODO: This class currently relies on a single known root clockument.
-// It uses this clockument to determine dependencies at every step.
-// In particular, with rebroadcast, it explicitly broadcasts all current dependencies
-// to all other persistence targets.
-//
-// Soon, we want to allow tracking clockuments dynamically. Ideally, we don't have to think
-// about clockuments at all -- a clockument is simply defined by a document *that has DependencyRef dependencies*.
-// So, all documents would have get_dependencies called on them -- if no dependencies are returned, it's synced greedily.
-//
-// However, if we do that, we suddenly have to think about *discovery.* Remote targets usually don't allow you to just
-// ask for all document IDs, so our rebroadcast() solution fails. There MUST be a point where the user specifies one
-// or more IDs to track.
-//
-// Also, it gets expensive -- if we're required to identify clockuments via contents, that means we have to check the
-// content of every single document, with potentially-expensive `get` calls, every time we persist it...
-//
-// One solution is to explicitly track a mutable set of root clockuments. But while that solves the discovery and
-// efficiency problems, it opens up failure modes. For example, what if we add a clockument with hash X, but we've
-// already tracked X as a regular document with no dependencies (let's say, from incoming heads)? The network is polluted!
-//
-// A solution there is to disallow incoming heads from being tracked unless they are explicitly needed as a dependency...
-// But that smells bad.
-//
-// For now, I'm forcing the user to declare a single clockument root.
-
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -40,7 +15,7 @@ use sedimentree_core::id::SedimentreeId;
 use thiserror::Error;
 use tokio::{
     select,
-    sync::{Mutex, broadcast, mpsc, watch},
+    sync::{Mutex, broadcast, mpsc},
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
@@ -129,6 +104,8 @@ use crate::{clockument::document_ref::DocumentRef, project::repo::heads::Heads};
 ///
 ///
 ///
+///
+///
 
 #[cfg(test)]
 mod tests;
@@ -148,7 +125,6 @@ pub enum PersistenceError {
 // Initial assumptions:
 //  - Users are using Subduction, Tokio, Automerge
 //  - 2PC to a document is not required by the user
-//  - Persistence targets are never negligent and never have broken dependencies persisted.
 
 /// Persistence targets, like disk, or peers, or a memory store
 #[async_trait]
@@ -171,11 +147,6 @@ pub trait PersistenceTarget: Send + Sync {
     /// A stream returning new heads when they are persisted to the source.
     /// This MUST be called by the implementation of [PersistenceTarget::put], when it puts new heads.
     fn new_heads(&self) -> BoxStream<'static, DocumentRef>;
-}
-
-pub enum HealResult {
-    RollBack(Heads),
-    Remove,
 }
 
 /// Describes how a negligent [PersistenceTarget] should be handled.
@@ -774,7 +745,7 @@ impl PersistenceWorker {
 
     /// Called when we've inserted a new potential dependency and should check
     /// to see if any pending clockument writes can go through.
-    async fn try_resolve_pending(&self, persisted_id: SedimentreeId) {
+    async fn try_resolve_pending(&self, _persisted_id: SedimentreeId) {
         // TODO: This is awkward; this could take some time if persist() or retain_pending_deps()
         // takes some time. This mutex locks up the put threading, which sucks.
         let mut pendings = self.pending_insertions.lock().await;
@@ -844,9 +815,7 @@ impl Clockument {
 
 #[derive(Clone)]
 enum ClockumentPutResult {
-    Success {
-        heads: Heads,
-    },
+    Success,
     Failure {
         heads: Heads,
         error: Arc<PersistenceError>,
@@ -878,8 +847,6 @@ pub enum ClockumentError {
     NoSuchDocument(SedimentreeId),
     #[error("no heads {0:?} were found on the document")]
     NoSuchHeads(Heads),
-    #[error("the document did not have any heads ready")]
-    NoHeadsReady,
     #[error("the target was removed")]
     TargetRemoved,
     #[error("there was an error in persistence: {0}")]
@@ -1211,9 +1178,7 @@ impl ClockumentCoordinatorInner {
     async fn handle_put(&self, put: PutResult) {
         // Notify subscribers if the clockument changed
         if put.doc_ref.id() == self.clockument.id() {
-            let _ = self.clockument_put_tx.send(ClockumentPutResult::Success {
-                heads: put.doc_ref.heads().clone(),
-            });
+            let _ = self.clockument_put_tx.send(ClockumentPutResult::Success);
         }
 
         let worker = {

@@ -1,24 +1,22 @@
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use crate::clockument::persistence::{
-    ClockumentCoordinator, ClockumentError, DependencyTree, NegligenceDecision, PersistenceError,
-    PersistenceId,
+    ClockumentCoordinator, ClockumentError, NegligenceDecision, PersistenceError, PersistenceId,
 };
 use async_trait::async_trait;
 use automerge::{
-    ActorId, Automerge, ChangeHash, PatchLog, ReadDoc,
+    ActorId, Automerge, ChangeHash,
     transaction::{Transactable, Transaction},
 };
 use autosurgeon::{Hydrate, Reconcile};
-use futures::{FutureExt, StreamExt, stream::BoxStream};
+use futures::{StreamExt, stream::BoxStream};
 use indextree::{Arena, NodeEdge};
 use rand::Rng;
 use rstest::{fixture, rstest};
@@ -107,6 +105,7 @@ impl TransientTarget {
     }
 
     /// Un-stop the [SedimentreeId] from being propagated.
+    #[allow(unused)]
     async fn unstick(&self, id: SedimentreeId) {
         let mut st = self.stuck.lock().await;
         if st.remove(&id) {
@@ -280,7 +279,7 @@ impl DependencyResolver for ClockumentDatabase {
         data.deps.into_iter().collect()
     }
 
-    fn negligence(&self, clockument_id: SedimentreeId) -> NegligenceDecision {
+    fn negligence(&self, _clockument_id: SedimentreeId) -> NegligenceDecision {
         self.decision
     }
 }

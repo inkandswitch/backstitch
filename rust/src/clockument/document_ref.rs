@@ -1,6 +1,3 @@
-use std::fmt::Display;
-
-use automerge::AutomergeError;
 use autosurgeon::{
     Hydrate, Reconcile,
     hydrate::Unexpected,
@@ -8,6 +5,7 @@ use autosurgeon::{
     reconcile::{LoadKey, MapReconciler, NoKey},
 };
 use sedimentree_core::id::SedimentreeId;
+use std::fmt::Display;
 
 use crate::project::repo::heads::Heads;
 

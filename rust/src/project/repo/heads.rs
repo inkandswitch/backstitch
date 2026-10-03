@@ -104,6 +104,10 @@ impl Heads {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    pub fn contains(&self, other: &Heads) -> bool {
+        other.0.iter().all(|x| self.0.contains(x))
+    }
 }
 
 impl From<Heads> for Vec<ChangeHash> {

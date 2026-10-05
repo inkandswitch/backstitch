@@ -5,7 +5,7 @@ use godot::{
     obj::{Gd, NewAlloc, NewGd},
 };
 
-use crate::tracing::initialize_tracing;
+use crate::tracing::{deinitialize_tracing, initialize_tracing};
 
 use crate::interop::{
     backstitch_resource_loader::{BackstitchResourceFormatSaver, BackstitchResourceLoader},
@@ -68,6 +68,7 @@ unsafe impl ExtensionLibrary for MyExtension {
             }
             tracing::info!("** on_level_deinit: Scene");
             unregister_singleton("GodotProject");
+            deinitialize_tracing();
         }
     }
 }

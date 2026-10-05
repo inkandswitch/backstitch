@@ -1,0 +1,52 @@
+name: 🤖 Build Backstitch for Android
+on:
+  workflow_call:
+
+jobs:
+  android:
+    runs-on: "ubuntu-24.04"
+    name: 🔨 Build ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["aarch64-linux-android", "x86_64-linux-android"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: dotenv
+        uses: falti/dotenv-action@v1.1.5
+        with:
+          path: build.env
+          keys-case: bypass
+      - name: Select pinned Android NDK
+        shell: bash
+        env:
+          NDK_VERSION: ${{ steps.dotenv.outputs.ANDROID_NDK_VERSION }}
+        run: |
+          set -eu
+          ndk="$ANDROID_HOME/ndk/$NDK_VERSION"
+          if [ ! -d "$ndk" ]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          fi
+          # The runner presets these to its own default NDK, which is older than the pinned one.
+          echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      - name: Build
+        uses: ./.github/actions/build-plugin
+        with:
+          arch: ${{ matrix.arch }}
+
+      # TODO: Remove the necessity for this workaround somehow; this is just here so we don't accidentally clobber the signed MacOS framework files.
+      - name: Remove MacOS framework
+        shell: bash
+        run: |
+          rm -rf ./build/backstitch/bin/libbackstitch_rust_core.macos.framework
+  
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: backstitch-build-android-${{ matrix.arch }}
+          path: ./build/backstitch/*
+          if-no-files-found: error

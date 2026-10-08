@@ -1,12 +1,12 @@
-use godot::builtin::{Color, GString, Rect2, StringName, Vector2};
+use godot::builtin::{Color, GString, Rect2, Vector2};
 use godot::classes::class_macros::private::virtuals::Xrvrs::Side;
 use godot::classes::control::{LayoutDirection, SizeFlags};
-use godot::classes::notify::ContainerNotification;
+use godot::classes::notify::{ContainerNotification, ControlNotification};
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
-    ColorRect, Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
-    InputEventMouseButton, Label, MarginContainer, MissingResource, Object, PanelContainer,
-    StyleBoxFlat, Texture2D, Timer, VBoxContainer,
+    ColorRect, Container, Control, EditorInspector, EditorProperty, IColorRect, IContainer, Input,
+    InputEvent, InputEventMouseButton, Label, MarginContainer, MissingResource, Object,
+    PanelContainer, StyleBoxFlat, Texture2D, Timer, VBoxContainer,
 };
 use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
@@ -15,6 +15,53 @@ use godot::register::info::PropertyHint;
 use crate::interop::godot_helpers::ThemeGetter;
 use crate::interop::lazy_load_editor_property::LazyLoadTokenEditorProperty;
 use crate::interop::lazy_load_token::LazyLoadToken;
+
+fn theme_name_for_change_type(change_type: &str) -> &str {
+    match change_type {
+        "modified" => "prop_subsection_modified",
+        "added" => "prop_subsection_added",
+        "removed" => "prop_subsection_removed",
+        _ => "prop_subsection_modified",
+    }
+}
+
+#[derive(GodotClass)]
+#[class(tool, base=ColorRect, init)]
+pub struct DiffColorMarker {
+    base: Base<ColorRect>,
+    type_name: String, // "modified", "added", "removed", "changed"
+}
+
+#[godot_api]
+impl IColorRect for DiffColorMarker {
+    fn on_notification(&mut self, what: ControlNotification) {
+        match what {
+            ControlNotification::THEME_CHANGED => {
+                let color = self.get_change_color();
+                self.base_mut().set_color(color);
+            }
+            _ => (),
+        }
+    }
+}
+
+#[godot_api]
+impl DiffColorMarker {
+    fn get_change_color(&self) -> Color {
+        self.get_theme_color(theme_name_for_change_type(&self.type_name), "Editor")
+    }
+
+    #[func]
+    pub fn new(type_name: String) -> Gd<Self> {
+        let mut color_rect = Gd::from_init_fn(|base: Base<ColorRect>| Self { base, type_name });
+        let change_color = color_rect.bind().get_change_color();
+        color_rect.set_color(change_color);
+        color_rect.set_custom_minimum_size(Vector2::new(10.0, 10.0));
+        color_rect.set_layout_direction(LayoutDirection::LTR);
+        color_rect.set_h_size_flags(SizeFlags::SHRINK_CENTER);
+        color_rect
+    }
+}
 
 #[derive(GodotClass)]
 #[class(tool, base=Container)]
@@ -324,17 +371,8 @@ impl DiffInspectorSection {
     }
 
     fn update_bg_color(&mut self) {
-        let color_name = if self.type_name == "modified" {
-            "prop_subsection_modified"
-        } else if self.type_name == "added" {
-            "prop_subsection_added"
-        } else if self.type_name == "removed" {
-            "prop_subsection_removed"
-        } else {
-            "prop_subsection"
-        };
-
-        self.bg_color = self.get_theme_color(color_name, "Editor");
+        self.bg_color = self.get_theme_color(theme_name_for_change_type(&self.type_name), "Editor");
+        self.base_mut().queue_redraw();
     }
 
     fn add_timer(&mut self) {
@@ -370,57 +408,13 @@ impl DiffInspectorSection {
         editor_property.call("_update_editor_property_status", &[]);
     }
 
-    fn get_color_for_change_type(&self, change_type: &str) -> Color {
-        self.get_theme_color(&format!("prop_subsection_{}", change_type), "Editor")
-    }
-
-    #[func]
-    fn update_color_rect(change_type: GString, color_rect: Gd<ColorRect>) {
-        let mut color_rect = color_rect;
-        let color = color_rect
-            .get_theme_color_ex(&format!("prop_subsection_{}", change_type))
-            .theme_type(&StringName::from("Editor"))
-            .done();
-        color_rect.set_color(color);
-        color_rect.queue_redraw();
-    }
-
-    fn add_color_marker(&self, change_type: &str, panel_container: &mut Gd<PanelContainer>) {
-        let mut color_rect = ColorRect::new_alloc();
-        color_rect.set_color(self.get_color_for_change_type(change_type));
-        color_rect.set_custom_minimum_size(Vector2::new(10.0, 10.0));
-        color_rect.set_layout_direction(LayoutDirection::LTR);
-        color_rect.call("_set_layout_mode", &[2.to_variant()]);
-
-        color_rect.set_h_size_flags(SizeFlags::SHRINK_CENTER);
+    fn add_color_marker(change_type: &str, panel_container: &mut Gd<PanelContainer>) {
+        let color_rect = DiffColorMarker::new(change_type.to_string());
         let mut margin_container = MarginContainer::new_alloc();
         margin_container.call("_set_layout_mode", &[2.to_variant()]);
         margin_container.add_theme_constant_override("margin_right", 20);
         margin_container.add_child(&color_rect);
         panel_container.add_child(&margin_container);
-        let callable = Callable::from_fn("update_color_rect", |vars| {
-            if vars.len() != 2 {
-                tracing::error!("Expected 2 variables, got {}", vars.len());
-                return;
-            }
-            let Ok(change_type) = vars[0].try_to::<GString>() else {
-                tracing::error!(
-                    "Expected change_type to be a GString, got {}",
-                    vars[0].get_type().as_str()
-                );
-                return;
-            };
-            let Ok(color_rect) = vars[1].try_to::<Gd<ColorRect>>() else {
-                tracing::error!(
-                    "Expected color_rect to be a Gd<ColorRect>, got {}",
-                    vars[1].get_type().as_str()
-                );
-                return;
-            };
-            Self::update_color_rect(change_type, color_rect);
-        })
-        .bind(&[change_type.to_variant(), color_rect.to_variant()]);
-        color_rect.connect("theme_changed", &callable);
     }
 
     fn add_label(label: &str, panel_container: &mut Gd<PanelContainer>) {
@@ -468,7 +462,7 @@ impl DiffInspectorSection {
         Self::update_property_editor(&mut editor_property);
         let mut panel_container = PanelContainer::new_alloc();
         Self::add_label(prop_label, &mut panel_container);
-        self.add_color_marker(change_type, &mut panel_container);
+        Self::add_color_marker(change_type, &mut panel_container);
         panel_container.add_child(&editor_property);
         Some(panel_container)
     }

@@ -1,19 +1,15 @@
 use godot::{
     builtin::{Color, Vector2},
     classes::{
-        AspectRatioContainer, EditorProperty, IEditorProperty, Material, MissingResource, Node,
-        Object, Panel, Resource, StyleBoxFlat, aspect_ratio_container::StretchMode,
-        control::LayoutPreset,
+        AspectRatioContainer, EditorProperty, IEditorProperty, Material, Node, Panel, Resource,
+        StyleBoxFlat, aspect_ratio_container::StretchMode,
     },
     meta::ToGodot,
     obj::{Base, Gd, NewAlloc, NewGd, OnReady, WithBaseField},
     register::{GodotClass, godot_api},
 };
 
-use crate::interop::{
-    diff_inspector_section::{DiffEditorPropertyContainer, UpdatePropEditor},
-    lazy_load_token::LazyLoadToken,
-};
+use crate::interop::lazy_load_token::LazyLoadToken;
 
 #[derive(GodotClass)]
 #[class(tool, base=EditorProperty)]
@@ -29,6 +25,9 @@ pub struct LazyLoadTokenEditorProperty {
 
 #[godot_api]
 impl LazyLoadTokenEditorProperty {
+    #[signal]
+    pub fn resource_loaded(resource: Gd<Resource>);
+
     fn create_instance(base: Base<EditorProperty>, token: Option<Gd<LazyLoadToken>>) -> Self {
         Self {
             base,
@@ -61,42 +60,6 @@ impl LazyLoadTokenEditorProperty {
         aspect_ratio_container.add_child(&panel);
         aspect_ratio_container.upcast::<Node>()
     }
-
-    fn update_to_real_editor_property(&mut self, resource: Gd<Resource>) {
-        let res_variant = resource.to_variant();
-        self.resource = Some(resource);
-        let prop_path = self.base().get_edited_property();
-        let mut our_object = self
-            .base()
-            .get_edited_object()
-            .unwrap_or(MissingResource::new_gd().upcast::<Object>());
-        if let Ok(mut missing_resource) = our_object.clone().try_cast::<MissingResource>() {
-            missing_resource.set_recording_properties(true);
-            missing_resource.set(&prop_path, &res_variant);
-            missing_resource.set_recording_properties(false);
-        } else {
-            our_object.set(&prop_path, &res_variant);
-        }
-        let real_editor_property = DiffEditorPropertyContainer::instance_property_diff(
-            our_object.clone(),
-            prop_path.to_string(),
-            true,
-        );
-        if let Some(mut real_editor_property) = real_editor_property {
-            real_editor_property.set_anchors_preset(LayoutPreset::FULL_RECT);
-            real_editor_property.set_object_and_property(&our_object, &prop_path);
-            real_editor_property.update();
-            if let Some(mut loading_rect) = self.loading_rect.take() {
-                self.base_mut().remove_child(&loading_rect);
-                loading_rect.queue_free();
-            }
-            let parent = self.base_mut().get_parent();
-            if let Some(mut parent) = parent {
-                parent.add_child(&real_editor_property);
-            }
-            self.base_mut().hide();
-        }
-    }
 }
 
 #[godot_api]
@@ -123,9 +86,10 @@ impl IEditorProperty for LazyLoadTokenEditorProperty {
                 // NOTE: we need to keep a reference to the token until we've finished updating the property editor,
                 // or it'll be freed while there are still dangling pointers to it
                 let mut token = self.token.take().unwrap();
-                let resource = token.bind_mut().get_resource();
-                if let Some(resource) = resource {
-                    self.update_to_real_editor_property(resource);
+                self.resource = token.bind_mut().get_resource();
+                if let Some(resource) = self.resource.clone() {
+                    self.base_mut()
+                        .emit_signal("resource_loaded", &[resource.to_variant()]);
                 }
             }
         }

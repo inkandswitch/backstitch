@@ -1,3 +1,4 @@
+use godot::classes::resource::DeepDuplicateMode;
 use godot::prelude::*;
 use godot::{
     classes::{Resource, ResourceLoader, resource_loader::ThreadLoadStatus},
@@ -86,8 +87,6 @@ impl LazyLoadToken {
         if self.resource.is_some() && self.resource.as_ref().unwrap().is_instance_valid() {
             return self.resource.clone();
         }
-        // NOTE: This previously caused race conditions in gdext that seem to be fixed now in the current gdext version;
-        // if this happens again, change this back to `!self.failed`
         if !self.is_started() {
             self.start_load();
         }
@@ -101,6 +100,13 @@ impl LazyLoadToken {
             if let Some(original_path) = self.original_path.as_ref()
                 && &res.get_path().to_string() != original_path
             {
+                // Duplicate the resource to avoid caching issues caused by `set_path_cache`.
+                // Setting the path cache to another path causes the resource to not be removed from the cache when the resource is freed, leading to a dangling reference.
+                // When the resource is loaded again, it will be loaded from the cache, and since the original resource is freed, it will cause a panic when binding to it.
+                res = res
+                    .duplicate_resource_ex()
+                    .deep(DeepDuplicateMode::NONE)
+                    .done();
                 res.set_path_cache(original_path);
             }
             self.resource = Some(res);

@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::{fmt, path::PathBuf};
+use std::{fmt, path::PathBuf, sync::Mutex};
 
 use godot::classes::ProjectSettings;
 use godot::obj::Singleton;
@@ -30,6 +30,74 @@ impl FormatTime for CompactTime {
     }
 }
 static mut M_FILE_WRITER_MUTEX: Option<WorkerGuard> = None;
+
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync>;
+static PREVIOUS_PANIC_HOOK: Mutex<Option<PanicHook>> = Mutex::new(None);
+
+#[cfg(feature = "tokio-console")]
+struct ConsoleServer {
+    shutdown: tokio::sync::oneshot::Sender<()>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "tokio-console")]
+static CONSOLE_SERVER: Mutex<Option<ConsoleServer>> = Mutex::new(None);
+
+/// spawns the console subscriber layer and returns a layer that can be used to add to the tracing registry.
+/// console_subscriber::ConsoleLayer::builder().spawn() does not return the thread handle, so we need to spawn it ourselves in order to be able to join it later.
+#[cfg(feature = "tokio-console")]
+fn spawn_console_layer<S>() -> impl Layer<S>
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    fn console_filter(meta: &tracing::Metadata<'_>) -> bool {
+        // events will have *targets* beginning with "runtime"
+        if meta.is_event() {
+            return meta.target().starts_with("runtime") || meta.target().starts_with("tokio");
+        }
+
+        // spans will have *names* beginning with "runtime". for backwards
+        // compatibility with older Tokio versions, enable anything with the `tokio`
+        // target as well.
+        meta.name().starts_with("runtime.") || meta.target().starts_with("tokio")
+    }
+
+    let (layer, server) = console_subscriber::ConsoleLayer::builder()
+        .with_default_env()
+        .build();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let thread = std::thread::Builder::new()
+        .name("console_subscriber".into())
+        .spawn(move || {
+            // Discard this thread's traces so the server cannot recurse into our subscriber.
+            let _subscriber_guard =
+                tracing::subscriber::set_default(tracing::subscriber::NoSubscriber::default());
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .expect("console subscriber runtime initialization failed");
+            runtime.block_on(async move {
+                tokio::select! {
+                    result = server.serve() => {
+                        if let Err(err) = result {
+                            eprintln!("console subscriber server failed: {err}");
+                        }
+                    }
+                    _ = shutdown_rx => {}
+                }
+            });
+            // Dropping the runtime aborts the listener and aggregator and releases the port.
+            drop(runtime);
+        })
+        .expect("console subscriber could not spawn thread");
+    *CONSOLE_SERVER.lock().unwrap_or_else(|err| err.into_inner()) = Some(ConsoleServer {
+        shutdown: shutdown_tx,
+        thread,
+    });
+    layer.with_filter(tracing_subscriber::filter::FilterFn::new(console_filter))
+}
+
 pub fn initialize_tracing() {
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
         .max_log_files(5)
@@ -73,11 +141,7 @@ pub fn initialize_tracing() {
 
     #[cfg(feature = "tokio-console")]
     let subscriber = tracing_subscriber::registry()
-        .with(
-            console_subscriber::ConsoleLayer::builder()
-                .with_default_env()
-                .spawn(),
-        )
+        .with(spawn_console_layer())
         .with(stdout_layer)
         .with(file_layer)
         .try_init();
@@ -88,16 +152,51 @@ pub fn initialize_tracing() {
         .with(file_layer)
         .try_init();
 
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
+    // Retain the previous panic hook so we can restore it later.
+    let previous_hook = std::panic::take_hook();
+    *PREVIOUS_PANIC_HOOK
+        .lock()
+        .unwrap_or_else(|err| err.into_inner()) = Some(previous_hook);
+    std::panic::set_hook(Box::new(|panic_info| {
         tracing_panic::panic_hook(panic_info);
-        hook(panic_info);
+        if let Some(hook) = PREVIOUS_PANIC_HOOK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .as_ref()
+        {
+            hook(panic_info);
+        }
     }));
 
     if let Err(e) = subscriber {
         tracing::error!("Failed to initialize tracing subscriber: {:?}", e);
     } else {
         tracing::info!("Tracing subscriber initialized");
+    }
+}
+
+pub(crate) fn deinitialize_tracing() {
+    //woop
+    #[cfg(feature = "tokio-console")]
+    if let Some(server) = CONSOLE_SERVER
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .take()
+    {
+        let _ = server.shutdown.send(());
+        let _ = server.thread.join();
+    }
+
+    unsafe {
+        M_FILE_WRITER_MUTEX = None;
+    }
+
+    if let Some(previous) = PREVIOUS_PANIC_HOOK
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .take()
+    {
+        std::panic::set_hook(previous);
     }
 }
 
@@ -114,17 +213,8 @@ pub(crate) struct TimeNoDate {
 
 impl fmt::Display for TimeNoDate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // if self.year > 9999 {
-        //     write!(f, "+{}", self.year)?;
-        // } else if self.year < 0 {
-        //     write!(f, "{:05}", self.year)?;
-        // } else {
-        //     write!(f, "{:04}", self.year)?;
-        // }
-
         write!(
             f,
-            // "-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
             "{:02}:{:02}:{:02}.{:06}",
             self.hour,
             self.minute,
@@ -261,272 +351,3 @@ impl Write for CustomStdoutWriter {
         self.inner.flush()
     }
 }
-
-// pub(crate) struct CustomJSONStdoutWriter{
-// 	inner: std::io::Stdout,
-// }
-// impl CustomJSONStdoutWriter {
-// 	pub fn custom_json_stdout() -> CustomJSONStdoutWriter {
-// 		CustomJSONStdoutWriter {
-// 			inner: std::io::stdout(),
-// 		}
-// 	}
-// }
-
-// impl Write for CustomJSONStdoutWriter {
-//     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-// 		// deserialize the entire fucking json object
-// 		let mut json: serde_json::Value = serde_json::from_slice(buf)?;
-// 		// replace the level names
-// 		let level = json["level"].as_str().unwrap();
-// 		let level = LEVEL_NAMES_TO_REPLACEMENT.iter().find(|(from, _)| *from == level).unwrap().1;
-// 		let mut json_mut = json.as_object_mut().unwrap();
-// 		json_mut.insert("level".to_string(), serde_json::Value::String(level.to_string()));
-// 		let s = json.to_string();
-// 		println!("{}", s);
-// 		// serialize the json object back to a string
-//         // let s = String::from_utf8_lossy(buf);
-//         // let s = LEVEL_NAMES_TO_REPLACEMENT.iter().fold(s.to_string(), |acc, (from, to)| acc.replace(from, to));
-//         // self.inner.write(s.as_bytes())
-// 		Ok(buf.len())
-//     }
-//     fn flush(&mut self) -> std::io::Result<()> {
-//         self.inner.flush()
-//     }
-// }
-
-// // This needs to be a seperate impl block because they place different bounds on the type parameters.
-// impl<S, N, E, W> Layer<S, N, E, W>
-// where
-//     S: Subscriber + for<'a> LookupSpan<'a>,
-//     N: for<'writer> FormatFields<'writer> + 'static,
-//     W: for<'writer> MakeWriter<'writer> + 'static,
-// {
-//     /// Sets the [event formatter][`FormatEvent`] that the layer being built will
-//     /// use to format events.
-//     ///
-//     /// The event formatter may be any type implementing the [`FormatEvent`]
-//     /// trait, which is implemented for all functions taking a [`FmtContext`], a
-//     /// [`Writer`], and an [`Event`].
-//     ///
-//     /// # Examples
-//     ///
-//     /// Setting a type implementing [`FormatEvent`] as the formatter:
-//     /// ```rust
-//     /// use tracing_subscriber::fmt::{self, format};
-//     ///
-//     /// let layer = fmt::layer()
-//     ///     .event_format(format().compact());
-//     /// # // this is necessary for type inference.
-//     /// # use tracing_subscriber::Layer as _;
-//     /// # let _ = layer.with_subscriber(tracing_subscriber::registry::Registry::default());
-//     /// ```
-//     /// [`FormatEvent`]: format::FormatEvent
-//     /// [`Event`]: tracing::Event
-//     /// [`Writer`]: format::Writer
-//     pub fn event_format<E2>(self, e: E2) -> Layer<S, N, E2, W>
-//     where
-//         E2: FormatEvent<S, N> + 'static,
-//     {
-//         Layer {
-//             fmt_fields: self.fmt_fields,
-//             fmt_event: e,
-//             fmt_span: self.fmt_span,
-//             make_writer: self.make_writer,
-//             is_ansi: self.is_ansi,
-//             log_internal_errors: self.log_internal_errors,
-//             _inner: self._inner,
-//         }
-//     }
-
-//     /// Updates the event formatter by applying a function to the existing event formatter.
-//     ///
-//     /// This sets the event formatter that the layer being built will use to record fields.
-//     ///
-//     /// # Examples
-//     ///
-//     /// Updating an event formatter:
-//     ///
-//     /// ```rust
-//     /// let layer = tracing_subscriber::fmt::layer()
-//     ///     .map_event_format(|e| e.compact());
-//     /// # // this is necessary for type inference.
-//     /// # use tracing_subscriber::Layer as _;
-//     /// # let _ = layer.with_subscriber(tracing_subscriber::registry::Registry::default());
-//     /// ```
-//     pub fn map_event_format<E2>(self, f: impl FnOnce(E) -> E2) -> Layer<S, N, E2, W>
-//     where
-//         E2: FormatEvent<S, N> + 'static,
-//     {
-//         Layer {
-//             fmt_fields: self.fmt_fields,
-//             fmt_event: f(self.fmt_event),
-//             fmt_span: self.fmt_span,
-//             make_writer: self.make_writer,
-//             is_ansi: self.is_ansi,
-//             log_internal_errors: self.log_internal_errors,
-//             _inner: self._inner,
-//         }
-//     }
-// }
-
-// impl<S, N> FormatEvent<S, N>
-//     for fn(ctx: &FmtContext<'_, S, N>, Writer<'_>, &Event<'_>) -> fmt::Result
-// where
-//     S: Subscriber + for<'a> LookupSpan<'a>,
-//     N: for<'a> FormatFields<'a> + 'static,
-// {
-//     fn format_event(
-//         &self,
-//         ctx: &FmtContext<'_, S, N>,
-//         writer: Writer<'_>,
-//         event: &Event<'_>,
-//     ) -> fmt::Result {
-//         (*self)(ctx, writer, event)
-//     }
-// }
-// pub trait FormatEventEXT<S, N>
-// where
-//     S: Subscriber + for<'a> LookupSpan<'a>,
-//     N: for<'a> FormatFields<'a> + 'static,
-// {
-//     /// Write a log message for `Event` in `Context` to the given [`Writer`].
-//     fn format_event(
-//         &self,
-//         ctx: &FmtContext<'_, S, N>,
-//         writer: Writer<'_>,
-//         event: &Event<'_>,
-//     ) -> fmt::Result;
-// }
-
-// impl<S, N, T> FormatEventEXT<S, N> for Format<Compact, T>
-// where
-//     S: Subscriber + for<'a> LookupSpan<'a>,
-//     N: for<'a> FormatFields<'a> + 'static,
-//     T: FormatTime,
-// {
-//     fn format_event(
-//         &self,
-//         ctx: &FmtContext<'_, S, N>,
-//         mut writer: Writer<'_>,
-//         event: &Event<'_>,
-//     ) -> fmt::Result {
-//         #[cfg(feature = "tracing-log")]
-//         let normalized_meta = event.normalized_metadata();
-//         #[cfg(feature = "tracing-log")]
-//         let meta = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
-//         #[cfg(not(feature = "tracing-log"))]
-//         let meta = event.metadata();
-
-//         // if the `Format` struct *also* has an ANSI color configuration,
-//         // override the writer...the API for configuring ANSI color codes on the
-//         // `Format` struct is deprecated, but we still need to honor those
-//         // configurations.
-//         if let Some(ansi) = self.ansi {
-//             writer = writer.with_ansi(ansi);
-//         }
-
-//         self.format_timestamp(&mut writer)?;
-
-//         if self.display_level {
-//             let fmt_level = {
-//                 #[cfg(feature = "ansi")]
-//                 {
-//                     FmtLevel::new(meta.level(), writer.has_ansi_escapes())
-//                 }
-//                 #[cfg(not(feature = "ansi"))]
-//                 {
-//                     FmtLevel::new(meta.level())
-//                 }
-//             };
-//             write!(writer, "{} ", fmt_level)?;
-//         }
-
-//         if self.display_thread_name {
-//             let current_thread = std::thread::current();
-//             match current_thread.name() {
-//                 Some(name) => {
-//                     write!(writer, "{} ", FmtThreadName::new(name))?;
-//                 }
-//                 // fall-back to thread id when name is absent and ids are not enabled
-//                 None if !self.display_thread_id => {
-//                     write!(writer, "{:0>2?} ", current_thread.id())?;
-//                 }
-//                 _ => {}
-//             }
-//         }
-
-//         if self.display_thread_id {
-//             write!(writer, "{:0>2?} ", std::thread::current().id())?;
-//         }
-
-//         let fmt_ctx = {
-//             #[cfg(feature = "ansi")]
-//             {
-//                 FmtCtx::new(ctx, event.parent(), writer.has_ansi_escapes())
-//             }
-//             #[cfg(not(feature = "ansi"))]
-//             {
-//                 FmtCtx::new(&ctx, event.parent())
-//             }
-//         };
-//         write!(writer, "{}", fmt_ctx)?;
-
-//         let dimmed = writer.dimmed();
-
-//         let mut needs_space = false;
-//         if self.display_target {
-//             write!(
-//                 writer,
-//                 "{}{}",
-//                 dimmed.paint(meta.target()),
-//                 dimmed.paint(":")
-//             )?;
-//             needs_space = true;
-//         }
-
-//         if self.display_filename {
-//             if let Some(filename) = meta.file() {
-//                 if self.display_target {
-//                     writer.write_char(' ')?;
-//                 }
-//                 write!(writer, "{}{}", dimmed.paint(filename), dimmed.paint(":"))?;
-//                 needs_space = true;
-//             }
-//         }
-
-//         if self.display_line_number {
-//             if let Some(line_number) = meta.line() {
-//                 write!(
-//                     writer,
-//                     "{}{}{}{}",
-//                     dimmed.prefix(),
-//                     line_number,
-//                     dimmed.suffix(),
-//                     dimmed.paint(":")
-//                 )?;
-//                 needs_space = true;
-//             }
-//         }
-
-//         if needs_space {
-//             writer.write_char(' ')?;
-//         }
-
-//         ctx.format_fields(writer.by_ref(), event)?;
-
-//         for span in ctx
-//             .event_scope()
-//             .into_iter()
-//             .flat_map(crate::registry::Scope::from_root)
-//         {
-//             let exts = span.extensions();
-//             if let Some(fields) = exts.get::<FormattedFields<N>>() {
-//                 if !fields.is_empty() {
-//                     write!(writer, " {}", dimmed.paint(&fields.fields))?;
-//                 }
-//             }
-//         }
-//         writeln!(writer)
-//     }
-// }

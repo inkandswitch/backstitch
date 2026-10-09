@@ -38,6 +38,14 @@ impl FileContent {
         }
     }
 
+    pub fn as_str(&self) -> Option<Cow<'_, str>> {
+        match self {
+            FileContent::String(text) => Some(Cow::Borrowed(text)),
+            FileContent::Binary(data) => Some(Cow::Borrowed(std::str::from_utf8(data).unwrap())),
+            FileContent::Scene(scene) => Some(Cow::Owned(scene.serialize())),
+        }
+    }
+
     // Write file content to disk
     async fn write_file_content(
         path: &PathBuf,

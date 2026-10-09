@@ -215,7 +215,6 @@ impl fmt::Display for TimeNoDate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            // "-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
             "{:02}:{:02}:{:02}.{:06}",
             self.hour,
             self.minute,

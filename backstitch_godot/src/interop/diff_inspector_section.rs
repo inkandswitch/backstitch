@@ -1,12 +1,12 @@
-use godot::builtin::{Color, GString, Rect2, StringName, Vector2};
+use godot::builtin::{Color, GString, Rect2, Vector2};
 use godot::classes::class_macros::private::virtuals::Xrvrs::Side;
-use godot::classes::control::{LayoutDirection, SizeFlags};
-use godot::classes::notify::ContainerNotification;
+use godot::classes::control::{LayoutDirection, LayoutPreset, SizeFlags};
+use godot::classes::notify::{ContainerNotification, ControlNotification};
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
-    ColorRect, Container, Control, EditorInspector, EditorProperty, IContainer, Input, InputEvent,
-    InputEventMouseButton, Label, MarginContainer, MissingResource, Object, PanelContainer,
-    StyleBoxFlat, Texture2D, Timer, VBoxContainer,
+    ColorRect, Container, Control, EditorInspector, EditorProperty, IColorRect, IContainer,
+    IPanelContainer, Input, InputEvent, InputEventMouseButton, Label, MarginContainer,
+    MissingResource, Object, PanelContainer, StyleBoxFlat, Texture2D, Timer, VBoxContainer,
 };
 use godot::global::{HorizontalAlignment, MouseButton};
 use godot::prelude::*;
@@ -15,6 +15,305 @@ use godot::register::info::PropertyHint;
 use crate::interop::godot_helpers::ThemeGetter;
 use crate::interop::lazy_load_editor_property::LazyLoadTokenEditorProperty;
 use crate::interop::lazy_load_token::LazyLoadToken;
+
+fn theme_name_for_change_type(change_type: &str) -> &str {
+    match change_type {
+        "modified" => "prop_subsection_modified",
+        "added" => "prop_subsection_added",
+        "removed" => "prop_subsection_removed",
+        _ => "prop_subsection_modified",
+    }
+}
+
+fn snake_case_to_human_readable(snake_case_string: &str) -> String {
+    let words = snake_case_string.split("_");
+    let title_case_words = words
+        .map(|word| {
+            if word.is_empty() {
+                return String::new();
+            }
+            word.chars().nth(0).unwrap().to_uppercase().to_string() + &word[1..]
+        })
+        .collect::<Vec<String>>();
+    title_case_words.join(" ")
+}
+
+pub trait UpdatePropEditor {
+    fn update(&mut self);
+}
+
+impl UpdatePropEditor for Gd<EditorProperty> {
+    fn update(&mut self) {
+        self.set_read_only(true);
+        self.update_property();
+        self.call("_update_editor_property_status", &[]);
+    }
+}
+
+#[derive(GodotClass)]
+#[class(tool, base=ColorRect, init)]
+pub struct DiffColorMarker {
+    base: Base<ColorRect>,
+    type_name: String, // "modified", "added", "removed", "changed"
+}
+
+#[godot_api]
+impl IColorRect for DiffColorMarker {
+    fn on_notification(&mut self, what: ControlNotification) {
+        match what {
+            ControlNotification::THEME_CHANGED => {
+                let color = self.get_change_color();
+                self.base_mut().set_color(color);
+            }
+            _ => (),
+        }
+    }
+}
+
+#[godot_api]
+impl DiffColorMarker {
+    fn get_change_color(&self) -> Color {
+        self.get_theme_color(theme_name_for_change_type(&self.type_name), "Editor")
+    }
+
+    #[func]
+    pub fn new(type_name: String) -> Gd<Self> {
+        let mut color_rect = Gd::from_init_fn(|base: Base<ColorRect>| Self { base, type_name });
+        let change_color = color_rect.bind().get_change_color();
+        color_rect.set_color(change_color);
+        color_rect.set_custom_minimum_size(Vector2::new(10.0, 10.0));
+        color_rect.set_layout_direction(LayoutDirection::LTR);
+        color_rect.set_h_size_flags(SizeFlags::SHRINK_CENTER);
+        color_rect
+    }
+}
+
+#[derive(GodotClass)]
+#[class(tool, base=PanelContainer)]
+#[allow(unused)]
+pub struct DiffEditorPropertyContainer {
+    base: Base<PanelContainer>,
+    type_name: String,
+    object: Gd<Object>,
+    prop_name: String,
+    prop_editor: Gd<EditorProperty>,
+    label: Gd<Label>,
+    color_marker_container: Gd<MarginContainer>,
+}
+
+#[godot_api]
+impl IPanelContainer for DiffEditorPropertyContainer {
+    fn init(base: Base<PanelContainer>) -> Self {
+        Self {
+            base,
+            type_name: "modified".to_string(),
+            object: MissingResource::new_gd().upcast::<Object>(),
+            prop_name: "".to_string(),
+            prop_editor: EditorProperty::new_alloc(),
+            label: Label::new_alloc(),
+            color_marker_container: Self::create_color_marker_container("modified"),
+        }
+    }
+}
+
+#[godot_api]
+impl DiffEditorPropertyContainer {
+    #[func]
+    pub fn instance_property_diff(
+        object: Gd<Object>,
+        path: String,
+        wide: bool,
+    ) -> Option<Gd<EditorProperty>> {
+        let list = object.get_property_list();
+        for property in list.iter_shared() {
+            let name = property.get("name");
+            if name.is_some() && name.unwrap().to::<String>() == path {
+                let property_type = VariantType::from_ord(property.get("type")?.to::<i64>() as i32);
+                let property_hint =
+                    PropertyHint::from_ord(property.get("hint")?.to::<i64>() as i32);
+                let property_hint_string = property.get("hint_string")?.to::<GString>();
+                let property_usage = property.get("usage")?.to::<i64>() as u32;
+                return EditorInspector::instantiate_property_editor_ex(
+                    &object,
+                    property_type,
+                    &path,
+                    property_hint,
+                    &property_hint_string,
+                    property_usage,
+                )
+                .wide(wide)
+                .done();
+            }
+        }
+        None
+    }
+
+    fn get_editor_property(
+        object: &Gd<Object>,
+        prop_name: &str,
+        prop_value: &Variant,
+    ) -> Option<Gd<EditorProperty>> {
+        let mut editor_property = match prop_value.try_to::<Gd<LazyLoadToken>>() {
+            Ok(lazy_load_token) => {
+                LazyLoadTokenEditorProperty::create(lazy_load_token).upcast::<EditorProperty>()
+            }
+            Err(_) => Self::instance_property_diff(object.clone(), prop_name.to_string(), false)?,
+        };
+        editor_property.set_object_and_property(object, prop_name);
+        editor_property.update();
+        Some(editor_property)
+    }
+
+    fn set_property(object: &Gd<Object>, prop_name: &str, prop_value: &Variant) {
+        let mut object = object.clone();
+        if let Some(mut fake_object) = object.clone().try_cast::<MissingResource>().ok() {
+            fake_object.set_recording_properties(true);
+            fake_object.set(prop_name, &prop_value);
+            fake_object.set_recording_properties(false);
+        } else {
+            object.set(prop_name, prop_value);
+        }
+    }
+
+    fn create_color_marker_container(change_type: &str) -> Gd<MarginContainer> {
+        let color_rect = DiffColorMarker::new(change_type.to_string());
+        let mut margin_container = MarginContainer::new_alloc();
+        margin_container.call("_set_layout_mode", &[2.to_variant()]);
+        margin_container.add_theme_constant_override("margin_right", 20);
+        margin_container.add_child(&color_rect);
+        margin_container
+    }
+
+    //thiny
+    #[func]
+    fn update_to_real_editor_property(&mut self, resource: Gd<Resource>) {
+        let res_variant = resource.to_variant();
+        Self::set_property(&self.object, &self.prop_name, &res_variant);
+
+        let real_editor_property =
+            Self::instance_property_diff(self.object.clone(), self.prop_name.to_string(), true);
+        if let Some(mut real_editor_property) = real_editor_property {
+            real_editor_property.set_anchors_preset(LayoutPreset::FULL_RECT);
+            real_editor_property.set_object_and_property(&self.object, &self.prop_name);
+            real_editor_property.update();
+            let mut old_prop_editor = self.prop_editor.clone();
+            self.base_mut().remove_child(&old_prop_editor);
+            self.base_mut().add_child(&real_editor_property);
+            self.prop_editor = real_editor_property;
+            old_prop_editor.queue_free();
+        }
+    }
+
+    pub fn create(
+        object: Gd<Object>,
+        prop_name: &str,
+        prop_value: Variant,
+        change_type: &str,
+        prop_label: &str,
+    ) -> Option<Gd<DiffEditorPropertyContainer>> {
+        Self::set_property(&object, prop_name, &prop_value);
+
+        let Some(editor_property) = Self::get_editor_property(&object, prop_name, &prop_value)
+        else {
+            tracing::error!(
+                "Failed to get editor property for {} of type {}",
+                prop_name,
+                prop_value.get_type().godot_type_name()
+            );
+            return None;
+        };
+        let mut label = Label::new_alloc();
+        label.set_text(prop_label);
+        let color_rect = Self::create_color_marker_container(change_type);
+        let mut _self = Gd::from_init_fn(|base: Base<PanelContainer>| Self {
+            base,
+            type_name: change_type.to_string(),
+            object,
+            prop_name: prop_name.to_string(),
+            prop_editor: editor_property.clone(),
+            label: label.clone(),
+            color_marker_container: color_rect.clone(),
+        });
+        if let Ok(mut lled) = editor_property
+            .clone()
+            .try_cast::<LazyLoadTokenEditorProperty>()
+        {
+            let thing = Callable::from_object_method(&_self, "update_to_real_editor_property");
+            lled.connect("resource_loaded", &thing);
+        }
+        _self.add_child(&label);
+        _self.add_child(&color_rect);
+        _self.add_child(&editor_property);
+        Some(_self)
+    }
+}
+
+#[derive(GodotClass)]
+#[class(tool, base=VBoxContainer, init)]
+#[allow(unused)]
+pub struct DiffPropertyView {
+    base: Base<VBoxContainer>,
+    type_name: String, // "modified", "added", "removed", "changed"
+    prop_name: String,
+    old_prop_editor: Option<Gd<DiffEditorPropertyContainer>>,
+    new_prop_editor: Option<Gd<DiffEditorPropertyContainer>>,
+}
+
+#[godot_api]
+impl DiffPropertyView {
+    #[func]
+    pub fn create(
+        change_type: String,
+        object: Gd<Object>,
+        prop_name: String,
+        old_prop_value: Variant,
+        new_prop_value: Variant,
+        label: String,
+    ) -> Gd<Self> {
+        let label = if label.is_empty() {
+            snake_case_to_human_readable(&prop_name)
+        } else {
+            label
+        };
+        let old_property_editor = if change_type != "added" {
+            DiffEditorPropertyContainer::create(
+                object.clone(),
+                &format!("{}_old", prop_name),
+                old_prop_value,
+                "removed",
+                &label,
+            )
+        } else {
+            None
+        };
+        let new_property_editor = if change_type != "removed" {
+            DiffEditorPropertyContainer::create(
+                object.clone(),
+                &format!("{}_new", prop_name),
+                new_prop_value,
+                "added",
+                &label,
+            )
+        } else {
+            None
+        };
+
+        let mut _self = Gd::from_init_fn(|base: Base<VBoxContainer>| Self {
+            base,
+            type_name: change_type.to_string(),
+            prop_name: prop_name.to_string(),
+            old_prop_editor: old_property_editor.clone(),
+            new_prop_editor: new_property_editor.clone(),
+        });
+        if let Some(old_prop_editor) = old_property_editor {
+            _self.add_child(&old_prop_editor);
+        }
+        if let Some(new_prop_editor) = new_property_editor {
+            _self.add_child(&new_prop_editor);
+        }
+        _self
+    }
+}
 
 #[derive(GodotClass)]
 #[class(tool, base=Container)]
@@ -246,22 +545,14 @@ impl DiffInspectorSection {
     // header. It's the same code from draw() that computes the header rect.
     // Ideally we'd factor out the dimensions.
     fn get_header_rect(&self) -> Rect2 {
-        let section_indent_size = self
-            .base()
-            .get_theme_constant_ex(&StringName::from("indent_size"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_size = self.get_theme_constant("indent_size", "DiffInspectorSection");
         let mut section_indent = 0;
 
         if self.indent_depth > 0 && section_indent_size > 0 {
             section_indent = self.indent_depth * section_indent_size;
         }
 
-        let section_indent_style = self
-            .base()
-            .get_theme_stylebox_ex(&StringName::from("indent_box"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_style = self.get_theme_stylebox("indent_box", "DiffInspectorSection");
         if self.indent_depth > 0
             && let Some(ref style) = section_indent_style
             && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
@@ -295,16 +586,8 @@ impl DiffInspectorSection {
     }
 
     fn get_header_height(&self) -> f32 {
-        let font = self
-            .base()
-            .get_theme_font_ex(&StringName::from("bold"))
-            .theme_type(&StringName::from("EditorFonts"))
-            .done();
-        let font_size = self
-            .base()
-            .get_theme_font_size_ex(&StringName::from("bold_size"))
-            .theme_type(&StringName::from("EditorFonts"))
-            .done();
+        let font = self.get_theme_font("bold", "EditorFonts");
+        let font_size = self.get_theme_font_size("bold_size", "EditorFonts");
 
         let mut header_height = if let Some(ref font) = font {
             font.get_height_ex().font_size(font_size).done()
@@ -316,11 +599,7 @@ impl DiffInspectorSection {
             header_height = header_height.max(arrow.get_height() as f32);
         }
 
-        let v_separation = self
-            .base()
-            .get_theme_constant_ex(&StringName::from("v_separation"))
-            .theme_type(&StringName::from("Tree"))
-            .done();
+        let v_separation = self.get_theme_constant("v_separation", "Tree");
         header_height += v_separation as f32;
 
         header_height
@@ -332,42 +611,20 @@ impl DiffInspectorSection {
         }
 
         if self.unfolded {
-            self.base()
-                .get_theme_icon_ex(&StringName::from("arrow"))
-                .theme_type(&StringName::from("Tree"))
-                .done()
+            self.get_theme_icon("arrow", "Tree")
         } else {
             let rtl = self.base().is_layout_rtl();
             if rtl {
-                self.base()
-                    .get_theme_icon_ex(&StringName::from("arrow_collapsed_mirrored"))
-                    .theme_type(&StringName::from("Tree"))
-                    .done()
+                self.get_theme_icon("arrow_collapsed_mirrored", "Tree")
             } else {
-                self.base()
-                    .get_theme_icon_ex(&StringName::from("arrow_collapsed"))
-                    .theme_type(&StringName::from("Tree"))
-                    .done()
+                self.get_theme_icon("arrow_collapsed", "Tree")
             }
         }
     }
 
     fn update_bg_color(&mut self) {
-        let color_name = if self.type_name == "modified" {
-            "prop_subsection_modified"
-        } else if self.type_name == "added" {
-            "prop_subsection_added"
-        } else if self.type_name == "removed" {
-            "prop_subsection_removed"
-        } else {
-            "prop_subsection"
-        };
-
-        self.bg_color = self
-            .base()
-            .get_theme_color_ex(color_name)
-            .theme_type(&StringName::from("Editor"))
-            .done();
+        self.bg_color = self.get_theme_color(theme_name_for_change_type(&self.type_name), "Editor");
+        self.base_mut().queue_redraw();
     }
 
     fn add_timer(&mut self) {
@@ -397,139 +654,6 @@ impl DiffInspectorSection {
         None
     }
 
-    pub fn update_property_editor(editor_property: &mut Gd<EditorProperty>) {
-        editor_property.set_read_only(true);
-        editor_property.update_property();
-        editor_property.call("_update_editor_property_status", &[]);
-    }
-
-    fn get_color_for_change_type(&self, change_type: &str) -> Color {
-        self.base()
-            .get_theme_color_ex(&format!("prop_subsection_{}", change_type))
-            .theme_type(&StringName::from("Editor"))
-            .done()
-    }
-
-    #[func]
-    fn update_color_rect(change_type: GString, color_rect: Gd<ColorRect>) {
-        let mut color_rect = color_rect;
-        let color = color_rect
-            .get_theme_color_ex(&format!("prop_subsection_{}", change_type))
-            .theme_type(&StringName::from("Editor"))
-            .done();
-        color_rect.set_color(color);
-        color_rect.queue_redraw();
-    }
-
-    fn add_color_marker(&self, change_type: &str, panel_container: &mut Gd<PanelContainer>) {
-        let mut color_rect = ColorRect::new_alloc();
-        color_rect.set_color(self.get_color_for_change_type(change_type));
-        color_rect.set_custom_minimum_size(Vector2::new(10.0, 10.0));
-        color_rect.set_layout_direction(LayoutDirection::LTR);
-        color_rect.call("_set_layout_mode", &[2.to_variant()]);
-
-        color_rect.set_h_size_flags(SizeFlags::SHRINK_CENTER);
-        let mut margin_container = MarginContainer::new_alloc();
-        margin_container.call("_set_layout_mode", &[2.to_variant()]);
-        margin_container.add_theme_constant_override("margin_right", 20);
-        margin_container.add_child(&color_rect);
-        panel_container.add_child(&margin_container);
-        let callable = Callable::from_fn("update_color_rect", |vars| {
-            if vars.len() != 2 {
-                tracing::error!("Expected 2 variables, got {}", vars.len());
-                return;
-            }
-            let Ok(change_type) = vars[0].try_to::<GString>() else {
-                tracing::error!(
-                    "Expected change_type to be a GString, got {}",
-                    vars[0].get_type().as_str()
-                );
-                return;
-            };
-            let Ok(color_rect) = vars[1].try_to::<Gd<ColorRect>>() else {
-                tracing::error!(
-                    "Expected color_rect to be a Gd<ColorRect>, got {}",
-                    vars[1].get_type().as_str()
-                );
-                return;
-            };
-            Self::update_color_rect(change_type, color_rect);
-        })
-        .bind(&[change_type.to_variant(), color_rect.to_variant()]);
-        color_rect.connect("theme_changed", &callable);
-    }
-
-    fn add_label(label: &str, panel_container: &mut Gd<PanelContainer>) {
-        let mut label_node = Label::new_alloc();
-        label_node.set_text(label);
-        panel_container.add_child(&label_node);
-    }
-
-    fn snake_case_to_human_readable(snake_case_string: &str) -> String {
-        let words = snake_case_string.split("_");
-        let title_case_words = words
-            .map(|word| {
-                if word.is_empty() {
-                    return String::new();
-                }
-                word.chars().nth(0).unwrap().to_uppercase().to_string() + &word[1..]
-            })
-            .collect::<Vec<String>>();
-        title_case_words.join(" ")
-    }
-
-    fn create_prop_editor(
-        &self,
-        prop_name: &str,
-        prop_value: Variant,
-        change_type: &str,
-        prop_label: &str,
-    ) -> Option<Gd<PanelContainer>> {
-        let mut fake_object = self.get_object()?.try_cast::<MissingResource>().ok()?;
-        fake_object.set_recording_properties(true);
-        fake_object.set(prop_name, &prop_value);
-        fake_object.set_recording_properties(false);
-        let mut editor_property = match prop_value.try_to::<Gd<LazyLoadToken>>() {
-            Ok(lazy_load_token) => {
-                LazyLoadTokenEditorProperty::create(lazy_load_token).upcast::<EditorProperty>()
-            }
-            Err(_) => Self::instance_property_diff(
-                fake_object.clone().upcast::<Object>(),
-                prop_name.to_string(),
-                false,
-            )?,
-        };
-
-        editor_property.set_object_and_property(&self.get_object().unwrap(), prop_name);
-        Self::update_property_editor(&mut editor_property);
-        let mut panel_container = PanelContainer::new_alloc();
-        Self::add_label(prop_label, &mut panel_container);
-        self.add_color_marker(change_type, &mut panel_container);
-        panel_container.add_child(&editor_property);
-        Some(panel_container)
-    }
-
-    fn try_add_prop_editor(
-        &mut self,
-        prop_name: &str,
-        prop_value: Variant,
-        change_type: &str,
-        prop_label: &str,
-    ) {
-        let var_type = prop_value.get_type();
-        let Some(prop_editor) =
-            self.create_prop_editor(prop_name, prop_value, change_type, prop_label)
-        else {
-            tracing::error!(
-                "Failed to get prop editor for value of {} and variant type of {}",
-                prop_name,
-                var_type.as_str()
-            );
-            return;
-        };
-        self.vbox.add_child(&prop_editor);
-    }
-
     #[func]
     fn add_old_and_new(
         &mut self,
@@ -539,29 +663,15 @@ impl DiffInspectorSection {
         new_prop_value: Variant,
         label: String,
     ) {
-        let has_old = change_type != "added";
-        let has_new = change_type != "removed";
-        let label = if label.is_empty() {
-            Self::snake_case_to_human_readable(&prop_name)
-        } else {
-            label
-        };
-        if has_old {
-            self.try_add_prop_editor(
-                &format!("{}_old", prop_name),
-                old_prop_value,
-                "removed",
-                &label,
-            );
-        }
-        if has_new {
-            self.try_add_prop_editor(
-                &format!("{}_new", prop_name),
-                new_prop_value,
-                "added",
-                &label,
-            );
-        }
+        let diff_property_view = DiffPropertyView::create(
+            change_type,
+            self.get_object().unwrap(),
+            prop_name,
+            old_prop_value,
+            new_prop_value,
+            label,
+        );
+        self.vbox.add_child(&diff_property_view);
     }
 
     #[func]
@@ -577,7 +687,7 @@ impl DiffInspectorSection {
         {
             return;
         }
-        let prop_label = Self::snake_case_to_human_readable(&file_path);
+        let prop_label = snake_case_to_human_readable(&file_path);
         let mut fake_node: Gd<MissingResource> = MissingResource::new_gd();
         fake_node.set_original_class("Resource");
         self.add_old_and_new(
@@ -645,45 +755,21 @@ impl IContainer for DiffInspectorSection {
             }
         }
 
-        let font = self
-            .base()
-            .get_theme_font_ex(&StringName::from("font"))
-            .theme_type(&StringName::from("Tree"))
-            .done();
-        let font_size = self
-            .base()
-            .get_theme_font_size_ex(&StringName::from("font_size"))
-            .theme_type(&StringName::from("Tree"))
-            .done();
+        let font = self.get_theme_font("font", "Tree");
+        let font_size = self.get_theme_font_size("font_size", "Tree");
         if let Some(ref font) = font {
             ms.y += font.get_height_ex().font_size(font_size).done()
-                + self
-                    .base()
-                    .get_theme_constant_ex(&StringName::from("v_separation"))
-                    .theme_type(&StringName::from("Tree"))
-                    .done() as f32;
+                + self.get_theme_constant("v_separation", "Tree") as f32;
         }
 
-        ms.x += self
-            .base()
-            .get_theme_constant_ex(&StringName::from("inspector_margin"))
-            .theme_type(&StringName::from("Editor"))
-            .done() as f32;
+        ms.x += self.get_theme_constant("inspector_margin", "Editor") as f32;
 
-        let section_indent_size = self
-            .base()
-            .get_theme_constant_ex(&StringName::from("indent_size"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_size = self.get_theme_constant("indent_size", "DiffInspectorSection");
         if self.indent_depth > 0 && section_indent_size > 0 {
             ms.x += (self.indent_depth * section_indent_size) as f32;
         }
 
-        let section_indent_style = self
-            .base()
-            .get_theme_stylebox_ex(&StringName::from("indent_box"))
-            .theme_type(&StringName::from("DiffInspectorSection"))
-            .done();
+        let section_indent_style = self.get_theme_stylebox("indent_box", "DiffInspectorSection");
         if self.indent_depth > 0
             && let Some(ref style) = section_indent_style
             && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
@@ -751,27 +837,17 @@ impl IContainer for DiffInspectorSection {
                     return;
                 }
 
-                let inspector_margin = self
-                    .base()
-                    .get_theme_constant_ex(&StringName::from("inspector_margin"))
-                    .theme_type(&StringName::from("Editor"))
-                    .done();
+                let inspector_margin = self.get_theme_constant("inspector_margin", "Editor");
                 let mut inspector_margin_val = inspector_margin as f32;
 
-                let section_indent_size = self
-                    .base()
-                    .get_theme_constant_ex(&StringName::from("indent_size"))
-                    .theme_type(&StringName::from("DiffInspectorSection"))
-                    .done();
+                let section_indent_size =
+                    self.get_theme_constant("indent_size", "DiffInspectorSection");
                 if self.indent_depth > 0 && section_indent_size > 0 {
                     inspector_margin_val += (self.indent_depth * section_indent_size) as f32;
                 }
 
-                let section_indent_style = self
-                    .base()
-                    .get_theme_stylebox_ex(&StringName::from("indent_box"))
-                    .theme_type(&StringName::from("DiffInspectorSection"))
-                    .done();
+                let section_indent_style =
+                    self.get_theme_stylebox("indent_box", "DiffInspectorSection");
                 if self.indent_depth > 0
                     && let Some(ref style) = section_indent_style
                     && let Ok(style_flat) = style.clone().try_cast::<StyleBoxFlat>()
@@ -907,16 +983,8 @@ impl DiffInspectorSection {
         // let folded = self.foldable && !self.unfolded;
         // let child_count = self.base().get_child_count() - 1; // -1 for the vertical seperator
         // if folded && child_count > 0 {
-        //     let font = self
-        //         .base()
-        //         .get_theme_font_ex(&StringName::from("bold"))
-        //         .theme_type(&StringName::from("EditorFonts"))
-        //         .done();
-        //     let font_size = self
-        //         .base()
-        //         .get_theme_font_size_ex(&StringName::from("bold_size"))
-        //         .theme_type(&StringName::from("EditorFonts"))
-        //         .done();
+        //     let font = self.get_theme_font("bold", "EditorFonts");
+        //     let font_size = self.get_theme_font_size("bold_size", "EditorFonts");
 
         //     if let Some(ref font) = font {
         //         // Use KASHIDA and CONSTRAIN_ELLIPSIS for label width calculation (matching C++)
@@ -931,21 +999,9 @@ impl DiffInspectorSection {
         //             .done()
         //             .x;
 
-        //         let light_font = self
-        //             .base()
-        //             .get_theme_font_ex(&StringName::from("main"))
-        //             .theme_type(&StringName::from("EditorFonts"))
-        //             .done();
-        //         let light_font_size = self
-        //             .base()
-        //             .get_theme_font_size_ex(&StringName::from("main_size"))
-        //             .theme_type(&StringName::from("EditorFonts"))
-        //             .done();
-        //         let light_font_color = self
-        //             .base()
-        //             .get_theme_color_ex(&StringName::from("font_disabled_color"))
-        //             .theme_type(&StringName::from("Editor"))
-        //             .done();
+        //         let light_font = self.get_theme_font("main", "EditorFonts");
+        //         let light_font_size = self.get_theme_font_size("main_size", "EditorFonts");
+        //         let light_font_color = self.get_theme_color("font_disabled_color", "Editor");
 
         //         if let Some(ref light_font) = light_font {
         //             let count = child_count;

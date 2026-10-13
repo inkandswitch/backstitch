@@ -36,7 +36,7 @@ static PREVIOUS_PANIC_HOOK: Mutex<Option<PanicHook>> = Mutex::new(None);
 
 #[cfg(feature = "tokio-console")]
 struct ConsoleServer {
-    shutdown: tokio::sync::oneshot::Sender<()>,
+    shutdown: tokio_util::sync::CancellationToken,
     thread: std::thread::JoinHandle<()>,
 }
 
@@ -50,6 +50,7 @@ fn spawn_console_layer<S>() -> impl Layer<S>
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
+    // copied from https://github.com/tokio-rs/console/blob/b59758e5a6effe3a9df3ec84a2f28d319d178234/console-subscriber/src/builder.rs#L513
     fn console_filter(meta: &tracing::Metadata<'_>) -> bool {
         // events will have *targets* beginning with "runtime"
         if meta.is_event() {
@@ -65,7 +66,8 @@ where
     let (layer, server) = console_subscriber::ConsoleLayer::builder()
         .with_default_env()
         .build();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let shutdown_thread = shutdown.clone();
     let thread = std::thread::Builder::new()
         .name("console_subscriber".into())
         .spawn(move || {
@@ -84,7 +86,7 @@ where
                             eprintln!("console subscriber server failed: {err}");
                         }
                     }
-                    _ = shutdown_rx => {}
+                    _ = shutdown_thread.cancelled() => {}
                 }
             });
             // Dropping the runtime aborts the listener and aggregator and releases the port.
@@ -92,7 +94,7 @@ where
         })
         .expect("console subscriber could not spawn thread");
     *CONSOLE_SERVER.lock().unwrap_or_else(|err| err.into_inner()) = Some(ConsoleServer {
-        shutdown: shutdown_tx,
+        shutdown,
         thread,
     });
     layer.with_filter(tracing_subscriber::filter::FilterFn::new(console_filter))
@@ -183,7 +185,7 @@ pub(crate) fn deinitialize_tracing() {
         .unwrap_or_else(|err| err.into_inner())
         .take()
     {
-        let _ = server.shutdown.send(());
+        server.shutdown.cancel();
         let _ = server.thread.join();
     }
 

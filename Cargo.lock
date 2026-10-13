@@ -469,6 +469,7 @@ dependencies = [
  "safer-ffi",
  "samod",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-panic",

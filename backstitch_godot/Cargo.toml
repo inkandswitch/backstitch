@@ -13,7 +13,7 @@ doc = false
 
 [features]
 default = []
-tokio-console = ["dep:console-subscriber", "tokio/tracing"]
+tokio-console = ["dep:console-subscriber", "dep:tokio-util", "tokio/tracing"]
 
 [dependencies]
 backstitch = { path = "../backstitch" }
@@ -29,6 +29,7 @@ samod = { workspace = true }
 safer-ffi = { workspace = true }
 regex = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true, optional = true }
 console-subscriber = { workspace = true, optional = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

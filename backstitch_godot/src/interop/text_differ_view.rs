@@ -3,7 +3,7 @@ use backstitch::helpers::utils::ChangeType;
 use godot::builtin::{Array, GString, StringName, VarDictionary};
 use godot::classes::{
     DisplayServer, EditorInterface, IRichTextLabel, InputEvent, InputEventMouseButton, PopupMenu,
-    ProjectSettings, RichTextLabel, Theme,
+    RichTextLabel, Theme,
 };
 use godot::global::MouseButton;
 use godot::prelude::*;

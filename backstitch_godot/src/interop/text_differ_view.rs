@@ -3,7 +3,7 @@ use backstitch::helpers::utils::ChangeType;
 use godot::builtin::{Array, GString, StringName, VarDictionary};
 use godot::classes::{
     DisplayServer, EditorInterface, IRichTextLabel, InputEvent, InputEventMouseButton, PopupMenu,
-    RichTextLabel, Theme,
+    ProjectSettings, RichTextLabel, Theme,
 };
 use godot::global::MouseButton;
 use godot::prelude::*;
@@ -416,7 +416,7 @@ impl TextDifferView {
         self.redraw();
     }
 
-    pub fn get_diff_file(&self) -> TextDiff {
+    fn get_diff_file(&self) -> TextDiff {
         self.diff_file.clone()
     }
 
@@ -468,6 +468,36 @@ impl TextDifferView {
             _ => {}
         }
     }
+
+    fn _prepare_popup_menu(&mut self) {
+        let mut popup_menu = self.popup_menu.clone();
+        popup_menu.clear_ex().free_submenus(true).done();
+        popup_menu
+            .add_radio_check_item_ex("Display Unified View")
+            .id(Self::DISPLAY_UNIFIED_VIEW)
+            .done();
+        popup_menu
+            .add_radio_check_item_ex("Display Split View")
+            .id(Self::DISPLAY_SPLIT_VIEW)
+            .done();
+        popup_menu.set_item_checked(Self::DISPLAY_UNIFIED_VIEW, !self.split_view);
+        popup_menu.set_item_checked(Self::DISPLAY_SPLIT_VIEW, self.split_view);
+        let Some(editor_settings) = EditorInterface::singleton().get_editor_settings() else {
+            godot_error!("Editor settings are none");
+            return;
+        };
+        let dev_mode = editor_settings
+            .get_setting("backstitch/GUI/dev_mode")
+            .try_to::<bool>()
+            .unwrap_or(false);
+        if dev_mode {
+            popup_menu.add_separator();
+            popup_menu
+                .add_item_ex("Copy As Unified Diff")
+                .id(Self::COPY_AS_UNIFIED_DIFF)
+                .done();
+        }
+    }
 }
 
 #[godot_api]
@@ -489,22 +519,6 @@ impl IRichTextLabel for TextDifferView {
         // setup popup menu
         let mut popup_menu = self.popup_menu.clone();
         popup_menu.set_visible(false);
-        popup_menu
-            .add_radio_check_item_ex("Display Unified View")
-            .id(Self::DISPLAY_UNIFIED_VIEW)
-            .done();
-        popup_menu
-            .add_radio_check_item_ex("Display Split View")
-            .id(Self::DISPLAY_SPLIT_VIEW)
-            .done();
-        popup_menu.set_item_checked(Self::DISPLAY_UNIFIED_VIEW, !self.split_view);
-        popup_menu.set_item_checked(Self::DISPLAY_SPLIT_VIEW, self.split_view);
-        popup_menu.add_separator();
-        popup_menu
-            .add_item_ex("Copy As Unified Diff")
-            .id(Self::COPY_AS_UNIFIED_DIFF)
-            .done();
-
         self.base_mut().add_child(&popup_menu);
         let callable = Callable::from_object_method(&self.to_gd(), "_on_popup_menu_id_pressed");
         popup_menu.connect("id_pressed", &callable);
@@ -516,6 +530,7 @@ impl IRichTextLabel for TextDifferView {
             let is_pressed = mb.is_pressed();
             let button_index = mb.get_button_index();
             if is_pressed && button_index == MouseButton::RIGHT {
+                self._prepare_popup_menu();
                 self.popup_menu
                     .set_position(DisplayServer::singleton().mouse_get_position());
                 self.popup_menu.set_visible(true);

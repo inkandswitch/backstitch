@@ -119,7 +119,7 @@ impl Differ {
                 || matches!(new_file_content, Some(FileContent::Scene(_)))
             {
                 // If either the new scene or the old scene was unable to parse, fallback to a text-diff.
-                if matches!(old_file_content, Some(FileContent::String(_)))         
+                if matches!(old_file_content, Some(FileContent::String(_)))
                     || matches!(new_file_content, Some(FileContent::String(_)))
                 {
                     diffs.push(Diff::Text(self.get_text_diff(

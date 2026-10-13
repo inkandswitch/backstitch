@@ -3,6 +3,7 @@ use std::path::Path;
 use super::*;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use uuid::Uuid;
 
 const INDEX_TEST: &str = r#"[gd_scene format=4 uid="uid://g64l65moc1sx"]
 
@@ -761,7 +762,8 @@ async fn test_hash_stable() {
         assert_eq!(hash1, hash3);
         assert_eq!(hash1, hash4);
 
-        let path = &std::env::temp_dir().join("testscene.tscn");
+        // use a random name for the file to avoid collisions
+        let path = &std::env::temp_dir().join(format!("testscene_{}.tscn", Uuid::new_v4()));
         write_file(path, scene).await;
         assert_eq!(hash1, compute_hash(path).await.unwrap());
 
@@ -781,6 +783,7 @@ async fn test_hash_stable() {
 async fn write_file(path: &Path, string: &str) {
     let mut file = File::create(path).await.unwrap();
     file.write_all(string.as_bytes()).await.unwrap();
+    file.flush().await.unwrap();
 }
 
 // todo: this sucks and is just a copy of the method from fs_index. Should figure out a way to unify hashing tests.

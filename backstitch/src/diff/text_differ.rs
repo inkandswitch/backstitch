@@ -148,9 +148,21 @@ impl TextDiff {
         }
         out
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.diff_hunks.is_empty() && self.path.is_empty()
+    }
 }
 
 impl Differ {
+    fn content_to_cow(content: Option<&FileContent>) -> std::borrow::Cow<'_, str> {
+        match content {
+            Some(FileContent::Binary(_)) => std::borrow::Cow::Borrowed("<BINARY DATA>"),
+            Some(content) => content.as_str().unwrap_or(std::borrow::Cow::Borrowed("")),
+            None => std::borrow::Cow::Borrowed(""),
+        }
+    }
+
     pub(super) fn get_text_diff(
         &self,
         path: &str,
@@ -158,17 +170,8 @@ impl Differ {
         old_content: Option<&FileContent>,
         new_content: Option<&FileContent>,
     ) -> TextDiff {
-        let empty_string = String::from("");
-        let old_text = if let Some(FileContent::String(s)) = old_content {
-            s
-        } else {
-            &empty_string
-        };
-        let new_text = if let Some(FileContent::String(s)) = new_content {
-            s
-        } else {
-            &empty_string
-        };
-        TextDiff::create(path, old_text, new_text, change_type)
+        let old_text = Self::content_to_cow(old_content);
+        let new_text = Self::content_to_cow(new_content);
+        TextDiff::create(path, old_text.as_ref(), new_text.as_ref(), change_type)
     }
 }

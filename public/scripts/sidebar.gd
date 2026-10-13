@@ -99,6 +99,12 @@ var auto_generate_diffs: bool:
 	set(value):
 		EditorInterface.get_editor_settings().set_setting("backstitch/GUI/auto_generate_diffs", value)
 
+var dev_mode: bool:
+	get:
+		return get_editor_setting("backstitch/GUI/dev_mode", false)
+	set(value):
+		EditorInterface.get_editor_settings().set_setting("backstitch/GUI/dev_mode", value)
+
 const CREATE_BRANCH_IDX = 1
 const MERGE_BRANCH_IDX = 2
 
@@ -132,11 +138,6 @@ func _update_ui_on_sync_status_change():
 
 func _on_reload_ui_button_pressed():
 	reload_ui.emit()
-
-func _is_dev_mode() -> bool:
-	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.DEV_MODE)
-	var checked = action_menu_button.get_popup().is_item_checked(idx)
-	return checked
 
 func _on_init_button_pressed():
 	if BackstitchUtils.create_unsaved_files_dialog(self, "Please save your unsaved files before initializing a new project."):
@@ -183,6 +184,7 @@ func _on_start_status_changed(status: Dictionary):
 
 func update_init_panel():
 	var has_project = GodotProject.has_project()
+	var is_dev_mode = dev_mode
 	%InitPanelContainer.visible = !has_project
 	main_v_split.visible = has_project
 	sync_button.disabled = !has_project
@@ -192,12 +194,17 @@ func update_init_panel():
 	share_button.disabled = !(has_project && GodotProject.webviewer_url())
 	_set_action_disabled(!has_project, ActionMenuItems.CLEAR_PROJECT)
 	_set_action_disabled(!has_project, ActionMenuItems.AUTO_GENERATE_DIFFS)
-	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.CLEAR_FS_CACHE)
-	_set_action_disabled(!has_project || !_is_dev_mode(), ActionMenuItems.DUMP_BRANCH)
+	_set_action_disabled(!has_project || !is_dev_mode, ActionMenuItems.CLEAR_FS_CACHE)
+	_set_action_disabled(!has_project || !is_dev_mode, ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
 	# set the auto generate diffs checkbox to the current project setting
-	var idx = action_menu_button.get_popup().get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
-	action_menu_button.get_popup().set_item_checked(idx, auto_generate_diffs)
+	var popup = action_menu_button.get_popup()
+	var idx = popup.get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
+	popup.set_item_checked(idx, auto_generate_diffs)
+	var dev_mode_idx = popup.get_item_index(ActionMenuItems.DEV_MODE)
+	popup.set_item_checked(dev_mode_idx, is_dev_mode)
+	%MonkeyButton.visible = is_dev_mode
+
 
 
 func _set_action_disabled(disabled: bool, action: int):
@@ -532,8 +539,8 @@ func fold_section(section_header: Button, section_body: Control):
 func update_history_tree():
 	if !GodotProject.has_project(): return
 	var history = GodotProject.get_branch_history()
-	var dev_mode = _is_dev_mode()
-	var column_offset = 0 if dev_mode else -1
+	var is_dev_mode = dev_mode
+	var column_offset = 0 if is_dev_mode else -1
 	var hash_column = HistoryColumns.HASH + column_offset
 	var text_column = HistoryColumns.TEXT + column_offset
 	var time_column = HistoryColumns.TIME + column_offset
@@ -557,7 +564,7 @@ func update_history_tree():
 
 		# if we're a dev, we need another column for the commit hash
 		history_tree.columns = HistoryColumns.COUNT + column_offset
-		if dev_mode:
+		if is_dev_mode:
 			item.set_text(hash_column, BackstitchUtils.short_hash(change.hash))
 			item.set_tooltip_text(hash_column, change.hash)
 			item.set_selectable(hash_column, false)
@@ -609,7 +616,7 @@ func update_history_tree():
 		history_tree.set_column_clip_content(time_column, false)
 
 		# apply the chosen color to all fields
-		if dev_mode: item.set_custom_color(hash_column, text_color)
+		if is_dev_mode: item.set_custom_color(hash_column, text_color)
 		item.set_custom_color(text_column, text_color)
 		item.set_custom_color(time_column, text_color)
 
@@ -805,7 +812,7 @@ func _on_history_tree_mouse_selected(_at_position: Vector2, button_idx: int) -> 
 		show_contextmenu(get_history_item_hash(history_tree.get_selected()))
 
 func _on_history_tree_gui_input(event: InputEvent) -> void:
-	if !_is_dev_mode():
+	if !dev_mode:
 		return
 
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -948,6 +955,7 @@ func _on_action_menu_item_selected(id: int) -> void:
 			var idx := popup.get_item_index(id)
 			popup.toggle_item_checked(idx)
 			var checked := action_menu_button.get_popup().is_item_checked(idx)
+			dev_mode = checked
 			if monkey_tester.enabled && not checked:
 				print("MonkeyTester: disabling because developer mode is disabled")
 				monkey_tester.stop()

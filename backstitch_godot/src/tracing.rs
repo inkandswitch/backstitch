@@ -93,10 +93,8 @@ where
             drop(runtime);
         })
         .expect("console subscriber could not spawn thread");
-    *CONSOLE_SERVER.lock().unwrap_or_else(|err| err.into_inner()) = Some(ConsoleServer {
-        shutdown,
-        thread,
-    });
+    *CONSOLE_SERVER.lock().unwrap_or_else(|err| err.into_inner()) =
+        Some(ConsoleServer { shutdown, thread });
     layer.with_filter(tracing_subscriber::filter::FilterFn::new(console_filter))
 }
 

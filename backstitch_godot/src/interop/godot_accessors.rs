@@ -5,59 +5,37 @@ use godot::obj::Singleton;
 use godot::{
     builtin::{GString, PackedStringArray},
     classes::{EditorInterface, Object},
-    meta::ToGodot,
     obj::Gd,
 };
 
-/// Allows Rust code to access the C++ BackstitchEditor editor module from Godot.
+/// Various EditorInterface utility functions.
 pub struct BackstitchEditorAccessor {}
 
-#[allow(dead_code)] // entire API might not be used yet
 impl BackstitchEditorAccessor {
     pub fn is_editor_importing() -> bool {
         EditorInterface::singleton()
             .get_resource_filesystem()
-            .map(|mut fs| fs.call("is_importing", &[]).to::<bool>())
+            .map(|fs| fs.is_importing())
             .unwrap_or(false)
     }
 
     pub fn get_unsaved_scripts() -> PackedStringArray {
-        let Some(mut script_editor) = EditorInterface::singleton().get_script_editor() else {
+        let Some(script_editor) = EditorInterface::singleton().get_script_editor() else {
             tracing::error!("No script editor found?!");
             return PackedStringArray::new();
         };
-        // TODO: when gdext ships 4.7 bindings, use the bound method instead
-        script_editor
-            .call("get_unsaved_files", &[])
-            .to::<PackedStringArray>()
+        script_editor.get_unsaved_files()
     }
 
     pub fn unsaved_files_open() -> bool {
         if !Self::get_unsaved_scripts().is_empty() {
             return true;
         }
-        // TODO: when gdext ships 4.7 bindings, use the bound method instead
-        let unsaved_scenes = EditorInterface::singleton()
-            .call("get_unsaved_scenes", &[])
-            .to::<PackedStringArray>();
+        let unsaved_scenes = EditorInterface::singleton().get_unsaved_scenes();
         if !unsaved_scenes.is_empty() {
             return true;
         }
         false
-    }
-
-    fn close_scene_file(path: &str) {
-        EditorInterface::singleton().open_scene_from_path(path);
-        EditorInterface::singleton().close_scene();
-    }
-
-    fn close_script_file(path: &str) {
-        let Some(mut script_editor) = EditorInterface::singleton().get_script_editor() else {
-            tracing::error!("No script editor found?!");
-            return;
-        };
-        // TODO: when gdext ships 4.7 bindings, use the bound method instead
-        script_editor.call("close_file", &[path.to_variant()]);
     }
 
     fn get_current_scene_path() -> Option<GString> {
@@ -85,8 +63,7 @@ impl BackstitchEditorAccessor {
                     EditorInterface::singleton().close_scene();
                 }
             } else if open_scripts.contains(path) {
-                // TODO: when gdext ships 4.7 bindings, use the bound method instead
-                script_editor.call("close_file", &[path.to_variant()]);
+                script_editor.close_file(path);
             }
         }
     }
@@ -107,8 +84,7 @@ impl BackstitchEditorAccessor {
 
     pub fn reload_script_editor() {
         let mut script_editor = EditorInterface::singleton().get_script_editor().unwrap();
-        // TODO: when gdext ships 4.7 bindings, use the bound method instead
-        script_editor.call("reload_open_files", &[]);
+        script_editor.reload_open_files();
     }
 
     pub fn fs_scan_full_sync() -> bool {
@@ -130,25 +106,11 @@ impl BackstitchEditorAccessor {
         !timed_out
     }
 
-    pub fn refresh_after_source_change() -> bool {
-        // TODO: This isn't necessary and doesn't prevent gdscript crashes, and it significanly slows down syncing
-        // We should probably have a way to force a full scan if we need to, i.e. on a project start or a branch-checkout
-        // if Self::scan_fs_sync() {
-        //     tracing::warn!("Scanning filesystem timed out!");
-        //     return false;
-        // }
-        EditorFilesystemAccessor::scan_changes();
-        Self::reload_script_editor();
-        Self::reload_scene_files();
-        true
-    }
-
     pub fn save_all_scripts() {
-        // TODO: when gdext ships 4.7 bindings, use the bound method instead
         EditorInterface::singleton()
             .get_script_editor()
             .unwrap()
-            .call("save_all_scripts", &[]);
+            .save_all_scripts();
     }
 
     pub fn save_all() {

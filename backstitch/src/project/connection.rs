@@ -14,7 +14,7 @@ use url::Url;
 use crate::{
     auth::server_manager::{ServerError, ServerManager},
     helpers::spawn_utils::spawn_named,
-    project::connection::dialer::AuthenticatedTungsteniteDialer,
+    project::connection::dialer::{AuthenticatedTungsteniteDialer, DialerError},
 };
 
 mod dialer;
@@ -49,7 +49,7 @@ pub struct RemoteConnectionInner {
 #[derive(Debug)]
 struct ConnectionInfo {
     token: CancellationToken,
-    handle: Option<DialerHandle>,
+    handle: Option<DialerHandle<DialerError>>,
 }
 
 #[derive(Debug, Clone)]
@@ -303,6 +303,11 @@ impl RemoteConnectionInner {
                             // we break out, and the outer loop handles sending Failed.
                             DialerEvent::MaxRetriesReached => {
                                 tracing::debug!("Closing handle...");
+                                handle.close();
+                                break;
+                            },
+                            DialerEvent::PermanentFailure => {
+                                tracing::debug!("Closing handle due to permanent failure...");
                                 handle.close();
                                 break;
                             },

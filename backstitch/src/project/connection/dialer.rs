@@ -1,8 +1,8 @@
 use std::{pin::Pin, sync::Arc};
 
-use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt, future::BoxFuture};
 use reqwest::StatusCode;
-use samod::{Dialer, Transport, websocket::WsMessage};
+use samod::{DialError, Dialer, Transport, websocket::WsMessage};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 use tokio::sync::{Mutex, watch};
@@ -13,6 +13,8 @@ use url::Url;
 pub enum DialerError {
     #[error("network: {0}")]
     Network(String),
+    #[error("tungstenite: {0}")]
+    Tungstenite(#[from] tungstenite::Error),
 }
 
 /// A [Dialer] that supports websocket dialing/upgrading, as well as a bearer token
@@ -54,24 +56,20 @@ impl AuthenticatedTungsteniteDialer {
 }
 
 impl Dialer for AuthenticatedTungsteniteDialer {
+    type Error = DialerError;
     fn url(&self) -> Url {
         self.url.clone()
     }
 
-    fn connect(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<Transport, Box<dyn std::error::Error + Send + Sync + 'static>>,
-                > + Send,
-        >,
-    > {
+    fn connect(&self) -> BoxFuture<'static, Result<Transport, DialError<Self::Error>>> {
         let url = self.url.clone();
         let auth_failed_tx = self.auth_failed_tx.clone();
         let bearer_token = self.bearer_token.clone();
         Box::pin(async move {
-            let mut request = url.as_str().into_client_request()?;
+            let mut request = url
+                .as_str()
+                .into_client_request()
+                .map_err(|e| DialError::PermanentFailure(DialerError::from(e)))?;
 
             if let Some(token) = bearer_token.lock().await.clone() {
                 request.headers_mut().insert(
@@ -79,7 +77,8 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                     tungstenite::http::HeaderValue::from_str(&format!(
                         "Bearer {}",
                         token.expose_secret()
-                    ))?,
+                    ))
+                    .expect("header value had better be correct"),
                 );
             }
 
@@ -96,18 +95,20 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                             code => tracing::error!("HTTP error {code}"),
                         }
                     }
-                    Err(e)?
+                    // todo: this should be permanent probably; or we need to decide
+                    // this is transient for legacy reasons
+                    Err(DialError::TransientFailure(Box::new(e)))?
                 }
             };
 
             // Wrap tungstenite errors into NetworkError
             let ws = ws
                 .map_err(|e| {
-                    tracing::info!("Err1");
+                    tracing::error!("Error receiving websocket message: {e}");
                     DialerError::Network(format!("error receiving websocket message: {}", e))
                 })
                 .sink_map_err(|e| {
-                    tracing::info!("Err2");
+                    tracing::error!("Error sending websocket message: {e}");
                     DialerError::Network(format!("error sending websocket message: {}", e))
                 });
 

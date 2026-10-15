@@ -289,7 +289,7 @@ impl BranchDb {
             // If there are multiple hashes here, it means we can't rely on it and have to do a contentwise comparison.
             if hashes.len() == 1 {
                 let hash = &hashes.first().unwrap().0;
-                if let Some(bytes) = hash.to_bytes()
+                if let Some(bytes) = hash.as_bytes()
                     && let Ok(hash) = blake3::Hash::from_slice(bytes)
                 {
                     return Some(hash);

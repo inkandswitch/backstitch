@@ -76,7 +76,7 @@ impl BranchDb {
                             // i.e. the hash might be totally invalid; we need to calculate it manually.
                             if hashes.len() == 1 {
                                 let hash = &hashes.first().unwrap().0;
-                                if let Some(bytes) = hash.to_bytes() {
+                                if let Some(bytes) = hash.as_bytes() {
                                     if let Ok(hash) = blake3::Hash::from_slice(bytes) {
                                         return Some((path, (PendingHash::Hash(hash), false)));
                                     } else {

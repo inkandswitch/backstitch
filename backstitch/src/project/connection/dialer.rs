@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt, future::BoxFuture};
 use reqwest::StatusCode;

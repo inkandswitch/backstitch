@@ -6,7 +6,7 @@ use samod::{DialError, Dialer, Transport, websocket::WsMessage};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 use tokio::sync::{Mutex, watch};
-use tungstenite::client::IntoClientRequest;
+use tungstenite::{client::IntoClientRequest, protocol::WebSocketConfig};
 use url::Url;
 
 #[derive(Error, Debug)]
@@ -82,7 +82,16 @@ impl Dialer for AuthenticatedTungsteniteDialer {
                 );
             }
 
-            let (ws, _response) = match tokio_tungstenite::connect_async(request.clone()).await {
+            let config = WebSocketConfig::default()
+                .max_frame_size(Some(8 * 1024 * 1024 * 1024)) // 8gb
+                .max_message_size(Some(16 * 1024 * 1024 * 1024)); // 16gb
+            let (ws, _response) = match tokio_tungstenite::connect_async_with_config(
+                request.clone(),
+                Some(config),
+                false,
+            )
+            .await
+            {
                 Ok(res) => res,
                 Err(e) => {
                     tracing::error!("error while dialing {e}");

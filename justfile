@@ -455,7 +455,7 @@ _configure-backstitch: _make-plugin-dir
     [libraries]
     linux.editor.x86_64 =        "bin/backstitch_godot.linux.x86_64-unknown-linux-gnu.so"
     linux.editor.arm64 =         "bin/backstitch_godot.linux.aarch64-unknown-linux-gnu.so"
-    linux.editor.arm32 =         "bin/backstitch_godot.linux.armv7-unknown-linux-gnueabihf.so"
+    ; linux.editor.arm32 =         "bin/backstitch_godot.linux.armv7-unknown-linux-gnueabihf.so"
     windows.editor.x86_64 =      "bin/backstitch_godot.windows.x86_64-pc-windows-msvc.dll"
     windows.editor.arm64 =       "bin/backstitch_godot.windows.aarch64-pc-windows-msvc.dll"
     macos.editor =               "bin/libbackstitch_godot.macos.framework/libbackstitch_godot.dylib"

@@ -24,11 +24,11 @@ default = ["release_debug"]
 
 [workspace.dependencies]
 godot = { version = "0.5.5", features = ["experimental-threads", "api-4-7"] }
-uuid = "1.5.0"
-automerge = "0.9.0"
-autosurgeon = { git = "https://github.com/LilithSilver/autosurgeon.git", branch = "upgrade-automerge" }
+uuid = "1.28.0"
+automerge = "0.12.0"
+autosurgeon = "0.14.0"
 futures = "0.3.31"
-samod = { git = "https://github.com/LilithSilver/samod.git", branch = "update-tungstenite-v10", features = [
+samod = { git = "https://github.com/LilithSilver/samod.git", branch = "update-tungstenite-v15", features = [
     "tokio",
     "threadpool",
     "tungstenite",
@@ -44,10 +44,10 @@ tracing-panic = "0.1.2"
 tree-sitter = "0.26.11"
 tree-sitter-godot-resource = { git = "https://github.com/nikitalita/tree-sitter-godot-resource.git", branch = "fix-string-names" }
 serde_json = "1.0.138"
-similar = { version = "3.1.1", features = ["unicode"] }
+similar = { version = "3.2.0", features = ["unicode"] }
 notify = { version = "8.2.0", features = ["macos_fsevent"] }
 notify-debouncer-full = { version = "0.7.0", features = ["macos_fsevent"] }
-rand = "0.10.2"
+rand = "0.10.3"
 serde = { version = "1.0", features = ["derive"] }
 ignore = "0.4.22"
 chrono = { version = "0.4", features = ["unstable-locales"] }
@@ -59,15 +59,15 @@ sys-locale = "0.3.2"
 blake3 = { version = "1.8.4", features = ["serde"] }
 wincode = { version = "0.6.0", features = ["derive"] }
 fjall = "3.1.4"
-jwalk = "0.8.1"
-thiserror = "2.0.18"
+jwalk = "0.9.0"
+thiserror = "2.0.21"
 indexmap = "2.14"
 openidconnect = { version = "4.0.1", features = ["reqwest"] }
 url = "2.5.8"
 open = "5.4.0"
 axum = "0.8.9"
-html-escape = "0.2.14"
-reqwest = { version = "0.13.4", features = ["json"] }
+html-escape = "0.3.0"
+reqwest = { version = "0.13.5", features = ["json"] }
 semver = { version = "1.0.28", features = ["serde"] }
 async-trait = "0.1.91"
 secrecy = "0.10.3"
@@ -75,6 +75,7 @@ keyring = { version = "4.1.6", features = ["v1"] }
 toml = "1.1.4"
 tungstenite = "0.30.0"
 tokio-tungstenite = "0.30.0"
+# todo: why is this pinned?
 cbindgen = "^0.27"
 static_vcruntime = "3.0"
 tempfile = "3.0"

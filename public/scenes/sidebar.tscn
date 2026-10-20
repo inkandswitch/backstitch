@@ -20,6 +20,7 @@
 [ext_resource type="Script" uid="uid://cb7w66a7jars1" path="res://addons/backstitch/public/scripts/branch_picker.gd" id="10_k46dq"]
 [ext_resource type="Texture2D" uid="uid://coaycd1enf24v" path="res://addons/backstitch/public/icons/Monkey.svg" id="10_yycpk"]
 [ext_resource type="Texture2D" uid="uid://doppopudn6twe" path="res://addons/backstitch/public/icons/PullRequest.svg" id="11_pt2pe"]
+[ext_resource type="Texture2D" uid="uid://bf3h0tbccx872" path="res://addons/backstitch/public/icons/Bug.svg" id="11_swq5j"]
 [ext_resource type="Texture2D" uid="uid://dyjhwr8pnyuhf" path="res://addons/backstitch/public/icons/CollapsibleOpen.svg" id="12_onfam"]
 [ext_resource type="Texture2D" uid="uid://3hpc87bqt36t" path="res://addons/backstitch/public/icons/GuiClose.svg" id="13_dclp7"]
 [ext_resource type="Texture2D" uid="uid://bjp4gkyrnd1dr" path="res://addons/backstitch/public/icons/ArrowUp32.svg" id="15_pt2pe"]
@@ -158,7 +159,7 @@ layout_mode = 2
 tooltip_text = "Additional options."
 icon = ExtResource("5_bp6q4")
 flat = false
-item_count = 6
+item_count = 7
 popup/item_0/text = "Clear Project"
 popup/item_0/icon = ExtResource("8_s0dyv")
 popup/item_0/id = 2
@@ -179,6 +180,9 @@ popup/item_4/id = 1
 popup/item_5/text = "Clear FS Cache"
 popup/item_5/icon = ExtResource("10_g5r1k")
 popup/item_5/id = 4
+popup/item_6/text = "Report bug"
+popup/item_6/icon = ExtResource("11_swq5j")
+popup/item_6/id = 6
 
 [node name="MonkeyButton" type="Button" parent="VBoxContainer/StatusBar" unique_id=665235736]
 unique_name_in_owner = true

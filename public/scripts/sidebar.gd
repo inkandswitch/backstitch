@@ -982,7 +982,7 @@ func _on_action_menu_item_selected(id: int) -> void:
 			update_ui()
 		ActionMenuItems.REPORT_BUG:
 			OS.shell_open("https://github.com/inkandswitch/backstitch/issues/new")
-			toaster.push_toast("Opened Backstitch on GitHub")
+			toaster.push_toast("Opened Backstitch repository in browser")
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):

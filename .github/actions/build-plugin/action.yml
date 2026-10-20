@@ -25,7 +25,7 @@ runs:
       shell: sh
       run: |
         rustc --print=target-list
-    - name: Build for Windows and Linux
+    - name: Build for Windows and Linux and Android
       shell: sh
       env:
         CI: 1

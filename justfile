@@ -5,7 +5,7 @@ set dotenv-required
 export RUST_BACKTRACE := "full"
 
 # Get the default architecture
-default_arch := shell("rustc --version --verbose | grep host | awk '{print $2}'")
+default_arch := shell("rustc --print host-tuple")
 
 default:
     just --list

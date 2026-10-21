@@ -1,6 +1,6 @@
 use godot::builtin::{Color, GString, Rect2, Vector2};
 use godot::classes::class_macros::private::virtuals::Xrvrs::Side;
-use godot::classes::control::{LayoutDirection, SizeFlags};
+use godot::classes::control::{LayoutDirection, LayoutPreset, SizeFlags};
 use godot::classes::notify::{ContainerNotification, ControlNotification};
 use godot::classes::text_server::JustificationFlag;
 use godot::classes::{
@@ -95,6 +95,7 @@ pub struct DiffEditorPropertyContainer {
     base: Base<PanelContainer>,
     type_name: String,
     object: Gd<Object>,
+    prop_name: String,
     prop_editor: Gd<EditorProperty>,
     label: Gd<Label>,
     color_marker_container: Gd<MarginContainer>,
@@ -107,6 +108,7 @@ impl IPanelContainer for DiffEditorPropertyContainer {
             base,
             type_name: "modified".to_string(),
             object: MissingResource::new_gd().upcast::<Object>(),
+            prop_name: "".to_string(),
             prop_editor: EditorProperty::new_alloc(),
             label: Label::new_alloc(),
             color_marker_container: Self::create_color_marker_container("modified"),
@@ -182,6 +184,26 @@ impl DiffEditorPropertyContainer {
         margin_container
     }
 
+    //thiny
+    #[func]
+    fn update_to_real_editor_property(&mut self, resource: Gd<Resource>) {
+        let res_variant = resource.to_variant();
+        Self::set_property(&self.object, &self.prop_name, &res_variant);
+
+        let real_editor_property =
+            Self::instance_property_diff(self.object.clone(), self.prop_name.to_string(), true);
+        if let Some(mut real_editor_property) = real_editor_property {
+            real_editor_property.set_anchors_preset(LayoutPreset::FULL_RECT);
+            real_editor_property.set_object_and_property(&self.object, &self.prop_name);
+            real_editor_property.update();
+            let mut old_prop_editor = self.prop_editor.clone();
+            self.base_mut().remove_child(&old_prop_editor);
+            self.base_mut().add_child(&real_editor_property);
+            self.prop_editor = real_editor_property;
+            old_prop_editor.queue_free();
+        }
+    }
+
     pub fn create(
         object: Gd<Object>,
         prop_name: &str,
@@ -207,10 +229,18 @@ impl DiffEditorPropertyContainer {
             base,
             type_name: change_type.to_string(),
             object,
+            prop_name: prop_name.to_string(),
             prop_editor: editor_property.clone(),
             label: label.clone(),
             color_marker_container: color_rect.clone(),
         });
+        if let Ok(mut lled) = editor_property
+            .clone()
+            .try_cast::<LazyLoadTokenEditorProperty>()
+        {
+            let thing = Callable::from_object_method(&_self, "update_to_real_editor_property");
+            lled.connect("resource_loaded", &thing);
+        }
         _self.add_child(&label);
         _self.add_child(&color_rect);
         _self.add_child(&editor_property);

@@ -79,6 +79,7 @@ class ActionMenuItems:
 	const DEV_MODE = 3
 	const CLEAR_FS_CACHE = 4
 	const AUTO_GENERATE_DIFFS = 5
+	const REPORT_BUG = 6
 
 var task_modal: TaskModal = TaskModal.new()
 var item_context_menu_icon: Texture2D = preload("../icons/GuiTabMenuHlHorizontal.svg")
@@ -197,6 +198,7 @@ func update_init_panel():
 	_set_action_disabled(!has_project || !is_dev_mode, ActionMenuItems.CLEAR_FS_CACHE)
 	_set_action_disabled(!has_project || !is_dev_mode, ActionMenuItems.DUMP_BRANCH)
 	_set_action_disabled(false, ActionMenuItems.RELOAD_UI)
+	_set_action_disabled(false, ActionMenuItems.REPORT_BUG)
 	# set the auto generate diffs checkbox to the current project setting
 	var popup = action_menu_button.get_popup()
 	var idx = popup.get_item_index(ActionMenuItems.AUTO_GENERATE_DIFFS)
@@ -978,6 +980,9 @@ func _on_action_menu_item_selected(id: int) -> void:
 			popup.toggle_item_checked(idx)
 			auto_generate_diffs = popup.is_item_checked(idx)
 			update_ui()
+		ActionMenuItems.REPORT_BUG:
+			OS.shell_open("https://github.com/inkandswitch/backstitch/issues/new")
+			toaster.push_toast("Opened Backstitch repository in browser")
 			
 func _on_monkey_button_toggled(toggled_on: bool) -> void:
 	if (toggled_on):

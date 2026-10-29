@@ -361,6 +361,17 @@ where
             .theme_type(theme_type)
             .done()
     }
+    fn get_theme_icon(
+        &self,
+        name: &str,
+        theme_type: &str,
+    ) -> Option<Gd<godot::classes::Texture2D>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_icon_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
 }
 
 impl<T> ThemeGetter for T

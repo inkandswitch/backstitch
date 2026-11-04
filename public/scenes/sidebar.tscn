@@ -56,9 +56,6 @@ corner_radius_bottom_right = 3
 corner_radius_bottom_left = 3
 corner_detail = 5
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_of6ia"]
-bg_color = Color(0.129412, 0.14902, 0.180392, 1)
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_8lssb"]
 content_margin_left = 12.0
 content_margin_top = 12.0
@@ -80,15 +77,6 @@ corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_42yji"]
-bg_color = Color(0.156863, 0.176471, 0.207843, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_o4fec"]
-bg_color = Color(0.219608, 0.239216, 0.266667, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_qb0q7"]
-bg_color = Color(0.219608, 0.239216, 0.266667, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0tnfe"]
 content_margin_left = 4.0
@@ -236,7 +224,6 @@ icon = ExtResource("11_pt2pe")
 [node name="PanelContainer" type="PanelContainer" parent="VBoxContainer" unique_id=932798657]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_styles/panel = SubResource("StyleBoxFlat_of6ia")
 
 [node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/PanelContainer" unique_id=925285408]
 layout_mode = 2
@@ -329,9 +316,6 @@ size_flags_vertical = 3
 [node name="HistorySectionHeader" type="Button" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/HistoryVBox" unique_id=999135118]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_styles/normal = SubResource("StyleBoxFlat_42yji")
-theme_override_styles/hover = SubResource("StyleBoxFlat_o4fec")
-theme_override_styles/focus = SubResource("StyleBoxFlat_qb0q7")
 text = "History"
 icon = ExtResource("12_onfam")
 alignment = 0

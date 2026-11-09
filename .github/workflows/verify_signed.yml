@@ -18,7 +18,7 @@ jobs:
       - name: Verify macOS Signature
       # fail the build if the signature is not valid
         run: |
-          if ! codesign --verify --verbose ${{ github.workspace }}/merge/addons/backstitch/bin/libbackstitch_godot.macos.framework; then
+          if ! codesign --verify --verbose ${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/libbackstitch_godot.macos.framework; then
             echo "macOS signature is not valid"
             exit 1
           fi
@@ -36,8 +36,9 @@ jobs:
           pattern: backstitch
           path: ${{ github.workspace }}/merge
       - name: Verify Windows Signature
+        shell: bash
         run: |
-          if ! signtool verify /pa ${{ github.workspace }}/merge/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll; then
+          if ! signtool verify /pa ${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll; then
             echo "Windows signature is not valid"
             exit 1
           fi

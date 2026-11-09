@@ -15,7 +15,7 @@ runs:
       uses: actions-rust-lang/setup-rust-toolchain@v2
       with:
         target: ${{ inputs.arch }}
-        cache-key: backstitch_rust_plugin-${{ inputs.arch }}
+        cache-key: backstitch_rust_plugin-v2-${{ inputs.arch }}
     - name: Add additional arm64 target for macOS
       shell: sh
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
@@ -39,9 +39,3 @@ runs:
       if: ${{ inputs.arch == 'x86_64-apple-darwin'}}
       run: |
         just build-backstitch release "all-apple-darwin"
-    - name: Copy to release
-      shell: sh
-      run: |
-        mkdir -p target/release
-        rm -rf target/release
-        cp -rf target/${{ inputs.arch }}/release target/release

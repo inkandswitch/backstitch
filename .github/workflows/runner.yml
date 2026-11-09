@@ -65,8 +65,13 @@ jobs:
     needs: [merge-plugin-builds]
     uses: ./.github/workflows/compose_projects.yml
 
+  verify-signed:
+    name: 🔏 Verify Signed Builds
+    needs: [merge-plugin-builds]
+    uses: ./.github/workflows/verify_signed.yml
+
   release:
     name: 📦 Release
     if: github.ref_type == 'tag'
-    needs: [merge-plugin-builds, compose-projects]
+    needs: [merge-plugin-builds, compose-projects, verify-signed]
     uses: ./.github/workflows/release.yml

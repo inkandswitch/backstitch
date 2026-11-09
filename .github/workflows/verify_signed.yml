@@ -1,0 +1,43 @@
+name: 🔏 Verify Signed Builds
+on:
+  workflow_call:
+
+jobs:
+  verify-macos-signature:
+    strategy:
+        fail-fast: false
+    runs-on: "macos-15"
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: 🔍 Verify macOS Signature
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backstitch
+          path: ${{ github.workspace }}/merge
+      - name: Verify macOS Signature
+      # fail the build if the signature is not valid
+        run: |
+          if ! codesign --verify --verbose ${{ github.workspace }}/merge/addons/backstitch/bin/libbackstitch_godot.macos.framework; then
+            echo "macOS signature is not valid"
+            exit 1
+          fi
+
+  verify-windows-signature:
+    strategy:
+        fail-fast: false
+    runs-on: "windows-latest"
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: 🔍 Verify Windows Signature
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backstitch
+          path: ${{ github.workspace }}/merge
+      - name: Verify Windows Signature
+        run: |
+          if ! signtool verify /pa ${{ github.workspace }}/merge/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll; then
+            echo "Windows signature is not valid"
+            exit 1
+          fi

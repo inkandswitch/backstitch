@@ -40,7 +40,7 @@ jobs:
       - name: Verify Windows Signature
         shell: bash
         run: |
-          if ! signtool verify /pa ${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll; then
+          if ! signtool verify /pa '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll'; then
             echo "Windows signature is not valid"
             exit 1
           fi

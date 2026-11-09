@@ -38,9 +38,10 @@ jobs:
       - uses: KamaranL/add-signtool-action@d0027a4cf430f8dfdb15fba53410d0c76b7566f4
         id: signtool
       - name: Verify Windows Signature
-        shell: bash
+        shell: pwsh
         run: |
-          if ! signtool verify /pa '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll'; then
-            echo "Windows signature is not valid"
+          signtool verify /pa '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Windows signature is not valid"
             exit 1
-          fi
+          }

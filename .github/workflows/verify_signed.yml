@@ -37,11 +37,22 @@ jobs:
           path: ${{ github.workspace }}/merge
       - uses: KamaranL/add-signtool-action@d0027a4cf430f8dfdb15fba53410d0c76b7566f4
         id: signtool
+      - name: list files
+        run: |
+          dir '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin'
       - name: Verify Windows Signature
         shell: pwsh
         run: |
-          signtool verify /pa '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin/backstitch_godot.windows.x86_64.dll'
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Windows signature is not valid"
+          # list all the dlls in the bin directory, and verify each one
+          $dlls = Get-ChildItem -Path '${{ github.workspace }}/merge/backstitch/addons/backstitch/bin' -Filter '*backstitch_godot*.dll'
+          if (-not $dlls) {
+            Write-Error "No DLLs found to verify"
             exit 1
+          }
+          foreach ($dll in $dlls) {
+            signtool verify /pa $dll.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Windows signature is not valid for $($dll.Name)"
+              exit 1
+            }
           }

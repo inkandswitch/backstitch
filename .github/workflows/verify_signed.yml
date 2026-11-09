@@ -35,6 +35,8 @@ jobs:
         with:
           pattern: backstitch
           path: ${{ github.workspace }}/merge
+      - uses: KamaranL/add-signtool-action@d0027a4cf430f8dfdb15fba53410d0c76b7566f4
+        id: signtool
       - name: Verify Windows Signature
         shell: bash
         run: |

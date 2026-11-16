@@ -11,6 +11,10 @@ use godot::{
 
 use crate::interop::lazy_load_token::LazyLoadToken;
 
+/// An editor property that loads a resource lazily.
+/// Used by the diff inspector to avoid loading resources on the main thread.
+///
+/// TODO: register this with `EditorInspector`?
 #[derive(GodotClass)]
 #[class(tool, base=EditorProperty)]
 pub struct LazyLoadTokenEditorProperty {

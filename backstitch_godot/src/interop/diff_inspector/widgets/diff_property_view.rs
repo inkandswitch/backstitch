@@ -1,3 +1,9 @@
+//! A property diff: the old value (if any) above the new value (if any).
+//!
+//! TODO: This handles too much logic of how the property is stored in the object, which will
+//! likely be relevant if and when we start handling individual property revert.
+//! Change this to use PropertyHost and handle it there.
+
 use godot::builtin::GString;
 use godot::classes::control::LayoutPreset;
 use godot::classes::{

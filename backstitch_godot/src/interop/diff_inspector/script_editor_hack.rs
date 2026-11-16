@@ -93,6 +93,7 @@ fn find_open_recent_handle() -> Option<OpenRecentHandle> {
 ///
 /// The handle is looked up on every call rather than cached: it holds Godot objects, which must not
 /// be kept in a `thread_local` (they'd be dropped at thread exit, after the engine is gone).
+/// TODO: check if this kills performance (it shouldn't?)
 pub fn open_text_file(file_path: &str) -> bool {
     let Some(handle) = find_open_recent_handle() else {
         return false;

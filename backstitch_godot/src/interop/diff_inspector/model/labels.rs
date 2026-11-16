@@ -1,8 +1,8 @@
 //! Small string helpers used to build labels. These mirror the Godot `String` methods of the same
 //! name so that the view-model can stay free of Godot types.
 
-/// Turns `snake_case_words` into `Snake Case Words`.
-pub fn snake_case_to_human_readable(snake_case: &str) -> String {
+/// Turns `snake_case_words` into `Capitalized Case Words`.
+pub fn snake_case_to_capital_case(snake_case: &str) -> String {
     snake_case
         .split('_')
         .filter(|word| !word.is_empty())
@@ -68,18 +68,15 @@ mod tests {
     #[test]
     fn human_readable() {
         assert_eq!(
-            snake_case_to_human_readable("some_prop_name"),
+            snake_case_to_capital_case("some_prop_name"),
             "Some Prop Name"
         );
         assert_eq!(
-            snake_case_to_human_readable("_leading__double"),
+            snake_case_to_capital_case("_leading__double"),
             "Leading Double"
         );
-        assert_eq!(
-            snake_case_to_human_readable("Ünicode_start"),
-            "Ünicode Start"
-        );
-        assert_eq!(snake_case_to_human_readable(""), "");
+        assert_eq!(snake_case_to_capital_case("Ünicode_start"), "Ünicode Start");
+        assert_eq!(snake_case_to_capital_case(""), "");
     }
 
     #[test]

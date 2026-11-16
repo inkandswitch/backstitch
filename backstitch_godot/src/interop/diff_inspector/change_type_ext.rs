@@ -1,9 +1,8 @@
 use backstitch::helpers::utils::ChangeType;
 
+// These live here because they're specific to the Godot editor UI.
+
 /// Presentation helpers for [`ChangeType`] used by the diff inspector.
-///
-/// These live here (rather than on `ChangeType` itself) because they describe how a change is
-/// displayed in the Godot editor, which the core `backstitch` crate shouldn't know about.
 pub trait ChangeTypeExt {
     /// The name of the color in the `Editor` theme type used to tint things of this kind.
     fn theme_color_name(&self) -> &'static str;
@@ -35,7 +34,7 @@ impl ChangeTypeExt for ChangeType {
 
     fn file_label_suffix(&self) -> &'static str {
         match self {
-            ChangeType::Deleted => "(Removed)",
+            ChangeType::Deleted => "(Removed)", // TODO: should we standardize on "(Deleted)" for deleted files?
             other => other.label_suffix(),
         }
     }

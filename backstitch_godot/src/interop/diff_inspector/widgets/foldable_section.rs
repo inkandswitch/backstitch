@@ -279,9 +279,7 @@ impl DiffInspectorSection {
         let rtl = self.base().is_layout_rtl();
 
         let header_height = self.get_header_height();
-        let header_rect = self
-            .metrics()
-            .header_rect(self.base().get_size().x, rtl, header_height);
+        let header_rect = metrics.header_rect(self.base().get_size().x, rtl, header_height);
 
         // Draw header background
         let mut c = self.bg_color;

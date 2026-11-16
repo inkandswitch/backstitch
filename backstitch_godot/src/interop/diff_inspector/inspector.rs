@@ -12,8 +12,9 @@ use super::model::DiffModel;
 /// Shows a diff as a tree of foldable sections with property editors.
 ///
 /// This is the presenter of the diff inspector: it turns a [`GodotDiff`] into a [`DiffModel`],
-/// builds widgets for it, and re-emits what happens in the widgets as its own signals. The
-/// actual work lives in [`model`](super::model), [`widgets`](super::widgets) and
+/// builds widgets for it, and re-emits what happens in the widgets as its own signals.
+///
+/// The actual work lives in [`model`](super::model), [`widgets`](super::widgets) and
 /// [`navigator`](super::navigator).
 #[derive(GodotClass)]
 #[class(tool, base=EditorInspector, rename=DiffInspectorContainer)]

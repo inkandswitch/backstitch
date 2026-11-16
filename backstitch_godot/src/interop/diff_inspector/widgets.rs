@@ -4,6 +4,6 @@
 //! touch the editor (`EditorInterface`) and know nothing about `ProjectDiff`.
 
 pub mod change_marker;
+pub mod diff_property_view;
 pub mod foldable_section;
-pub mod property_row;
 pub mod section_metrics;

@@ -2,8 +2,9 @@
 //!
 //! This is a plain-data description of what the inspector shows, built from a [`ProjectDiff`]:
 //! labels, change kinds, collapsed node trees and the node paths each section covers are all
-//! resolved here. Nothing in this module (or its children) may import `godot`, which keeps it
-//! unit-testable without an editor.
+//! resolved here.
+//!
+//! Nothing in this module (or its children) should import `godot`, so that it's unit-testable without an editor.
 
 pub mod labels;
 pub mod node_tree;
@@ -19,7 +20,7 @@ use backstitch::diff::text_differ::TextDiff;
 
 use super::change_type_ext::ChangeTypeExt;
 use backstitch::helpers::utils::ChangeType;
-use labels::{simplify_path, snake_case_to_human_readable};
+use labels::{simplify_path, snake_case_to_capital_case};
 pub use node_tree::NodeSection;
 
 /// Everything the inspector shows for one [`ProjectDiff`].
@@ -119,7 +120,7 @@ impl FileView {
             FileBody::Resource {
                 old: resource.old_resource.clone(),
                 new: resource.new_resource.clone(),
-                row_label: snake_case_to_human_readable(&path),
+                row_label: snake_case_to_capital_case(&path),
             },
         )
     }
@@ -155,7 +156,7 @@ impl PropertyRow {
             .values()
             .map(|diff| PropertyRow {
                 name: diff.name.clone(),
-                label: snake_case_to_human_readable(&diff.name),
+                label: snake_case_to_capital_case(&diff.name),
                 kind: diff.change_type,
                 old: diff.old_value.clone(),
                 new: diff.new_value.clone(),

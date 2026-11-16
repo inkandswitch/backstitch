@@ -1,10 +1,12 @@
 //! Builds the widget tree for a [`DiffModel`].
 //!
-//! This is where the model, the widgets and the navigator meet: widgets are created from resolved
-//! model data, and the intents they emit (hovered, clicked) are wired to the inspector's signals
-//! and to the [`EditorNavigator`].
+//! Widgets are created from resolved model data, and the intents they emit
+//! (hovered, clicked) are wired to the inspector's signals and the [`EditorNavigator`].
+//!
 //! This is seperated out from the main diff inspector module to avoid circular dependencies, and to
 //! prevent the diff inspector from being re-binded when instantiating all the nodes.
+//! It will also help with future refactors which will enable this to run on a background thread.
+//! (TODO: Waiting on upstream gdext changes that would allow this (e.g. `Unique<T>`))
 
 use std::rc::Rc;
 
@@ -19,8 +21,8 @@ use super::model::{DiffModel, FileBody, FileView, NodeSection, PropertyRow, Reso
 use super::navigator::{EditorNavigator, NavTarget};
 use super::property_host::PropertyHost;
 use super::value_resolver::resolve_property_values;
+use super::widgets::diff_property_view::DiffPropertyView;
 use super::widgets::foldable_section::DiffInspectorSection;
-use super::widgets::property_row::DiffPropertyView;
 use crate::interop::godot_helpers::ToGodotExt;
 use crate::interop::text_differ_view::TextDifferView;
 use backstitch::helpers::utils::ChangeType;
@@ -170,7 +172,7 @@ impl DiffWidgetBuilder {
         section
     }
 
-    /// Shows the old and new resource of a binary resource file.
+    /// Shows a rich visual resource diff for a binary resource file. (e.g. if it's an image, displays the images side-by-side)
     fn add_resource_diff(
         &self,
         vbox: &mut Gd<VBoxContainer>,

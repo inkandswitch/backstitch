@@ -2,7 +2,6 @@
 class_name BackstitchSidebar
 extends MarginContainer
 
-const diff_inspector_script = preload("res://addons/backstitch/public/scripts/diff_inspector_container.gd")
 const branch_icon_history = preload("res://addons/backstitch/public/icons/Branch16.svg")
 const collapsible_closed_icon = preload("res://addons/backstitch/public/icons/CollapsibleClosed.svg")
 const collapsible_open_icon = preload("res://addons/backstitch/public/icons/CollapsibleOpen.svg")
@@ -764,14 +763,15 @@ func _on_node_hovered(file_path: String, node_paths: Array) -> void:
 		# don't highlight changes for other files
 		return
 	var new_diff = {}
-	new_diff.title = last_diff.title;
+	new_diff.title = last_diff.get_title();
 	new_diff.dict = {}
+	var last_dict: Dictionary = last_diff.get_dict()
 	# create a diff that only contains the changes for the hovered node
-	for file in last_diff.dict.keys():
+	for file in last_dict.keys():
 		if file == file_path:
-			new_diff.dict[file] = last_diff.dict[file].duplicate()
+			new_diff.dict[file] = last_dict[file].duplicate()
 			new_diff.dict[file]["changed_nodes"] = []
-			for node_change in last_diff.dict[file]["changed_nodes"]:
+			for node_change in last_dict[file]["changed_nodes"]:
 				var np: String = node_change["node_path"]
 				if node_paths.has(NodePath(np)):
 					new_diff.dict[file]["changed_nodes"].append(node_change)
@@ -898,7 +898,7 @@ func update_diff():
 
 	if diff == null:
 		show_diff(null, false)
-	elif diff.dict is String && diff.dict == "loading":
+	elif diff.is_loading():
 		diff_poll_timeout = 0.2
 		show_diff(null, false)
 	else:
@@ -915,9 +915,8 @@ func show_diff(diff, is_change) -> void:
 	last_diff = diff
 	%ClearDiffButton.visible = is_change
 	inspector.visible = true
-	diff_section_button.text = diff.title
-	inspector.reset()
-	inspector.add_diff(diff.dict)
+	diff_section_button.text = diff.get_title()
+	inspector.set_diff(diff)
 
 # Show an invalid diff for a commit with no valid diff (e.g. setup commits)
 func show_invalid_diff() -> void:

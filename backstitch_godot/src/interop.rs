@@ -1,5 +1,5 @@
 mod backstitch_resource_loader;
-mod diff_inspector_section;
+pub mod diff_inspector;
 mod extension;
 mod fake_importers;
 pub mod godot_accessors;

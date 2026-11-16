@@ -28,7 +28,7 @@ pub struct MergeMetadata {
     pub forked_at_heads: Vec<ChangeHash>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub enum ChangeType {
     Created,
     Deleted,

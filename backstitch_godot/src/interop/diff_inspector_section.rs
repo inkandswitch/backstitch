@@ -32,7 +32,7 @@ fn snake_case_to_human_readable(snake_case_string: &str) -> String {
             if word.is_empty() {
                 return String::new();
             }
-            word.chars().nth(0).unwrap().to_uppercase().to_string() + &word[1..]
+            word.chars().next().unwrap().to_uppercase().to_string() + &word[1..]
         })
         .collect::<Vec<String>>();
     title_case_words.join(" ")
@@ -60,12 +60,9 @@ pub struct DiffColorMarker {
 #[godot_api]
 impl IColorRect for DiffColorMarker {
     fn on_notification(&mut self, what: ControlNotification) {
-        match what {
-            ControlNotification::THEME_CHANGED => {
-                let color = self.get_change_color();
-                self.base_mut().set_color(color);
-            }
-            _ => (),
+        if what == ControlNotification::THEME_CHANGED {
+            let color = self.get_change_color();
+            self.base_mut().set_color(color);
         }
     }
 }
@@ -166,9 +163,9 @@ impl DiffEditorPropertyContainer {
 
     fn set_property(object: &Gd<Object>, prop_name: &str, prop_value: &Variant) {
         let mut object = object.clone();
-        if let Some(mut fake_object) = object.clone().try_cast::<MissingResource>().ok() {
+        if let Ok(mut fake_object) = object.clone().try_cast::<MissingResource>() {
             fake_object.set_recording_properties(true);
-            fake_object.set(prop_name, &prop_value);
+            fake_object.set(prop_name, prop_value);
             fake_object.set_recording_properties(false);
         } else {
             object.set(prop_name, prop_value);

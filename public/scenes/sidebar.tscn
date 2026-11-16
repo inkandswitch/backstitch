@@ -393,7 +393,7 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="BigDiffer" type="DiffInspector" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer" unique_id=606528305]
+[node name="BigDiffer" type="DiffInspectorContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer" unique_id=1055898624]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2

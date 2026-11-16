@@ -12,6 +12,8 @@ use crate::interop::godot_helpers::ToGodotExt;
 /// The diff inspector reads the typed [`ProjectDiff`] out of it directly. GDScript code that
 /// still wants the old Dictionary representation (e.g. the scene change highlighter) can get it
 /// with [`get_dict()`](Self::get_dict).
+///
+/// TODO: Remove the dictionary representation entirely once the scene change highlighter is updated to use the new API.
 #[derive(GodotClass)]
 #[class(tool, no_init, base=RefCounted)]
 pub struct GodotDiff {

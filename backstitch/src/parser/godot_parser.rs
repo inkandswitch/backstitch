@@ -742,6 +742,7 @@ pub fn recognize_scene(source: &str) -> bool {
     }
     false
 }
+
 pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
     let mut parser = Parser::new();
     parser
@@ -1337,8 +1338,9 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                         // temporary node connection that somehow got saved to the scene; this should not have been saved
                         if from_path.starts_with("@") || from_path.contains("/@") {
                             tracing::error!(
-                                "Temporary node connection found in scene: {}; ignoring",
-                                from_path
+                                "Temporary node connection found in scene: {} -> {}; ignoring",
+                                from_path,
+                                to_path
                             );
                             continue;
                         }
@@ -1353,9 +1355,15 @@ pub fn parse_scene(source: &str) -> Result<GodotScene, String> {
                     Some(node_id) => node_id.clone(),
                     None => {
                         // temporary node connection that somehow got saved to the scene; this should not have been saved
-                        if to_path.starts_with("@") || to_path.contains("/@") {
+                        if to_path.starts_with("@")
+                            || to_path.contains("/@")
+                             // if the previous node is a temporary node, this was a short-lived connection on a node that was removed
+                            || from_path.starts_with("@")
+                            || from_path.contains("/@")
+                        {
                             tracing::error!(
-                                "Temporary node connection found in scene: {}; ignoring",
+                                "Temporary node connection found in scene: {} -> {}; ignoring",
+                                from_path,
                                 to_path
                             );
                             continue;

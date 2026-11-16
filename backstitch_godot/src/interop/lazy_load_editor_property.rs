@@ -11,7 +11,8 @@ use godot::{
 };
 
 use crate::interop::{
-    diff_inspector_section::DiffInspectorSection, lazy_load_token::LazyLoadToken,
+    diff_inspector_section::{DiffEditorPropertyContainer, UpdatePropEditor},
+    lazy_load_token::LazyLoadToken,
 };
 
 #[derive(GodotClass)]
@@ -76,7 +77,7 @@ impl LazyLoadTokenEditorProperty {
         } else {
             our_object.set(&prop_path, &res_variant);
         }
-        let real_editor_property = DiffInspectorSection::instance_property_diff(
+        let real_editor_property = DiffEditorPropertyContainer::instance_property_diff(
             our_object.clone(),
             prop_path.to_string(),
             true,
@@ -84,7 +85,7 @@ impl LazyLoadTokenEditorProperty {
         if let Some(mut real_editor_property) = real_editor_property {
             real_editor_property.set_anchors_preset(LayoutPreset::FULL_RECT);
             real_editor_property.set_object_and_property(&our_object, &prop_path);
-            DiffInspectorSection::update_property_editor(&mut real_editor_property);
+            real_editor_property.update();
             if let Some(mut loading_rect) = self.loading_rect.take() {
                 self.base_mut().remove_child(&loading_rect);
                 loading_rect.queue_free();

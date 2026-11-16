@@ -124,7 +124,7 @@ impl Differ {
                 {
                     diffs.push(Diff::Text(self.get_text_diff(
                         path,
-                        change_type.clone(),
+                        *change_type,
                         old_file_content,
                         new_file_content,
                     )));
@@ -237,7 +237,7 @@ impl Differ {
                 diffs.push(Diff::BinaryResource(
                     self.get_binary_resource_diff(
                         path,
-                        change_type.clone(),
+                        *change_type,
                         old_file_content,
                         new_file_content,
                         before,
@@ -251,7 +251,7 @@ impl Differ {
                 // This is a text file, so do a text diff.
                 diffs.push(Diff::Text(self.get_text_diff(
                     path,
-                    change_type.clone(),
+                    *change_type,
                     old_file_content,
                     new_file_content,
                 )));

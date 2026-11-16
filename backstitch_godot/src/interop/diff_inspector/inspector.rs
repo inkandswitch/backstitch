@@ -1,13 +1,13 @@
-use godot::builtin::{Color, GString};
+use godot::builtin::GString;
 use godot::classes::control::SizeFlags;
-use godot::classes::{EditorInspector, IEditorInspector, Node, Texture2D, VBoxContainer};
+use godot::classes::{EditorInspector, IEditorInspector, Node, VBoxContainer};
 use godot::prelude::*;
 
+use crate::interop::godot_helpers::ThemeGetter;
+
 use super::builder::{DiffWidgetBuilder, Icons, InspectorHandle};
-use super::change_type_ext::ChangeTypeExt;
 use super::godot_diff::GodotDiff;
 use super::model::DiffModel;
-use backstitch::helpers::utils::ChangeType;
 
 /// Shows a diff as a tree of foldable sections with property editors.
 ///
@@ -19,25 +19,6 @@ use backstitch::helpers::utils::ChangeType;
 #[class(tool, base=EditorInspector, rename=DiffInspectorContainer)]
 pub struct DiffInspector {
     base: Base<EditorInspector>,
-
-    #[export]
-    added_icon: Option<Gd<Texture2D>>,
-    #[export]
-    removed_icon: Option<Gd<Texture2D>>,
-    // Not used for anything yet; kept so that scenes that set it keep loading.
-    #[export]
-    modified_icon: Option<Gd<Texture2D>>,
-
-    #[export]
-    #[var(set = set_added_color)]
-    added_color: Color,
-    #[export]
-    #[var(set = set_removed_color)]
-    removed_color: Color,
-    #[export]
-    #[var(set = set_modified_color)]
-    modified_color: Color,
-
     main_vbox: Option<Gd<VBoxContainer>>,
 }
 
@@ -46,12 +27,6 @@ impl IEditorInspector for DiffInspector {
     fn init(base: Base<EditorInspector>) -> Self {
         Self {
             base,
-            added_icon: None,
-            removed_icon: None,
-            modified_icon: None,
-            added_color: Color::from_rgba8(0x3f, 0xa6, 0x2e, 255),
-            removed_color: Color::from_rgba8(0xa5, 0x54, 0x54, 255),
-            modified_color: Color::from_rgba8(0xe2, 0xbe, 0x99, 255),
             main_vbox: None,
         }
     }
@@ -65,24 +40,6 @@ impl DiffInspector {
     /// Emitted when the mouse leaves a section that covers some nodes of a scene.
     #[signal]
     pub fn node_unhovered(file_path: GString, node_path: VarArray);
-
-    #[func]
-    fn set_added_color(&mut self, color: Color) {
-        self.added_color = color;
-        self.set_inspector_change_color(ChangeType::Created, color);
-    }
-
-    #[func]
-    fn set_removed_color(&mut self, color: Color) {
-        self.removed_color = color;
-        self.set_inspector_change_color(ChangeType::Deleted, color);
-    }
-
-    #[func]
-    fn set_modified_color(&mut self, color: Color) {
-        self.modified_color = color;
-        self.set_inspector_change_color(ChangeType::Modified, color);
-    }
 
     /// Shows the diff, replacing whatever was shown before.
     #[func]
@@ -100,8 +57,8 @@ impl DiffInspector {
 
         let handle = InspectorHandle::new(&self.to_gd());
         let icons = Icons {
-            added: self.added_icon.clone(),
-            removed: self.removed_icon.clone(),
+            added: self.get_theme_icon("file_added", "Editor"),
+            removed: self.get_theme_icon("file_removed", "Editor"),
         };
         let sections = DiffWidgetBuilder::new(handle, icons).build(&model);
 
@@ -162,16 +119,5 @@ impl DiffInspector {
         vbox.set_v_size_flags(SizeFlags::EXPAND_FILL);
         self.base_mut().add_child(&vbox);
         vbox
-    }
-
-    /// Changes the color that things of the given kind are tinted with, by writing it into the inspector's theme.
-    fn set_inspector_change_color(&mut self, kind: ChangeType, color: Color) {
-        let Some(mut theme) = self.base().get_theme() else {
-            return;
-        };
-        theme.set_color(kind.theme_color_name(), "Editor", color);
-        if self.base().has_signal("theme_changed") {
-            self.base_mut().emit_signal("theme_changed", &[]);
-        }
     }
 }

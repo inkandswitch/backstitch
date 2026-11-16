@@ -1,5 +1,9 @@
 [gd_resource type="Theme" format=3 uid="uid://hr3cor4s2ov2"]
 
+[ext_resource type="Texture2D" uid="uid://bm2v2myy5rdlt" path="res://addons/backstitch/public/icons/FileAdd.svg" id="1_k70l4"]
+[ext_resource type="Texture2D" uid="uid://tlngc8372bhs" path="res://addons/backstitch/public/icons/FileModify.svg" id="2_21dxo"]
+[ext_resource type="Texture2D" uid="uid://dxi8pyvkxfl6m" path="res://addons/backstitch/public/icons/FileRemove.svg" id="3_pdvvy"]
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_nfkfj"]
 content_margin_left = 4.0
 content_margin_top = 4.0
@@ -60,6 +64,9 @@ Editor/colors/property_color = Color(0.64951, 0.653922, 0.663725, 1)
 Editor/colors/readonly_color = Color(0.64951, 0.653922, 0.663725, 1)
 Editor/colors/readonly_warning_color = Color(0.64951, 0.653922, 0.663725, 1)
 Editor/colors/warning_color = Color(0.64951, 0.653922, 0.663725, 1)
+Editor/icons/file_added = ExtResource("1_k70l4")
+Editor/icons/file_modified = ExtResource("2_21dxo")
+Editor/icons/file_removed = ExtResource("3_pdvvy")
 LineEdit/colors/font_uneditable_color = Color(0.87451, 0.87451, 0.87451, 1)
 LineEdit/styles/focus = SubResource("StyleBoxFlat_nfkfj")
 LineEdit/styles/normal = SubResource("StyleBoxFlat_atoxs")

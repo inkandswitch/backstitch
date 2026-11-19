@@ -7,7 +7,7 @@ use crate::interop::godot_helpers::ThemeGetter;
 
 use super::builder::{DiffWidgetBuilder, Icons, InspectorHandle};
 use super::godot_diff::GodotDiff;
-use super::model::DiffModel;
+use super::model::DiffViewModel;
 
 /// Shows a diff as a tree of foldable sections with property editors.
 ///
@@ -53,7 +53,7 @@ impl DiffInspector {
                 // Still loading; nothing to show yet.
                 return;
             };
-            DiffModel::from_project_diff(project_diff)
+            DiffViewModel::from_project_diff(project_diff)
         };
 
         let handle = InspectorHandle::new(&self.to_gd());

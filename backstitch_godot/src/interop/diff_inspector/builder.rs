@@ -17,7 +17,10 @@ use godot::classes::{
 };
 use godot::prelude::*;
 
-use super::model::{DiffModel, FileBody, FileView, NodeSection, PropertyRow, ResourceSection};
+use super::model::{
+    DiffViewModel, FileBody, FileViewModel, NodeSectionViewModel, PropertyRow,
+    ResourceSectionViewModel,
+};
 use super::navigator::{EditorNavigator, NavTarget};
 use super::property_host::PropertyHost;
 use super::value_resolver::resolve_property_values;
@@ -85,7 +88,7 @@ impl DiffWidgetBuilder {
     }
 
     /// Builds the top-level sections of the model, one per file.
-    pub fn build(&self, model: &DiffModel) -> Vec<Gd<DiffInspectorSection>> {
+    pub fn build(&self, model: &DiffViewModel) -> Vec<Gd<DiffInspectorSection>> {
         model
             .files
             .iter()
@@ -114,7 +117,7 @@ impl DiffWidgetBuilder {
         panel_container
     }
 
-    fn build_file_section(&self, file: &FileView) -> Gd<DiffInspectorSection> {
+    fn build_file_section(&self, file: &FileViewModel) -> Gd<DiffInspectorSection> {
         let mut section = DiffInspectorSection::create(&file.path, &file.label, file.kind, 0, 1);
         let mut vbox = section.bind().get_vbox();
 
@@ -124,7 +127,7 @@ impl DiffWidgetBuilder {
                 new,
                 row_label,
             } => {
-                self.add_resource_diff(&mut vbox, file, old, new, row_label);
+                self.build_resource_diff(&mut vbox, file, old, new, row_label);
                 self.navigate_on_click(
                     &section,
                     NavTarget::Resource {
@@ -173,10 +176,10 @@ impl DiffWidgetBuilder {
     }
 
     /// Shows a rich visual resource diff for a binary resource file. (e.g. if it's an image, displays the images side-by-side)
-    fn add_resource_diff(
+    fn build_resource_diff(
         &self,
         vbox: &mut Gd<VBoxContainer>,
-        file: &FileView,
+        file: &FileViewModel,
         old: &Option<backstitch::diff::scene_differ::VariantValue>,
         new: &Option<backstitch::diff::scene_differ::VariantValue>,
         row_label: &str,
@@ -209,14 +212,17 @@ impl DiffWidgetBuilder {
     }
 
     /// A sub-resource (or the main resource) of a text resource, with its changed properties.
-    fn build_resource_section(&self, resource: &ResourceSection) -> Gd<DiffInspectorSection> {
+    fn build_resource_section(
+        &self,
+        resource: &ResourceSectionViewModel,
+    ) -> Gd<DiffInspectorSection> {
         let section =
             DiffInspectorSection::create(&resource.id, &resource.label, resource.kind, 1, 2);
         let mut vbox = section.bind().get_vbox();
         vbox.add_child(&HSeparator::new_alloc());
 
         let host = PropertyHost::new(Some(&resource.resource_type));
-        self.add_property_rows(
+        self.build_property_rows(
             &mut vbox,
             &host,
             &resource.rows,
@@ -227,7 +233,11 @@ impl DiffWidgetBuilder {
     }
 
     /// A section for a changed node, or for a group of changed descendants of a node.
-    fn build_node_section(&self, file_path: &str, node: &NodeSection) -> Gd<DiffInspectorSection> {
+    fn build_node_section(
+        &self,
+        file_path: &str,
+        node: &NodeSectionViewModel,
+    ) -> Gd<DiffInspectorSection> {
         let (indent_depth, level) = if node.is_grouping { (0, 1) } else { (1, 2) };
         let mut section = DiffInspectorSection::create(
             &node.section,
@@ -242,7 +252,7 @@ impl DiffWidgetBuilder {
             vbox.add_child(&HSeparator::new_alloc());
         } else {
             let host = PropertyHost::new(None);
-            self.add_property_rows(
+            self.build_property_rows(
                 &mut vbox,
                 &host,
                 &node.rows,
@@ -262,7 +272,7 @@ impl DiffWidgetBuilder {
         section
     }
 
-    fn add_property_rows(
+    fn build_property_rows(
         &self,
         vbox: &mut Gd<VBoxContainer>,
         host: &PropertyHost,

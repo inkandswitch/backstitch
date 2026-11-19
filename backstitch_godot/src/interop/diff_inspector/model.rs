@@ -21,25 +21,29 @@ use backstitch::diff::text_differ::TextDiff;
 use super::change_type_ext::ChangeTypeExt;
 use backstitch::helpers::utils::ChangeType;
 use labels::{simplify_path, snake_case_to_capital_case};
-pub use node_tree::NodeSection;
+pub use node_tree::NodeSectionViewModel;
 
 /// Everything the inspector shows for one [`ProjectDiff`].
 #[derive(Debug, Default)]
-pub struct DiffModel {
-    pub files: Vec<FileView>,
+pub struct DiffViewModel {
+    pub files: Vec<FileViewModel>,
 }
 
-impl DiffModel {
+impl DiffViewModel {
     pub fn from_project_diff(diff: &ProjectDiff) -> Self {
         Self {
-            files: diff.file_diffs.iter().map(FileView::from_diff).collect(),
+            files: diff
+                .file_diffs
+                .iter()
+                .map(FileViewModel::from_diff)
+                .collect(),
         }
     }
 }
 
 /// The diff of one file; shown as one top-level section.
 #[derive(Debug)]
-pub struct FileView {
+pub struct FileViewModel {
     /// The (simplified) path of the file. Also the identifier of the section.
     pub path: String,
     /// The label of the section's header.
@@ -61,12 +65,14 @@ pub enum FileBody {
     /// A plain text file.
     Text(TextDiff),
     /// A text resource (`.tres`): its main resource and sub-resources.
-    TextResource { sections: Vec<ResourceSection> },
+    TextResource {
+        sections: Vec<ResourceSectionViewModel>,
+    },
     /// A scene (`.tscn`): a tree of changed nodes.
-    Scene { roots: Vec<NodeSection> },
+    Scene { roots: Vec<NodeSectionViewModel> },
 }
 
-impl FileView {
+impl FileViewModel {
     fn from_diff(diff: &Diff) -> Self {
         match diff {
             Diff::Scene(scene) => Self::from_scene(scene),
@@ -100,10 +106,13 @@ impl FileView {
     fn from_text_resource(resource: &TextResourceDiff) -> Self {
         let mut sections = Vec::new();
         if let Some(main) = &resource.changed_main_resource {
-            sections.extend(ResourceSection::from_sub_resource(main, true));
+            sections.extend(ResourceSectionViewModel::from_sub_resource(main, true));
         }
         for sub_resource in &resource.changed_sub_resources {
-            sections.extend(ResourceSection::from_sub_resource(sub_resource, false));
+            sections.extend(ResourceSectionViewModel::from_sub_resource(
+                sub_resource,
+                false,
+            ));
         }
         Self::new(
             &resource.path,
@@ -169,7 +178,7 @@ impl PropertyRow {
 
 /// A changed (sub-)resource inside a text resource file.
 #[derive(Debug)]
-pub struct ResourceSection {
+pub struct ResourceSectionViewModel {
     /// The id of the sub-resource; empty for the main resource.
     pub id: String,
     pub label: String,
@@ -181,7 +190,7 @@ pub struct ResourceSection {
     pub rows: Vec<PropertyRow>,
 }
 
-impl ResourceSection {
+impl ResourceSectionViewModel {
     /// Returns `None` for modified resources that have no changed properties.
     fn from_sub_resource(diff: &SubResourceDiff, is_main: bool) -> Option<Self> {
         let kind: ChangeType = diff.change_type;
@@ -251,7 +260,7 @@ mod tests {
             None,
             HashMap::new(),
         );
-        assert!(ResourceSection::from_sub_resource(&empty, false).is_none());
+        assert!(ResourceSectionViewModel::from_sub_resource(&empty, false).is_none());
 
         let main = SubResourceDiff::new(
             ChangeType::Modified,
@@ -260,11 +269,11 @@ mod tests {
             Some("MyScript".to_string()),
             [prop("a", ChangeType::Modified)].into_iter().collect(),
         );
-        let section = ResourceSection::from_sub_resource(&main, true).unwrap();
+        let section = ResourceSectionViewModel::from_sub_resource(&main, true).unwrap();
         assert_eq!(section.label, "Main (Resource) (Modified)");
         assert_eq!(section.script_class.as_deref(), Some("MyScript"));
         // Non-main resources don't resolve a script class.
-        let section = ResourceSection::from_sub_resource(&main, false).unwrap();
+        let section = ResourceSectionViewModel::from_sub_resource(&main, false).unwrap();
         assert_eq!(section.script_class, None);
     }
 
@@ -282,7 +291,7 @@ mod tests {
                     .collect(),
             )],
         };
-        let view = FileView::from_diff(&Diff::Scene(scene));
+        let view = FileViewModel::from_diff(&Diff::Scene(scene));
         assert_eq!(view.path, "res://a/scene.tscn");
         assert_eq!(view.label, "res://a/scene.tscn (Modified)");
         assert_eq!(view.hover_paths(), vec!["./Child".to_string()]);

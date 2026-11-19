@@ -1,5 +1,5 @@
 use backstitch::diff::differ::ProjectDiff;
-use backstitch::project::project_api::DiffViewModel;
+use backstitch::project::project_api::DiffViewModel as ProjectDiffViewModel; // TODO: remove `DiffViewModel` from the project API, make this take DiffWrapper instead
 use backstitch::project::project_base::DiffStatus;
 use godot::builtin::GString;
 use godot::classes::RefCounted;
@@ -48,7 +48,7 @@ impl GodotDiff {
 }
 
 impl GodotDiff {
-    pub fn from_view_model(diff: &dyn DiffViewModel) -> Gd<Self> {
+    pub fn from_view_model(diff: &dyn ProjectDiffViewModel) -> Gd<Self> {
         let title = diff.get_title().clone();
         let status = diff.get_diff().clone();
         Gd::from_init_fn(|base| Self {

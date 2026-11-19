@@ -25,7 +25,7 @@ use crate::interop::diff_inspector::change_type_ext::ChangeTypeExt;
 
 /// A section in the node tree.
 #[derive(Debug, Clone)]
-pub struct NodeSection {
+pub struct NodeSectionViewModel {
     /// The identifier of the section. For sections of changed nodes, this is the path of the node.
     pub section: String,
     pub label: String,
@@ -36,10 +36,10 @@ pub struct NodeSection {
     pub rows: Vec<PropertyRow>,
     /// `true` if this section groups changed descendants but is not a changed node itself.
     pub is_grouping: bool,
-    pub children: Vec<NodeSection>,
+    pub children: Vec<NodeSectionViewModel>,
 }
 
-impl NodeSection {
+impl NodeSectionViewModel {
     /// The node paths a hover over this section should highlight: the paths of this section and all
     /// its descendants that have changed properties. Sorted and without duplicates.
     pub fn hover_paths(&self) -> Vec<String> {
@@ -90,7 +90,7 @@ impl NodeSection {
 }
 
 /// The node paths a hover over a set of sibling sections should highlight.
-pub fn hover_paths(sections: &[NodeSection]) -> Vec<String> {
+pub fn hover_paths(sections: &[NodeSectionViewModel]) -> Vec<String> {
     let mut paths: Vec<String> = sections.iter().flat_map(|s| s.hover_paths()).collect();
     paths.sort();
     paths.dedup();
@@ -128,7 +128,7 @@ fn build_path_trie(node_diffs: &[NodeDiff]) -> BTreeMap<String, PathTrie<'_>> {
 }
 
 /// Builds the section tree for the changed nodes of a scene.
-pub fn build_node_tree(node_diffs: &[NodeDiff]) -> Vec<NodeSection> {
+pub fn build_node_tree(node_diffs: &[NodeDiff]) -> Vec<NodeSectionViewModel> {
     let mut sorted: Vec<&NodeDiff> = node_diffs.iter().collect();
     sorted.sort_by(|a, b| a.node_path.cmp(&b.node_path));
     let sorted: Vec<NodeDiff> = sorted.into_iter().cloned().collect();
@@ -143,7 +143,7 @@ fn build_section(
     name: &str,
     node: &PathTrie,
     override_label: Option<String>,
-) -> Option<NodeSection> {
+) -> Option<NodeSectionViewModel> {
     let label = override_label.unwrap_or_else(|| get_file(name).to_string());
 
     // A node that didn't change, with a single changed descendant: merge into that descendant.
@@ -159,14 +159,14 @@ fn build_section(
 
     let own_section = node
         .diff
-        .and_then(|diff| NodeSection::from_node_diff(diff, &label));
+        .and_then(|diff| NodeSectionViewModel::from_node_diff(diff, &label));
     if own_section.is_none() && node.diff.is_some() && node.children.is_empty() {
         // A modified node without any changed properties, and nothing below it.
         return None;
     }
 
     let has_own_diff = own_section.is_some();
-    let mut section = own_section.unwrap_or_else(|| NodeSection::grouping(name, &label));
+    let mut section = own_section.unwrap_or_else(|| NodeSectionViewModel::grouping(name, &label));
     for (child_key, child) in &node.children {
         if let Some(child_section) = build_section(child_key, child, None) {
             section.children.push(child_section);

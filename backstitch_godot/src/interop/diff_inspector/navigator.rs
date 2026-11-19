@@ -160,6 +160,10 @@ impl EditorNavigator {
 }
 
 /// Runs `f` at the start of the next frame.
+///
+/// We do not want to use `call_deferred` here. Any deferred call that ends up loading resources can either:
+/// * end up deadlocking the resource loader because the message queue can't flush, -or-
+/// * the resource fails to load because of explicit checks for if the message queue can flush.
 fn run_next_frame(f: impl FnOnce() + 'static) {
     let tree = Engine::singleton()
         .get_main_loop()

@@ -124,6 +124,17 @@ fn build_path_trie(node_diffs: &[NodeDiff]) -> BTreeMap<String, PathTrie<'_>> {
             level = &mut entry.children;
         }
     }
+
+    // `get_node_path` returns "." for the scene root and un-prefixed paths for everything else ("A", "A/B").
+    // Those don't share a "/" prefix with ".", so without this they'd sit as siblings and changed descendants
+    // wouldn't nest under a changed root.
+    if let Some(mut root) = roots.remove(".") {
+        for (key, child) in std::mem::take(&mut roots) {
+            root.children.insert(key, child);
+        }
+        roots.insert(".".to_string(), root);
+    }
+
     roots
 }
 
@@ -219,66 +230,71 @@ mod tests {
     }
 
     #[test]
-    fn single_changed_node_collapses_unchanged_root() {
-        let tree = build_node_tree(&[node("./Child", ChangeType::Modified, &["visible"])]);
+    fn single_changed_node_has_no_synthetic_root() {
+        let tree = build_node_tree(&[node("Child", ChangeType::Modified, &["visible"])]);
         assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].section, "./Child");
-        assert_eq!(tree[0].label, "./Child (Modified)");
+        assert_eq!(tree[0].section, "Child");
+        assert_eq!(tree[0].label, "Child (Modified)");
         assert!(!tree[0].is_grouping);
         assert_eq!(tree[0].node_type.as_deref(), Some("Node2D"));
     }
 
     #[test]
-    fn changed_root_with_changed_descendant_nests() {
+    fn changed_root_groups_sibling_branches_underneath() {
         let tree = build_node_tree(&[
-            node("./A/B", ChangeType::Created, &["position"]),
+            node("A/B", ChangeType::Created, &["position"]),
             node(".", ChangeType::Modified, &["visible"]),
-            node("./A", ChangeType::Modified, &["scale"]),
+            node("A", ChangeType::Modified, &["scale"]),
+            node("D", ChangeType::Modified, &["position"]),
         ]);
         assert_eq!(tree.len(), 1);
         let root = &tree[0];
         assert_eq!(root.section, ".");
-        assert_eq!(root.children.len(), 1);
+        assert!(!root.is_grouping);
+        assert_eq!(root.children.len(), 2);
         let a = &root.children[0];
-        assert_eq!(a.section, "./A");
+        assert_eq!(a.section, "A");
         assert_eq!(a.label, "A (Modified)");
         assert_eq!(a.children.len(), 1);
+        assert_eq!(a.children[0].section, "A/B");
         assert_eq!(a.children[0].label, "B (Added)");
         assert_eq!(a.children[0].kind, ChangeType::Created);
+        assert_eq!(root.children[1].section, "D");
+        assert_eq!(root.children[1].label, "D (Modified)");
     }
 
     #[test]
     fn unchanged_chain_is_merged_into_one_label() {
         let tree = build_node_tree(&[
-            node("./A/B/C", ChangeType::Modified, &["visible"]),
-            node("./A/B/D", ChangeType::Modified, &["visible"]),
+            node("A/B/C", ChangeType::Modified, &["visible"]),
+            node("A/B/D", ChangeType::Modified, &["visible"]),
         ]);
-        // "." has a single child "./A", which has a single child "./A/B", which has two changed children
+        // "A" has a single child "A/B", which has two changed children.
         assert_eq!(tree.len(), 1);
         let grouping = &tree[0];
         assert!(grouping.is_grouping);
-        assert_eq!(grouping.section, "./A/B");
+        assert_eq!(grouping.section, "A/B");
         assert_eq!(grouping.label, "A/B");
         assert_eq!(grouping.children.len(), 2);
-        assert_eq!(grouping.children[0].section, "./A/B/C");
+        assert_eq!(grouping.children[0].section, "A/B/C");
         assert_eq!(grouping.children[0].label, "C (Modified)");
     }
 
     #[test]
     fn skips_modified_nodes_without_property_changes() {
-        let tree = build_node_tree(&[node("./A", ChangeType::Modified, &[])]);
+        let tree = build_node_tree(&[node("A", ChangeType::Modified, &[])]);
         assert!(tree.is_empty());
         // ...but keeps added nodes, even without properties
-        let tree = build_node_tree(&[node("./A", ChangeType::Created, &[])]);
+        let tree = build_node_tree(&[node("A", ChangeType::Created, &[])]);
         assert_eq!(tree.len(), 1);
     }
 
     #[test]
     fn modified_parent_without_properties_still_groups_children() {
         let tree = build_node_tree(&[
-            node("./A", ChangeType::Modified, &[]),
-            node("./A/B", ChangeType::Modified, &["visible"]),
-            node("./A/C", ChangeType::Modified, &["visible"]),
+            node("A", ChangeType::Modified, &[]),
+            node("A/B", ChangeType::Modified, &["visible"]),
+            node("A/C", ChangeType::Modified, &["visible"]),
         ]);
         assert_eq!(tree.len(), 1);
         assert!(tree[0].is_grouping);
@@ -288,8 +304,8 @@ mod tests {
     #[test]
     fn skips_instanced_temporary_nodes() {
         let tree = build_node_tree(&[
-            node("./@Foo@2", ChangeType::Modified, &["visible"]),
-            node("./@Foo@2/Child", ChangeType::Modified, &["visible"]),
+            node("@Foo@2", ChangeType::Modified, &["visible"]),
+            node("@Foo@2/Child", ChangeType::Modified, &["visible"]),
         ]);
         assert!(tree.is_empty());
     }
@@ -297,18 +313,17 @@ mod tests {
     #[test]
     fn hover_paths_only_include_sections_with_properties() {
         let tree = build_node_tree(&[
-            node("./A/B", ChangeType::Modified, &["position"]),
-            node("./A/C", ChangeType::Modified, &["position"]),
-            node("./D", ChangeType::Modified, &["position"]),
+            node("A/B", ChangeType::Modified, &["position"]),
+            node("A/C", ChangeType::Modified, &["position"]),
+            node("D", ChangeType::Modified, &["position"]),
         ]);
         let all = hover_paths(&tree);
-        assert_eq!(all, vec!["./A/B", "./A/C", "./D"]);
-        // "." has two changed branches, so it stays as a grouping section with A and D below it.
-        assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].children.len(), 2);
-        // Hovering over the grouping section of A only covers B and C.
-        let group_a = &tree[0].children[0];
+        assert_eq!(all, vec!["A/B", "A/C", "D"]);
+        // No changed root, so A and D sit as top-level siblings.
+        assert_eq!(tree.len(), 2);
+        let group_a = &tree[0];
         assert!(group_a.is_grouping);
-        assert_eq!(group_a.hover_paths(), vec!["./A/B", "./A/C"]);
+        assert_eq!(group_a.hover_paths(), vec!["A/B", "A/C"]);
+        assert_eq!(tree[1].section, "D");
     }
 }

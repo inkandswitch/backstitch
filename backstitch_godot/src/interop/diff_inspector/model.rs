@@ -284,7 +284,7 @@ mod tests {
             change_type: ChangeType::Modified,
             changed_nodes: vec![NodeDiff::new(
                 ChangeType::Modified,
-                "./Child".to_string(),
+                "Child".to_string(),
                 None,
                 [prop("visible", ChangeType::Modified)]
                     .into_iter()
@@ -294,6 +294,6 @@ mod tests {
         let view = FileViewModel::from_diff(&Diff::Scene(scene));
         assert_eq!(view.path, "res://a/scene.tscn");
         assert_eq!(view.label, "res://a/scene.tscn (Modified)");
-        assert_eq!(view.hover_paths(), vec!["./Child".to_string()]);
+        assert_eq!(view.hover_paths(), vec!["Child".to_string()]);
     }
 }

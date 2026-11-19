@@ -89,6 +89,19 @@ impl DiffWidgetBuilder {
 
     /// Builds the top-level sections of the model, one per file.
     pub fn build(&self, model: &DiffViewModel) -> Vec<Gd<DiffInspectorSection>> {
+        // HACK: if we have too many sections, we just punt on displaying the whole diff.
+        // TODO: Figure out why exponentially increasing number of redraws are happening when adding the sections to the inspector.
+        if model.files.len() > 200 {
+            let fake_section = DiffInspectorSection::create(
+                "",
+                "Diff is too large to display",
+                ChangeType::Modified,
+                0,
+                1,
+            );
+            return vec![fake_section];
+        }
+
         model
             .files
             .iter()

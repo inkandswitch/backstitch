@@ -7,8 +7,9 @@ use std::str::FromStr;
 use godot::builtin::{GString, PackedStringArray, StringName, VarDictionary, Variant};
 use godot::classes::resource_loader::CacheMode;
 use godot::classes::{
-    ClassDb, ConfigFile, IResourceFormatLoader, IResourceFormatSaver, ProjectSettings, Resource,
-    ResourceFormatLoader, ResourceFormatSaver, ResourceLoader, ResourceUid,
+    ClassDb, ConfigFile, IResourceFormatLoader, IResourceFormatSaver, MissingResource,
+    ProjectSettings, Resource, ResourceFormatLoader, ResourceFormatSaver, ResourceLoader,
+    ResourceUid,
 };
 use godot::global::Error;
 use godot::prelude::*;
@@ -33,8 +34,8 @@ pub struct BackstitchResourceLoader {
 }
 
 #[inline]
-fn recognize_path(path: GString) -> bool {
-    HistoryRefPath::recognize_path(&path.to_string())
+fn recognize_path(path: impl Into<String>) -> bool {
+    HistoryRefPath::recognize_path(&path.into())
 }
 impl BackstitchResourceLoader {
     fn get_content_at_ref_path_str(&self, ref_path_str: &str) -> Result<FileContent, Error> {
@@ -233,16 +234,7 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
     // TODO: This currently only recognizes files with import content to prevent crashes when loading resources with dependencies.
     // Need to revisit this after diff refactor so we can determine where the race condition is coming from.
     fn recognize_path(&self, path: GString, _type: StringName) -> bool {
-        let Ok(history_ref_path) = HistoryRefPath::from_str(&path.to_string()) else {
-            return false;
-        };
-        // if file exists at ref and is an imported resource, return true
-        if let Ok((_file_content, Some(_import_content))) =
-            self.get_content_and_import_file_content_at_history_ref_path(&history_ref_path)
-        {
-            return true;
-        }
-        false
+        recognize_path(&path)
     }
 
     fn handles_type(&self, _type_name: StringName) -> bool {
@@ -438,8 +430,12 @@ impl IResourceFormatLoader for BackstitchResourceLoader {
                 let mut resource = resource.unwrap();
                 Self::set_resource_path(&mut resource, path, cache_mode);
                 return resource.to_variant();
+            } else {
+                // We're not going to be able to load the file, so return a missing resource.
+                let mut resource = MissingResource::new_gd();
+                resource.set_path_cache(&path);
+                return resource.to_variant();
             }
-            // else continue with the normal flow
         }
 
         let temp_path = Self::get_temp_path(&history_ref_path, None);

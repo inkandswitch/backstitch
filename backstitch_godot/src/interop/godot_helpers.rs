@@ -5,9 +5,7 @@ use backstitch::helpers::history_ref::HistoryRef;
 use backstitch::helpers::utils::{ChangedFile, DiffId};
 use backstitch::parser::godot_parser::TypeOrInstance;
 use backstitch::project::ProjectStartStatus;
-use backstitch::project::project_api::{
-    BranchViewModel, ChangeViewModel, DiffViewModel, SyncStatus,
-};
+use backstitch::project::project_api::{BranchViewModel, ChangeViewModel, SyncStatus};
 use backstitch::project::project_base::DiffStatus;
 use godot::builtin::Variant;
 use godot::classes::{Control, Font, StyleBox};
@@ -200,13 +198,6 @@ pub(crate) fn branch_view_model_to_dict(branch: &impl BranchViewModel) -> VarDic
     }
 }
 
-pub(crate) fn diff_view_model_to_dict(diff: &dyn DiffViewModel) -> VarDictionary {
-    vdict! {
-        "dict" => &diff.get_diff()._to_godot(),
-        "title" => &diff.get_title().to_variant(),
-    }
-}
-
 pub(crate) fn change_view_model_to_dict(change: &impl ChangeViewModel) -> VarDictionary {
     vdict! {
         "hash" => change.get_hash().to_string(),
@@ -358,6 +349,17 @@ where
         self.base()
             .upcast_ref::<Control>()
             .get_theme_font_size_ex(name)
+            .theme_type(theme_type)
+            .done()
+    }
+    fn get_theme_icon(
+        &self,
+        name: &str,
+        theme_type: &str,
+    ) -> Option<Gd<godot::classes::Texture2D>> {
+        self.base()
+            .upcast_ref::<Control>()
+            .get_theme_icon_ex(name)
             .theme_type(theme_type)
             .done()
     }

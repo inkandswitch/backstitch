@@ -5,13 +5,9 @@
 [ext_resource type="Texture2D" uid="uid://bcvyklo067kll" path="res://addons/backstitch/public/icons/ActionCopy.svg" id="3_wyrt0"]
 [ext_resource type="Theme" uid="uid://hr3cor4s2ov2" path="res://addons/backstitch/public/resources/diff_editor_theme.tres" id="4_7letu"]
 [ext_resource type="Texture2D" uid="uid://cawwfjvfbpkso" path="res://addons/backstitch/public/icons/ExternalLink.svg" id="4_uefkb"]
-[ext_resource type="Script" uid="uid://d145i10hos3c6" path="res://addons/backstitch/public/scripts/diff_inspector_container.gd" id="4_uttw7"]
 [ext_resource type="Texture2D" uid="uid://ymewwqpn0vi4" path="res://addons/backstitch/public/icons/GuiTabMenuHl.svg" id="5_bp6q4"]
-[ext_resource type="Texture2D" uid="uid://bm2v2myy5rdlt" path="res://addons/backstitch/public/icons/FileAdd.svg" id="5_iqebc"]
 [ext_resource type="Texture2D" uid="uid://3tawqhdx5k3s" path="res://addons/backstitch/public/icons/Reload.svg" id="6_7ngww"]
-[ext_resource type="Texture2D" uid="uid://dxi8pyvkxfl6m" path="res://addons/backstitch/public/icons/FileRemove.svg" id="6_ha5pl"]
 [ext_resource type="Texture2D" uid="uid://dsj0ufoi456yp" path="res://addons/backstitch/public/icons/Save.svg" id="7_frpga"]
-[ext_resource type="Texture2D" uid="uid://tlngc8372bhs" path="res://addons/backstitch/public/icons/FileModify.svg" id="7_o8jin"]
 [ext_resource type="Texture2D" uid="uid://crrc8r8dr3cbu" path="res://addons/backstitch/public/icons/Branch24.svg" id="7_qb0q7"]
 [ext_resource type="Texture2D" uid="uid://dsxbsom8wxynk" path="res://addons/backstitch/public/icons/Remove.svg" id="8_s0dyv"]
 [ext_resource type="Texture2D" uid="uid://bwl516giuyq0n" path="res://addons/backstitch/public/icons/StatusWarning32.svg" id="9_p7w5p"]
@@ -381,18 +377,13 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="BigDiffer" type="EditorInspector" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer" unique_id=606528305]
+[node name="BigDiffer" type="DiffInspectorContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer" unique_id=1055898624]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
 theme = ExtResource("4_7letu")
 theme_override_styles/panel = SubResource("StyleBoxFlat_0tnfe")
-script = ExtResource("4_uttw7")
-added_icon = ExtResource("5_iqebc")
-removed_icon = ExtResource("6_ha5pl")
-modified_icon = ExtResource("7_o8jin")
-metadata/_custom_type_script = "uid://d145i10hos3c6"
 
 [node name="DifferMainVBox" type="VBoxContainer" parent="VBoxContainer/PanelContainer/MarginContainer/MainVSplit/DiffVBox/DiffSectionBody/MainDiffContainer/BigDiffer" unique_id=1420430237]
 unique_name_in_owner = true

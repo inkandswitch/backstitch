@@ -1,6 +1,7 @@
+use crate::interop::diff_inspector::godot_diff::GodotDiff;
 use crate::interop::godot_accessors::{BackstitchEditorAccessor, EditorFilesystemAccessor};
 use crate::interop::godot_helpers::{
-    ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict, diff_view_model_to_dict,
+    ToGodotExt, branch_view_model_to_dict, change_view_model_to_dict,
 };
 use automerge::ChangeHash;
 use backstitch::fs::file_utils::{FileContent, FileSystemEvent};
@@ -525,7 +526,7 @@ impl GodotProject {
             return Variant::nil();
         };
         match self.project().try_get_diff(hash) {
-            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Ok(diff) => GodotDiff::from_view_model(&diff).to_variant(),
             Err(e) => {
                 Self::consume_diff_error(e);
                 Variant::nil()
@@ -536,7 +537,7 @@ impl GodotProject {
     #[func]
     fn try_get_default_diff(&self) -> Variant {
         match self.project().try_get_default_diff() {
-            Ok(diff) => Variant::from(diff_view_model_to_dict(&diff)),
+            Ok(diff) => GodotDiff::from_view_model(&diff).to_variant(),
             Err(e) => {
                 Self::consume_diff_error(e);
                 Variant::nil()

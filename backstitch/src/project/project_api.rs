@@ -229,6 +229,7 @@ pub trait BranchViewModel {
 }
 
 /// API surface for a Diff exposed to the UI.
+/// TODO: remove this entirely, return the DiffWrapper directly.
 pub trait DiffViewModel {
     /// Get the [ProjectDiff] containing the diff data.
     fn get_diff(&self) -> &DiffStatus;
